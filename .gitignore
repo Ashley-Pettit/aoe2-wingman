@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.log
+# per-user settings and stats live in %APPDATA%\AoE2MapOverlay, never in the repo
+settings.json
+stats.json
