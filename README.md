@@ -9,7 +9,9 @@ Does:
 
 - **Map:** the map name, its resources, and how many herdables and relics it has for this map size.
 - **Opponent:** their civ, how they usually open, the bonuses to watch for, and how to beat their unique unit.
+- **Opponent's own openings:** reads your opponent's last few public games and shows how that player actually opened in each, for example "Scouts ×3 · Men-at-arms > Archers ×2 · Feudal around 9:40".
 - **Ratings:** your opponent's 1v1 and team ladder ratings, from the official ladder.
+- **Score check:** compares your side's total score with theirs and shows CONCEDE AVAILABLE once you have been more than 30% behind for 20 seconds. It only tells you; it never resigns for you.
 - **Loading screen:** a short cheat sheet for your civ and theirs while the game loads.
 - **Herd and relics:** counts each sheep, pig, goose or buffalo you find, and the relics picked up.
 - **Idle TC alert:** a big red warning when your Town Center stops working, and a heads-up before you get housed.
@@ -20,7 +22,8 @@ Does:
 - **Mod clash check:** finds enabled mods that overwrite each other's files, and which one wins.
 
 It does not read game memory. It reads the replay file's lobby settings, the game's own data
-files, the public ladder service, and text that is already on your screen.
+files, the public ladder service, recorded games of matches that are already over, and text
+that is already on your screen.
 
 ## Run
 

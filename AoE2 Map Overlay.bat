@@ -7,9 +7,11 @@
 # (the same text you see top left) and counts them. Nothing else on screen is used.
 # Ranked party invite: clicks Multiplayer > Ranked > Invite To Party and invites the friends on your list.
 # If you save a Discord webhook in settings it also posts a heads-up to your channel (stored in %APPDATA%\AoE2MapOverlay).
+# Score check: reads the score list in the corner of your screen and flags when your side is well behind.
+# Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v63'
+VERSION = 'v64'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
 POLL_MS = 3000
@@ -148,19 +150,28 @@ def parse_slots(h, q):
         r = q + 28 + 4 * pool
         _, r = _ds(h, r); r += 1; ai_name, r = _ds(h, r); name, r = _ds(h, r); _, r = _ds(h, r)
         typ, prof = struct.unpack_from('<II', h, r)
+        number = struct.unpack_from('<i', h, r + 12)[0]     # who the recording's commands call this player
         k = h.find(b'\x60\x0a', r + 16, r + 60)
         if k < 0: raise ValueError('no tail')
         _, q = _ds(h, k)
         if typ in (2, 4):                                   # 2 human, 4 computer
             players.append(dict(name=name or ai_name or 'Computer', civ=civ, team=team,
-                                human=typ == 2, profile=prof, colour=color))
+                                human=typ == 2, profile=prof, colour=color,
+                                number=number if 1 <= number <= 8 else 0))
     return players
 
-def read_lobby(path):
-    with open(path, 'rb') as f:
-        hl = struct.unpack('<I', f.read(4))[0]; f.read(4)
+def read_lobby(path, raw=None):
+    """The lobby settings from a recorded game: a file on disk, or one already in memory."""
+    if raw is not None:
+        if len(raw) < 16: return None
+        hl = struct.unpack_from('<I', raw, 0)[0]
         if hl < 16 or hl > 50_000_000: return None
-        comp = f.read(hl - 8)
+        comp = raw[8:hl]
+    else:
+        with open(path, 'rb') as f:
+            hl = struct.unpack('<I', f.read(4))[0]; f.read(4)
+            if hl < 16 or hl > 50_000_000: return None
+            comp = f.read(hl - 8)
     dz = zlib.decompressobj(-15)
     h = dz.decompress(comp, 16384)
     if not h.startswith(b'VER '): return None
@@ -1089,6 +1100,140 @@ def minimap_rect(cw, ch):
         log('could not work out where the minimap is: %r' % (e,))
         return None
 
+# ---------------------------------------------------------------- score check: is this game gone?
+# Reads the score list the game draws in the corner of your own screen ('Name: 1234/5678', which is
+# your score and then your team's total) and compares your side's total with the best opposing one.
+# When you have been well behind for a while it says so, and that is all it does: it never resigns
+# or clicks anything for you.
+CONCEDE_BEHIND = 0.30        # flag once your side's total is more than this far behind theirs
+CONCEDE_HOLD_S = 20          # ...and has stayed there this long, so one bad reading never sets it off
+CONCEDE_FROM_MIN = 5         # not in the opening minutes, when scores are tiny and swing on one upgrade
+# zeros often read as the letter o, sometimes after a gap: '1000/1 ooo'
+SCORE_PAIR = re.compile(r'([\dOo]{2,6})\s*/\s*([\dOo]{1,6}(?:\s[Oo]{1,4})?)(?![\dOo])')
+
+def score_rect(cw, ch):
+    """Where the score list sits, from the game's own scorepanel.json, so a UI mod that moves it
+    is followed. The list is pinned to the panel's bottom right corner and grows upwards."""
+    s = ch / 2160.0
+    xo, yo = 3840, 1800
+    try:
+        vp = (ui_json('scorepanel.json') or {})['Collection']['Widgets'][0]['Widget']['ViewPort']
+        xo, yo = vp['xorigin'], vp['yorigin']
+    except Exception:
+        pass
+    right, bottom = cw - (3840 - xo) * s, ch - (2160 - yo) * s
+    w, h = 1000 * s, 480 * s                                  # eight players' worth of lines
+    x0, y0 = max(0, right - w), max(0, bottom - h)
+    return int(x0), int(y0), int(right - x0), int(bottom - y0)
+
+def _score_name(text, names):
+    """How well the words in front of a score match one of these names (0 none, 1 close, 2 exact).
+    The game draws a few icons before the name, which read as a letter or two of junk."""
+    t = _norm2(text.rsplit(':', 1)[0] if ':' in text else text)
+    best = 0
+    for nm in names:
+        for v in name_variants(nm):
+            n = _norm2(v)
+            if len(n) < 3 or not t: continue
+            if t.endswith(n): best = max(best, 2)
+            elif len(n) >= 5 and difflib.SequenceMatcher(None, t[-len(n):], n).ratio() >= 0.8: best = max(best, 1)
+    return best
+
+def read_scores(lines, mine, others=(), players=2):
+    """Score list text -> (your side's total, the best opposing total), or None when your own line
+    could not be picked out. Only your line has to be recognised by name: every line carries its
+    team's total, so any total that is not yours belongs to the other side."""
+    rows = []
+    for t in lines:
+        hits = [m for m in SCORE_PAIR.finditer(t) if re.search(r'\d', m.group(1)) and re.search(r'\d', m.group(2))]
+        if not hits: continue
+        m = hits[-1]
+        a, b = [int(re.sub(r'\s', '', v).replace('O', '0').replace('o', '0')) for v in m.groups()]
+        if b < a or b < 10: continue                          # a team total under your own score is a misread
+        if players == 2 and a != b: continue                  # one against one, the two numbers are the same
+        rows.append((t[:m.start()], a, b))
+    if len(rows) < 2: return None
+    scored = sorted(((_score_name(r[0], mine), i) for i, r in enumerate(rows)), reverse=True)
+    me = None
+    if scored[0][0] and (len(scored) < 2 or scored[0][0] > scored[1][0] or rows[scored[0][1]][2] == rows[scored[1][1]][2]):
+        me = rows[scored[0][1]]
+    elif not scored[0][0] and players == 2 and len(rows) == 2 and others:
+        theirs = [i for i, r in enumerate(rows) if _score_name(r[0], others)]
+        if len(theirs) == 1: me = rows[1 - theirs[0]]         # 1v1 and their line read: the other one is you
+    if me is None: return None
+    rest = [r[2] for r in rows if r[2] != me[2]]
+    return me[2], (max(rest) if rest else me[2])
+
+class ScoreWatcher(threading.Thread):
+    """Reads the score list every few seconds while you play and keeps track of how far behind you are."""
+    def __init__(self, notify, minutes):
+        super().__init__(daemon=True)
+        self.notify = notify                  # notify(mine, theirs, behind, flag); notify(None, ...) clears it
+        self.minutes = minutes                # how far into the game we are
+        self.active, self.enabled = False, True
+        self.pause_fn = lambda: False
+        self.lock = threading.Lock()
+        self.reset()
+
+    def reset(self, mine=(), others=(), players=2):
+        with self.lock:
+            self.mine, self.others, self.players = list(mine), list(others), players
+            self.since, self.n, self.clear, self.flag, self.miss = None, 0, 0, False, 0
+
+    def step(self, mine, theirs, now):
+        behind = (1.0 - mine / float(theirs)) if theirs else 0.0
+        if behind > CONCEDE_BEHIND and self.minutes() >= CONCEDE_FROM_MIN:
+            self.clear = 0; self.n += 1
+            if self.since is None: self.since = now
+            if not self.flag and self.n >= 4 and now - self.since >= CONCEDE_HOLD_S:
+                self.flag = True
+                log('score: %d against %d, %d%% behind, flagged' % (mine, theirs, round(behind * 100)))
+        else:
+            self.clear += 1
+            if not self.flag or self.clear >= 3:              # three readings back in it before the flag comes down
+                if self.flag: log('score: %d against %d, flag cleared' % (mine, theirs))
+                self.since, self.n, self.flag = None, 0, False
+        return behind
+
+    def run(self):
+        try:
+            read = _load_ocr(); grab = _grabber()
+        except Exception as e:
+            log('score check off: %r' % (e,)); return
+        ctypes, wintypes, u, _ = _win()
+        was = False
+        while True:
+            time.sleep(3)
+            on = self.active and self.enabled
+            if on != was:
+                was = on
+                log('score check %s' % ('on' if on else 'off'))
+                if not on:
+                    try: self.notify(None, None, 0, False)
+                    except Exception: pass
+            if not on or self.pause_fn(): continue
+            try:
+                fg = u.GetForegroundWindow()
+                pid = wintypes.DWORD(); u.GetWindowThreadProcessId(fg, ctypes.byref(pid))
+                if not fg or not _proc_name(pid.value).startswith('aoe2de'): continue
+                x, y, w, hh = client_rect(fg)
+                if w < 400 or hh < 300: continue
+                rx, ry, rw, rh = score_rect(w, hh)
+                if rw < 50 or rh < 20: continue
+                lines = read(*grab((x + rx, y + ry, rw, rh, 2 if hh < 1800 else 1)))
+                with self.lock:
+                    got = read_scores(lines, self.mine, self.others, self.players)
+                    if not got:
+                        self.miss += 1
+                        if self.miss in (5, 60): log('score list not read: %s' % ' | '.join(lines)[:160])
+                        continue
+                    self.miss = 0
+                    behind = self.step(got[0], got[1], time.time())
+                    flag = self.flag
+                self.notify(got[0], got[1], behind, flag)
+            except Exception as e:
+                log('score check: %r' % (e,)); time.sleep(2)
+
 # ---------------------------------------------------------------- host a lobby and post the link to Discord
 # Clicks through the game's own menus (Multiplayer > Host Game > Create Lobby) by reading the button
 # text off the screen, presses the lobby's Copy button, then posts the join link to your Discord channel.
@@ -1223,7 +1368,11 @@ def relic_matches(profile):
                               else '%d players' % len(rows)),
                         civ_id=mine.get('civilization_id'),
                         map=(m.get('mapname') or ''),
-                        ranked=(m.get('description') or '').upper() == 'AUTOMATCH'))
+                        ranked=(m.get('description') or '').upper() == 'AUTOMATCH',
+                        # whose recorded game the service still holds for this match
+                        replays=[u.get('profile_id') for u in (m.get('matchurls') or [])
+                                 if isinstance(u, dict) and u.get('profile_id')
+                                 and str(u.get('size', '0')).lstrip('-').isdigit() and int(u.get('size', 0)) > 0]))
     return out
 
 def _mapkey(name):
@@ -2419,6 +2568,219 @@ def civ_text(civ, strings, icons):
     return name, '\n'.join(lines)
 
 
+# ---------------------------------------------------------------- your opponent's own openings
+# How this player has actually opened in their recent games, rather than what their civ usually does.
+# The ladder service lists their recent matches, and the official site hands out the recorded game
+# for each one (the same download the in-game match history offers). The recording's command list
+# shows what they built and trained early on. All of it is public, and all of it is about games
+# that are already over. Nothing here looks at the game you are playing.
+REPLAY_URL = 'https://aoe.ms/replay/?gameId=%d&profileId=%d'
+OPEN_FILE = os.path.join(os.path.dirname(SETTINGS), 'openings.json')
+OPEN_LOCK = threading.Lock()
+OPEN_MEM = {'games': None, 'players': {}}
+OPEN_GAMES = 8                          # how many of their recent games to read
+FEUDAL_MS, CASTLE_MS = 130000, 160000   # how long the age-ups take to research
+FEUDAL_ARMY = {4: 'Archers', 7: 'Skirmishers', 448: 'Scouts', 751: 'Eagles', 1755: 'Camel Scouts',
+               93: 'Spearmen', 539: 'Galleys', 1103: 'Galleys', 1795: 'Galleys'}
+CASTLE_ARMY = {38: 'Knights', 4: 'Crossbows', 24: 'Crossbows', 125: 'Monks', 280: 'Mangonels', 329: 'Camels',
+               39: 'Cavalry Archers', 751: 'Eagles', 753: 'Eagles', 1370: 'Steppe Lancers',
+               1132: 'Battle Elephants', 448: 'Light Cavalry', 546: 'Light Cavalry', 1258: 'Rams'}
+
+def replay_commands(raw):
+    """(ms, player number, kind, id, amount) for each build, train and research command in a
+    recorded game. Only the command list is walked; the game state in the header is not needed."""
+    n = len(raw)
+    p = struct.unpack_from('<I', raw, 0)[0]
+    if struct.unpack_from('<I', raw, p)[0] != 500: p += 4
+    p += 24
+    a, b, _ = struct.unpack_from('<III', raw, p); p += 12
+    if a != 0: p -= 12
+    if b == 2: p -= 8
+    ms = 0
+    try:
+        while p + 4 <= n:
+            op = struct.unpack_from('<I', raw, p)[0]; p += 4
+            if op == 1:                                           # a command
+                ln = struct.unpack_from('<I', raw, p)[0]; p += 4
+                act = raw[p]; d = raw[p + 1:p + ln]; p += ln + 4
+                if act == 255: break                              # the end-of-game block
+                if len(d) < 3: continue
+                pl, dl = struct.unpack_from('<bh', d)
+                if len(d) != dl + 3: continue
+                d = d[3:]
+                try:
+                    if act == 102: yield ms, pl, 'build', struct.unpack_from('<h2xffI', d)[3], 1
+                    elif act == 129:
+                        _s, _b, uid, amt = struct.unpack_from('<h4xhhh', d)
+                        yield ms, pl, 'queue', uid, max(1, amt)
+                    elif act == 101: yield ms, pl, 'tech', struct.unpack_from('<Ihh', d)[2], 1
+                except struct.error:
+                    pass
+            elif op == 2:                                         # the clock
+                inc, marker = struct.unpack_from('<II', raw, p); p += 4
+                ms += inc
+                if marker == 0:
+                    if struct.unpack_from('<I', raw, p + 16)[0]:
+                        p += 356; ms = struct.unpack_from('<I', raw, p)[0]; p += 4
+                    else:
+                        p += 28
+            elif op == 3: p += 12                                 # where the camera was
+            elif op == 4: p += 8 + struct.unpack_from('<I', raw, p + 4)[0]     # chat
+            else: break
+    except (struct.error, IndexError):
+        pass
+    yield ms, 0, 'end', 0, 0
+
+def classify_opening(ev, end_ms):
+    """One player's commands [(ms, kind, id, amount)] -> {'o': 'Men-at-arms > Archers', 'f': feudal
+    time in seconds, 'c': castle time}, or None when the game was too short to tell."""
+    techs = {}
+    for ms, kind, i, amt in ev:
+        if kind == 'tech': techs.setdefault(i, ms)
+    f_click, c_click = techs.get(101), techs.get(102)
+    if f_click is None:
+        if c_click is None and not any(k == 'queue' and i in FEUDAL_ARMY for _, k, i, _ in ev): return None
+        start = 0                                                 # Empire Wars: the game starts in Feudal
+    else:
+        start = f_click + FEUDAL_MS
+    cut = min(c_click if c_click is not None else 1e12, start + 7 * 60000)   # the opening, not the whole game
+    if end_ms < start + 150000 and c_click is None: return None  # over before anyone showed their hand
+    army, first, militia, militia_t, dark, towers = collections.Counter(), {}, 0, None, 0, []
+    for ms, kind, i, amt in ev:
+        if ms > cut: break
+        if kind == 'queue':
+            if i == 74:
+                militia += amt
+                if militia_t is None: militia_t = ms
+                if ms < start: dark += amt
+            elif i in FEUDAL_ARMY:
+                army[FEUDAL_ARMY[i]] += amt; first.setdefault(FEUDAL_ARMY[i], ms)
+        elif kind == 'build' and i == 79:
+            towers.append(ms)
+    parts = []
+    maa = 222 in techs and techs[222] <= cut + 60000
+    if militia >= 2 and maa: parts.append((militia_t, 'Men-at-arms'))
+    elif dark >= 2: parts.append((militia_t, 'Drush'))
+    main = sorted(((n, k) for k, n in army.items() if k != 'Spearmen' and n >= 3), reverse=True)[:2]
+    parts += [(first[k], k) for _, k in main]
+    if len(towers) >= 3: parts.append((towers[2], 'Towers'))
+    if c_click is not None and c_click <= start + 7 * 60000 and sum(n for n, _ in main) < 4 and len(towers) < 3:
+        cast = c_click + CASTLE_MS
+        nxt, tcs = collections.Counter(), 0
+        for ms, kind, i, amt in ev:
+            if cast - 20000 <= ms <= cast + 240000:
+                if kind == 'queue' and i in CASTLE_ARMY: nxt[CASTLE_ARMY[i]] += amt
+                elif kind == 'build' and i in (109, 621): tcs += 1
+        top = nxt.most_common(1)
+        follow = (' into ' + top[0][0]) if top and top[0][1] >= 2 else ' into a boom' if tcs >= 2 else ''
+        parts.append((c_click, 'Fast Castle' + follow))
+    if not parts and army.get('Spearmen', 0) >= 4: parts.append((first['Spearmen'], 'Spearmen'))
+    label = ' > '.join(lab for _, lab in sorted(parts)) or 'No early army'
+    return {'o': label, 'f': int(start / 1000) if f_click is not None else 0,
+            'c': int((c_click + CASTLE_MS) / 1000) if c_click is not None else 0}
+
+def replay_openings(raw):
+    """{profile id: {'o': opening, 'f': .., 'c': .., 'civ': civ id}} for every human in a recorded game."""
+    lob = read_lobby(None, raw)
+    if not lob: return {}
+    by, end = collections.defaultdict(list), 0
+    for ms, pl, kind, i, amt in replay_commands(raw):
+        if kind == 'end': end = ms
+        else: by[pl].append((ms, kind, i, amt))
+    out = {}
+    for p in lob['players']:
+        if not p['human'] or not p.get('number'): continue
+        o = classify_opening(by.get(p['number'], []), end)
+        if o: o['civ'] = p['civ']; out[str(p['profile'])] = o
+    return out
+
+def _open_games():
+    if OPEN_MEM['games'] is None:
+        try: OPEN_MEM['games'] = json.load(open(OPEN_FILE, encoding='utf-8'))
+        except Exception: OPEN_MEM['games'] = {}
+    return OPEN_MEM['games']
+
+def match_openings(mid, holders):
+    """Everyone's opening in one finished game. Read once, then kept on disk: a finished game never changes."""
+    key = str(mid)
+    with OPEN_LOCK:
+        got = _open_games().get(key)
+    if got is not None: return got
+    import urllib.request, zipfile
+    raw = None
+    for pid in holders[:2]:
+        try:
+            req = urllib.request.Request(REPLAY_URL % (int(mid), int(pid)), headers={'User-Agent': 'AoE2MapOverlay/1.0'})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                blob = r.read(40_000_000)
+            z = zipfile.ZipFile(io.BytesIO(blob))
+            info = z.infolist()[0]
+            if info.file_size > 120_000_000: raise ValueError('recording too large')
+            raw = z.read(info); break
+        except Exception as e:
+            log('recorded game %s not available: %r' % (mid, e))
+    if raw is None: return None                               # not kept, so it is tried again another day
+    try:
+        res = replay_openings(raw)
+    except Exception as e:
+        log('could not read recorded game %s: %r' % (mid, e)); res = {}
+    with OPEN_LOCK:
+        g = _open_games(); g[key] = res
+        for k in sorted(g, key=lambda x: int(x) if x.isdigit() else 0)[:-800]: g.pop(k, None)
+        try:
+            os.makedirs(os.path.dirname(OPEN_FILE), exist_ok=True)
+            with open(OPEN_FILE, 'w', encoding='utf-8') as f: json.dump(g, f)
+        except OSError as e:
+            log('could not save openings: %r' % (e,))
+    return res
+
+def opponent_openings(profile, mode='1v1', n=OPEN_GAMES):
+    """This player's last few games, newest first: [{'o': opening, 'f', 'c', 'civ', 'result', 'start'}].
+    Games of the same kind as the one you are in (1v1 or team) when they have played enough of them."""
+    if not profile: return []
+    key = (int(profile), mode)
+    with OPEN_LOCK:
+        busy = OPEN_MEM.setdefault('busy', {}).setdefault(key, threading.Lock())
+    with busy:                                   # the loading panel and the overlay both ask: read once
+        return _opponent_openings(profile, mode, n, key)
+
+def _opponent_openings(profile, mode, n, key):
+    if key in OPEN_MEM['players']: return OPEN_MEM['players'][key]
+    games = sorted((m for m in relic_matches(profile) if m.get('replays')), key=lambda m: -m['start'])
+    if not games: return []
+    same = [m for m in games if m['mode'] == mode]
+    pick = (same if len(same) >= 3 else games)[:n]
+    def one(m):
+        holders = sorted(m['replays'], key=lambda pid: pid != int(profile))    # their own copy first
+        o = (match_openings(m['match'], holders) or {}).get(str(int(profile)))
+        return dict(o, result=m['result'], start=m['start']) if o else None
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        rows = [r for r in ex.map(one, pick) if r]
+    OPEN_MEM['players'][key] = rows
+    log('openings for %s: %s' % (profile, ', '.join(r['o'] for r in rows) or 'none readable'))
+    return rows
+
+def openings_lines(rows, civ=None, strings=None):
+    """Two short lines: what they open with most, then when they hit Feudal and how those games went."""
+    if not rows: return []
+    tally = collections.Counter(r['o'] for r in rows)
+    top = [('%s ×%d' % (k, v)) if v > 1 else k for k, v in tally.most_common(4)]
+    out = ['Last %d game%s:  %s' % (len(rows), '' if len(rows) == 1 else 's', '  ·  '.join(top))]
+    bits = []
+    fs = sorted(r['f'] for r in rows if r.get('f'))
+    if fs:
+        mid = fs[len(fs) // 2]
+        bits.append('Feudal around %d:%02d' % (mid // 60, mid % 60))
+    won = sum(1 for r in rows if r.get('result') == 'win')
+    bits.append('won %d, lost %d' % (won, len(rows) - won))
+    if civ is not None and strings is not None:
+        mine = collections.Counter(r['o'] for r in rows if r.get('civ') == civ)
+        if mine:
+            bits.append('as %s: %s' % (civ_name(civ, strings), ', '.join(k for k, _ in mine.most_common(2))))
+    out.append('  ·  '.join(bits))
+    return out
+
 # ---------------------------------------------------------------- ratings (public, from the game's own ladder service)
 ELO_CACHE = {}
 ELO_URL = 'https://aoe-api.worldsedgelink.com/community/leaderboard/GetPersonalStat?title=age2&'
@@ -2874,7 +3236,7 @@ def main():
     # Out of a game there is nothing to hold, so the pin comes off and the card shrinks to
     # its header, which is all there is to show while you are waiting.
     pin = tk.Frame(frame, bg=BG, width=0, height=0)
-    pin.grid(row=7, column=0, columnspan=4)
+    pin.grid(row=8, column=0, columnspan=4)
 
     waiting_now = [True]                 # st does not exist yet when this first runs
 
@@ -2906,14 +3268,17 @@ def main():
     card_elo.grid(row=0, column=1, sticky='e')
     card_line = tk.Label(card, text='', fg=TXT, bg=PANEL, font=F_SMALL, anchor='w', justify='left')
     card_line.grid(row=1, column=0, columnspan=2, sticky='w', pady=(3, 0))
+    # the score line: how your side's total compares, and the flag when the game looks gone
+    score_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w', pady=2)
+    score_line.grid(row=4, column=0, columnspan=4, sticky='we', pady=(8, 0)); score_line.grid_remove()
     opp_area = tk.Frame(frame, bg=BG)
-    opp_area.grid(row=4, column=0, columnspan=4, sticky='we')
+    opp_area.grid(row=5, column=0, columnspan=4, sticky='we')
 
     # footer: the one action, with the hint that only appears while the mouse is over the overlay
     footsep = Rule(frame)
-    footsep.grid(row=5, column=0, columnspan=4, sticky='we', pady=(9, 0))
+    footsep.grid(row=6, column=0, columnspan=4, sticky='we', pady=(9, 0))
     host_row = tk.Frame(frame, bg=BG)
-    host_row.grid(row=6, column=0, columnspan=4, sticky='we', pady=(10, 0))
+    host_row.grid(row=7, column=0, columnspan=4, sticky='we', pady=(10, 0))
     host_row.columnconfigure(1, weight=1)
     btn_plate = tk.Frame(host_row, bg=RIM, padx=1, pady=1)       # dark edge around the bronze face
     host_btn = tk.Label(btn_plate, text='Ranked party invite', fg='#2a2113', bg=GOLD, font=F_HEAD,
@@ -3035,6 +3400,31 @@ def main():
     tc_settings()
     tcw.start(); tc_pulse()
     watcher.on_lines = tcw.message_lines
+
+    # ---- score check: your side's total against theirs, and a flag once the game looks gone
+    def score_notify(mine_, theirs, behind, flag):
+        def go():
+            if mine_ is None or st.get('last') is None:
+                score_line.config(text=''); score_line.grid_remove(); return
+            pct = int(round(abs(behind) * 100))
+            nums = '{:,} against {:,}'.format(mine_, theirs)
+            if flag:
+                score_line.config(text='  CONCEDE AVAILABLE   \u00b7   %d%% behind   \u00b7   %s  ' % (pct, nums),
+                                  fg='white', bg='#b3261e', font=(DISPLAY, 9, 'bold'))
+            else:
+                where = 'level' if pct == 0 else '%d%% %s' % (pct, 'behind' if behind > 0 else 'ahead')
+                score_line.config(text='Score   %s   \u00b7   %s' % (nums, where), bg=BG, font=F_SMALL,
+                                  fg=REDC if behind > CONCEDE_BEHIND else MUT)
+            if not st.get('rolled'): score_line.grid()
+        try: root.after(0, go)
+        except Exception: pass
+    scorew = ScoreWatcher(score_notify, lambda: tcw.game_minutes(time.time()))
+    scorew.enabled = load_settings().get('concede_flag', True)
+    scorew.start()
+
+    def score_off():
+        scorew.active = False
+        score_line.config(text=''); score_line.grid_remove()
 
     def scout_found(idx, label):
         """An opponent's colour has turned up on your own minimap for the first time."""
@@ -3282,6 +3672,7 @@ def main():
                     tag = lambda p: ('   \u2022   ' + elos[id(p)]) if elos.get(id(p)) else ''
                     if len(opps) == 1:
                         nm, secs, extra = opp_sections(opps[0]['civ'], strings, icons)
+                        if box_state.get('habits'): secs = [('Their recent openings', box_state['habits'])] + secs
                         who = opps[0]['name'] + tag(opps[0])
                         hexc, cname = player_colour(opps[0].get('colour'))
                         make_box(red, REDC, nm, secs, tag='OPPONENT',
@@ -3298,14 +3689,28 @@ def main():
                         make_box(red, REDC, 'Opponents', secs,
                                  tag='%d PLAYERS' % len(opps), letter='O')
                     boxes[-1].is_red = True
+                box_state = {'elos': {}, 'habits': None}
                 draw_red({})
                 def look():
                     elos = {}
                     for p in opps[:3]:
                         if p.get('human', True) and p['name']:
                             elos[id(p)] = elo_text(fetch_elo(p.get('profile') or None, p['name']), team_game)
+                    box_state['elos'] = elos
                     if any(elos.values()): root.after(0, lambda: draw_red(elos))
                 threading.Thread(target=look, daemon=True).start()
+                def look_habits():
+                    p0 = opps[0]
+                    if len(opps) != 1 or not p0.get('profile') or not p0.get('human', True): return
+                    if not load_settings().get('opp_openings', True): return
+                    try:
+                        rows = opponent_openings(p0['profile'], 'TG' if team_game else '1v1',
+                                                 5 if team_game else OPEN_GAMES)
+                        box_state['habits'] = openings_lines(rows, p0['civ'], strings) or None
+                        if box_state['habits']: root.after(0, lambda: draw_red(box_state['elos']))
+                    except Exception as e:
+                        log('openings lookup failed: %r' % (e,))
+                threading.Thread(target=look_habits, daemon=True).start()
         root.after(0, go)
 
     def stamp_rating(gid, mode, field):
@@ -3427,7 +3832,7 @@ def main():
             st['last'] = None; st['first'] = None; st['herd'] = None
             watcher.active = False; watcher.reset()
             tcw.active = False
-            scout.active = False; scout.stop_game()
+            scout.active = False; scout.stop_game(); score_off()
             title.config(text='AoE2 Map Overlay'); idle_size(True)
             rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
             stats_btn.grid()
@@ -3509,8 +3914,10 @@ def main():
     def toggle_roll():
         """Click the name to roll the overlay up to just its header, and again to open it."""
         up = not st.get('rolled')
-        for w in (sep, body, rec_line, card, opp_area, footsep, host_row):
+        for w in (sep, body, rec_line, card, score_line, opp_area, footsep, host_row):
             if up: w.grid_remove()
+            elif w is score_line:
+                if score_line.cget('text'): w.grid()
             elif w in (footsep, host_row) and not st.get('footer', True): continue
             elif w is footsep and waiting_now[0]: continue
             elif w is body and not body.cget('text'): continue      # nothing to show while waiting
@@ -3589,6 +3996,25 @@ def main():
             tk.Checkbutton(outer, text=txt, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
                            activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
+        section('Score check',
+                'Reads the score list in the corner of your own screen and compares your side\'s total with '
+                'the other side\'s. Once you have been more than %d%% behind for %d seconds (and not in the '
+                'first %d minutes) the overlay shows CONCEDE AVAILABLE. It only tells you: it never resigns '
+                'or clicks for you.' % (round(CONCEDE_BEHIND * 100), CONCEDE_HOLD_S, CONCEDE_FROM_MIN))
+        cf_on = tk.BooleanVar(value=cfg.get('concede_flag', True))
+        tk.Checkbutton(outer, text='Flag when a game looks gone', variable=cf_on, fg=TXT, bg=INK,
+                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
+        section('Opponent\'s own openings',
+                'Looks up your opponent\'s last few public games and reads how they opened in each '
+                '(scouts, archers, fast castle and so on), from the recorded games the official site '
+                'hands out. Past games only: nothing is read from the game you are in.')
+        oo_on = tk.BooleanVar(value=cfg.get('opp_openings', True))
+        tk.Checkbutton(outer, text='Show how they have been opening', variable=oo_on, fg=TXT, bg=INK,
+                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
         section('Opponent spotted alert',
                 'Says the colour out loud the first time an opponent shows up on your own minimap, '
                 'and puts a line on the overlay. It reads the minimap only, which paints explored '
@@ -3654,6 +4080,7 @@ def main():
         def collect():
             return {'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(),
                     'tc_alert': bool(tc_on.get()), 'scout_alert': bool(sc_on.get()),
+                    'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
                     'friends': [l.strip() for l in fr.get('1.0', 'end').splitlines() if l.strip()],
                     'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
         def save():
@@ -3662,6 +4089,7 @@ def main():
                 msg.config(text="That doesn't look like a Discord webhook link.", fg=REDC); return
             merged = load_settings(); merged.update(c); save_settings(merged)
             tc_settings(); tc_draw()
+            scorew.enabled = merged.get('concede_flag', True)
             msg.config(text='Saved.', fg=GREEN)
         def test():
             c = collect()
@@ -3974,7 +4402,10 @@ def main():
             tone = name_colour(p.get('colour'), RED)        # their own player colour, lifted to read
             head = tk.Label(opp_area, text='', fg=tone, bg=BG, font=F_HEAD, anchor='w', cursor='hand2')
             det = tk.Label(opp_area, text=text, fg='#cfc8b6', bg=BG, font=F_SMALL, anchor='w', justify='left', wraplength=415)
-            head.grid(row=2 * i + 1, column=0, sticky='w', pady=(4, 1)); det.grid(row=2 * i + 2, column=0, sticky='w', padx=(14, 0))
+            # how this player has actually been opening, filled in once their recent games are read
+            opn = tk.Label(opp_area, text='', fg=FAINT, bg=BG, font=F_SMALL, anchor='w', justify='left', wraplength=415)
+            head.grid(row=3 * i + 1, column=0, sticky='w', pady=(4, 1)); det.grid(row=3 * i + 3, column=0, sticky='w', padx=(14, 0))
+            opn.grid(row=3 * i + 2, column=0, sticky='w', padx=(14, 0)); opn.grid_remove()
             hover(head, tone, lighten(tone, 0.35))
             det.grid_remove()                                             # starts collapsed
             def label(h=head, dt=det, nm=name, pn=p['name'], inf=info):
@@ -3991,6 +4422,28 @@ def main():
                     try: root.after(0, lb)
                     except Exception: pass
                 threading.Thread(target=look, daemon=True).start()
+                def habits(pp=p, lab_=opn):
+                    def show(txt, col):
+                        try:
+                            lab_.config(text=txt, fg=col); lab_.grid(); bind_all(lab_)
+                        except Exception: pass                           # a new game has replaced this row
+                    def post(fn):
+                        for _ in range(40):
+                            try: root.after(0, fn); return
+                            except RuntimeError: time.sleep(0.25)        # the window is still starting up
+                    try:
+                        post(lambda: show('Reading their recent games...', FAINT))
+                        rows = opponent_openings(pp['profile'], 'TG' if team_game else '1v1',
+                                                 5 if team_game else OPEN_GAMES)
+                        lines = openings_lines(rows, pp['civ'], strings)
+                        post(lambda: show('\n'.join(lines) if lines else 'No recent recorded games to read.',
+                                          '#e6d9b0' if lines else FAINT))
+                    except Exception as e:
+                        log('openings lookup failed: %r' % (e,))
+                if pp_ok(p, i): threading.Thread(target=habits, daemon=True).start()
+
+    def pp_ok(p, i):
+        return bool(p.get('profile')) and i < 4 and load_settings().get('opp_openings', True)
 
     def refresh():
         if st['first'] is None: return
@@ -4012,7 +4465,7 @@ def main():
                 if st['last'] is not None:
                     st['last'] = None; st['first'] = None; st['herd'] = None; watcher.active = False
                     tcw.active = False
-                    scout.active = False; scout.stop_game()
+                    scout.active = False; scout.stop_game(); score_off()
                     title.config(text='AoE2 Map Overlay'); idle_size(True)
                     state.config(text='WAITING', fg=MUT)
                     rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
@@ -4035,6 +4488,9 @@ def main():
                     tcw.reset(civ_name(mine_p['civ'], strings) if mine_p else None)
                     tc['snooze'] = False; tcw.active = mine_p is not None   # not while watching someone else
                     start_scout(lob['players'], mine_p, strings)
+                    scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
+                                 [p['name'] for p in lob['players'] if p is not mine_p], len(lob['players']))
+                    scorew.active = mine_p is not None                 # not while watching someone else
                     rec_line.config(text=''); rec_line.grid_remove()   # not while you are playing
                     hide_card()                                       # last game's result is history now
                     stats_btn.grid_remove()
