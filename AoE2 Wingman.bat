@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v67'
+VERSION = 'v68'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -1584,6 +1584,169 @@ def map_bans(games, least=4, n=3):
             if r[2] + r[3] >= least and r[0] != 'Unknown' and r[2] < (r[2] + r[3]) / 2.0]
     rows.sort(key=lambda r: (r[2] / float(r[2] + r[3]), -(r[2] + r[3])))
     return rows[:n]
+
+# ---------------------------------------------------------------- update from GitHub
+# Brings the app up to date with a branch of its repository, then restarts it. Prod is the settled
+# version and dev has the newest changes first. Where the app sits in a git folder it uses git (and
+# the sign-in git already has), so each branch keeps its own folder tidy. A loose copy is replaced
+# by a download instead.
+REPO = 'Ashley-Pettit/aoe2-wingman'
+BAT_NAME = 'AoE2 Wingman.bat'
+BRANCHES = ('Prod', 'dev')
+
+def self_path():
+    return os.path.abspath(sys.argv[0])
+
+def _sha(path):
+    import hashlib
+    try:
+        with open(path, 'rb') as f: return hashlib.sha1(f.read()).hexdigest()
+    except OSError:
+        return ''
+
+SELF_SHA = _sha(self_path())                 # this copy as it was when it started
+
+def _git(folder, *args, **kw):
+    import subprocess
+    r = subprocess.run(['git', '-C', folder] + list(args), capture_output=True, timeout=kw.get('timeout', 30),
+                       creationflags=0x08000000, env=dict(os.environ, GIT_TERMINAL_PROMPT='0'))
+    return (r.returncode, r.stdout.decode('utf-8', 'replace').strip(), r.stderr.decode('utf-8', 'replace').strip())
+
+def git_branch(folder):
+    """The branch a folder is on, or None when the folder is not a checkout of this app's repository."""
+    try:
+        code, top, _ = _git(folder, 'rev-parse', '--show-toplevel')
+        if code or os.path.normcase(os.path.abspath(top)) != os.path.normcase(os.path.abspath(folder)): return None
+        code, url, _ = _git(folder, 'remote', 'get-url', 'origin')
+        if code or not re.search(r'aoe2-(wingman|map-overlay)', url, re.I): return None
+        code, branch, _ = _git(folder, 'rev-parse', '--abbrev-ref', 'HEAD')
+        return None if code else branch
+    except Exception:
+        return None
+
+def script_version(path):
+    try:
+        with io.open(path, encoding='utf-8', errors='replace') as f:
+            m = re.search(r"^VERSION = '([^']+)'", f.read(4000), re.M)
+        return m.group(1) if m else '?'
+    except OSError:
+        return '?'
+
+def update_target(branch, here):
+    """(folder that holds this branch, the branch that folder is on now). This folder if it is
+    already on the branch, else a folder beside it named after the branch, else this one again."""
+    mine = git_branch(here)
+    if mine == branch: return here, mine
+    beside = os.path.join(os.path.dirname(here), branch)
+    if os.path.isdir(beside) and git_branch(beside) == branch: return beside, branch
+    return here, mine
+
+def _last_line(text):
+    lines = [l.strip() for l in (text or '').splitlines() if l.strip()]
+    return lines[-1][:160] if lines else 'no reason given'
+
+def _download_script(branch):
+    """The script from GitHub without git: GitHub's own gh tool if it is signed in (the repository is
+    private), else the plain public address."""
+    import subprocess, urllib.request, urllib.parse
+    name = urllib.parse.quote(BAT_NAME)
+    try:
+        r = subprocess.run(['gh', 'api', '-H', 'Accept: application/vnd.github.raw',
+                            'repos/%s/contents/%s?ref=%s' % (REPO, name, branch)],
+                           capture_output=True, timeout=60, creationflags=0x08000000)
+        if r.returncode == 0 and r.stdout: return r.stdout
+    except Exception as e:
+        log('gh download: %r' % (e,))
+    try:
+        req = urllib.request.Request('https://raw.githubusercontent.com/%s/%s/%s' % (REPO, branch, name),
+                                     headers={'User-Agent': 'AoE2Wingman/1.0'})
+        with urllib.request.urlopen(req, timeout=30) as r: return r.read(20_000_000)
+    except Exception as e:
+        log('plain download: %r' % (e,))
+    return None
+
+def _looks_like_the_app(data):
+    """Never replace the running script with something that is not this app, or would not start."""
+    try:
+        text = data.decode('utf-8')
+        first, body = text.split('\n', 1)
+        if not first.startswith('@(') or 'pythonw' not in first: return False
+        import ast
+        ast.parse(body)
+        return bool(re.search(r"^VERSION = '[^']+'", body[:4000], re.M)) and 'def main():' in body
+    except Exception:
+        return False
+
+def update_by_download(branch, target):
+    data = _download_script(branch)
+    if data is None:
+        return False, ('Could not download it. The repository is private, so this copy needs to be in '
+                       'a git folder, or GitHub\'s gh tool needs to be signed in.'), None
+    if not _looks_like_the_app(data):
+        return False, 'What came back from GitHub does not look like the app, so nothing was changed.', None
+    try:
+        with open(target, 'rb') as f: old = f.read()
+    except OSError:
+        old = b''
+    if data == old:
+        return True, 'Already up to date: %s on %s.' % (script_version(target), branch), None
+    try:
+        keep = os.path.join(os.path.dirname(SETTINGS), 'backup')
+        os.makedirs(keep, exist_ok=True)
+        if old:
+            with open(os.path.join(keep, '%s %s.bat' % (os.path.splitext(os.path.basename(target))[0],
+                                                       script_version(target))), 'wb') as f: f.write(old)
+        tmp = target + '.new'
+        with open(tmp, 'wb') as f: f.write(data)
+        os.replace(tmp, target)
+    except OSError as e:
+        return False, 'Could not write the new version: %s' % e, None
+    return True, 'Updated to %s from %s.' % (script_version(target), branch), target
+
+def update_from_github(branch, me_=None, running=None):
+    """Bring the app up to date with a branch. me_ is the running script and running is its
+    (version, fingerprint) from when it started. Returns (worked, what to tell you, the script
+    to start afterwards, or None when there is nothing new to restart into)."""
+    me_ = me_ or self_path()
+    here = os.path.dirname(me_)
+    run_ver, run_sha = running or (VERSION, SELF_SHA)
+    if branch not in BRANCHES: return False, 'No such branch: %s' % branch, None
+    folder, on = update_target(branch, here)
+    if on is None:
+        return update_by_download(branch, me_)
+    code, _, err = _git(folder, 'fetch', '--quiet', 'origin', timeout=90)
+    if code: return False, 'Could not reach GitHub: %s' % _last_line(err), None
+    code, _, _ = _git(folder, 'rev-parse', '--verify', '--quiet', 'origin/%s' % branch)
+    if code: return False, 'GitHub has no %s branch.' % branch, None
+    if on != branch:                              # one folder for both: switch it over, if nothing here was edited
+        code, edits, err = _git(folder, 'status', '--porcelain', '--untracked-files=no')
+        if code or edits:
+            return False, 'This folder has changes that are not on GitHub, so it was left as it is.', None
+        code, _, err = _git(folder, 'checkout', '--quiet', '-B', branch, 'origin/%s' % branch)
+    else:
+        code, _, err = _git(folder, 'merge', '--quiet', '--ff-only', 'origin/%s' % branch)
+    if code:
+        if re.search(r'local changes|overwritten|not possible to fast-forward|diverg', err, re.I):
+            return False, 'This folder has changes that are not on GitHub, so it was left as it is.', None
+        return False, 'Could not update: %s' % _last_line(err), None
+    bat = os.path.join(folder, BAT_NAME)
+    if not os.path.isfile(bat): return False, 'The %s branch has no %s in it.' % (branch, BAT_NAME), None
+    new_ver = script_version(bat)
+    same_file = os.path.normcase(os.path.abspath(bat)) == os.path.normcase(os.path.abspath(me_))
+    if _sha(bat) == run_sha and same_file:
+        return True, 'Already up to date: %s on %s.' % (new_ver, branch), None
+    if not same_file:                             # that branch has its own folder: start the copy in it
+        return True, 'Switching to the %s copy: %s.' % (branch, new_ver), bat
+    if on != branch:
+        return True, 'Switched this folder to %s: %s.' % (branch, new_ver), bat
+    return True, ('Updated from %s to %s (%s).' % (run_ver, new_ver, branch)) if new_ver != run_ver \
+        else 'Updated %s (%s).' % (new_ver, branch), bat
+
+def restart_app(bat):
+    """Start the given copy. The caller closes this one straight after."""
+    import subprocess
+    log('restarting from %s' % bat)
+    subprocess.Popen(['cmd', '/c', bat], cwd=os.path.dirname(bat), creationflags=0x08000000, close_fds=True)
 
 GOD_MODE_ID = 517794                       # God Mode [CORE] on the official mod site
 GOD_MODE_URL = 'https://www.ageofempires.com/mods/details/%d/' % GOD_MODE_ID
@@ -3781,6 +3944,8 @@ def main():
         boxes.append(win)
 
     def show_boxes(rect, phys_w, lines):
+        if not load_settings().get('loading_panels', False):
+            st['boxes_ok'] = True; return          # the panels are switched off: nothing to draw or read
         st['boxes_ok'] = False                     # set once the panels are up with real players
         def go():
             hide_boxes()
@@ -4149,7 +4314,55 @@ def main():
                 tk.Label(outer, text=note, fg=MUT, bg=INK, font=F_SMALL, anchor='w',
                          justify='left', wraplength=400).pack(fill='x', pady=(0, 4))
 
-        section('Discord channel name', gap=10)
+        section('Update', 'Gets the newest version from GitHub, then closes and restarts the app. '
+                          'Prod is the settled version. dev gets new changes first.', gap=10)
+        up_row = tk.Frame(outer, bg=INK); up_row.pack(fill='x', pady=(2, 0))
+        up_msg = tk.Label(outer, text='This copy is %s.' % VERSION, fg='#b8b19f', bg=INK, font=F_SMALL,
+                          anchor='w', justify='left', wraplength=400)
+        def run_update(branch):
+            if st.get('updating'): return
+            st['updating'] = True
+            up_msg.config(text='Checking GitHub for the newest %s...' % branch, fg=MUT)
+            def work():
+                try:
+                    ok_, text_, bat_ = update_from_github(branch)
+                except Exception as e:
+                    log('update failed: %r' % (e,))
+                    ok_, text_, bat_ = False, 'Update failed: %s' % e, None
+                log('update from %s: %s' % (branch, text_))
+                def done():
+                    st['updating'] = False
+                    try: up_msg.config(text=text_ + ('  Restarting...' if bat_ else ''), fg=GREEN if ok_ else REDC)
+                    except tk.TclError: pass
+                    if bat_:
+                        def swap():
+                            try: restart_app(bat_)
+                            except Exception as e:
+                                log('restart failed: %r' % (e,))
+                                try: up_msg.config(text='Updated, but could not restart: %s' % e, fg=REDC)
+                                except tk.TclError: pass
+                                return
+                            try: root.destroy()
+                            finally: os._exit(0)
+                        root.after(1200, swap)
+                root.after(0, done)
+            threading.Thread(target=work, daemon=True).start()
+        flat_button(up_row, 'Update from Prod', lambda: run_update('Prod'), fill=True).pack(side='left')
+        flat_button(up_row, 'Update from dev', lambda: run_update('dev')).pack(side='left', padx=(8, 0))
+        up_msg.pack(fill='x', pady=(6, 0))
+        def where_am_i():
+            b = git_branch(os.path.dirname(self_path()))
+            def say():
+                try:
+                    if up_msg.cget('text').startswith('This copy'):
+                        up_msg.config(text='This copy is %s%s.' % (
+                            VERSION, (', from the %s branch' % b) if b else ', not in a git folder'))
+                except tk.TclError: pass                       # the window was closed in the meantime
+            try: root.after(0, say)
+            except Exception: pass
+        threading.Thread(target=where_am_i, daemon=True).start()
+
+        section('Discord channel name')
         ch = tk.Entry(outer, width=46); style_entry(ch)
         ch.insert(0, cfg.get('channel', 'wesley')); ch.pack(fill='x', ipady=3)
 
@@ -4176,6 +4389,14 @@ def main():
         for var, txt in ((tc_on, 'Show the alert'),):
             tk.Checkbutton(outer, text=txt, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
                            activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
+        lp_on = tk.BooleanVar(value=cfg.get('loading_panels', False))
+        section('Loading screen panels',
+                'Two panels over the loading screen with a cheat sheet for your civ and your opponent\'s. '
+                'Off by default. Your opponent\'s details are on the main overlay either way.')
+        tk.Checkbutton(outer, text='Show the two panels while the game loads', variable=lp_on, fg=TXT, bg=INK,
+                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
         section('When the game starts',
                 'If you are in another window when a match finishes loading, the overlay switches you to the '
@@ -4286,6 +4507,7 @@ def main():
                     'tc_alert': bool(tc_on.get()), 'scout_alert': bool(sc_on.get()),
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
                     'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
+                    'loading_panels': bool(lp_on.get()),
                     'friends': [l.strip() for l in fr.get('1.0', 'end').splitlines() if l.strip()],
                     'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
         def save():

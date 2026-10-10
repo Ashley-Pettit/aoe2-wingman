@@ -12,7 +12,8 @@ Does:
 - **Opponent's own openings:** reads your opponent's last few public games and shows how that player actually opened in each, for example "Scouts ×3 · Men-at-arms > Archers ×2 · Feudal around 9:40".
 - **Ratings:** your opponent's 1v1 and team ladder ratings, from the official ladder.
 - **Score check:** compares your side's total score with theirs and shows CONCEDE AVAILABLE once you have been more than 30% behind for 20 seconds. It only tells you; it never resigns for you.
-- **Loading screen:** a short cheat sheet for your civ and theirs while the game loads.
+- **Update button:** Settings has "Update from Prod" and "Update from dev". Either one fetches the newest version from GitHub, then closes and restarts the app.
+- **Loading screen panels (off by default):** a short cheat sheet for your civ and theirs while the game loads. Switch it on in Settings if you want it.
 - **Game start:** if you are in another window when the match loads, it switches you to the game, or shows a banner with a sound if Windows will not allow that.
 - **Herd and relics:** counts each sheep, pig, goose or buffalo you find, and the relics picked up.
 - **Idle TC alert:** a red warning when your Town Center stops working, and a blue one before you get housed.
