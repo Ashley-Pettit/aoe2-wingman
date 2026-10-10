@@ -14,7 +14,9 @@ Does:
 - **Score check:** compares your side's total score with theirs and shows CONCEDE AVAILABLE once you have been more than 30% behind for 20 seconds. It only tells you; it never resigns for you.
 - **Loading screen:** a short cheat sheet for your civ and theirs while the game loads.
 - **Herd and relics:** counts each sheep, pig, goose or buffalo you find, and the relics picked up.
-- **Idle TC alert:** a big red warning when your Town Center stops working, and a heads-up before you get housed.
+- **Idle TC alert:** a red warning when your Town Center stops working, and a blue one before you get housed.
+- **15-minute reminder:** a quick gold flash at 15:00 to check you have the two buildings Castle Age needs.
+- **Game start:** if you are in another window when the match loads, it switches you to the game, or shows a banner with a sound if Windows will not allow that.
 - **Scouting call-outs:** says out loud when an enemy colour shows up on your minimap.
 - **Your record:** win/loss by civ, map and opponent, using results from your official match history. Also suggests map bans and shows a result card after each game.
 - **Ranked party invite:** clicks through Multiplayer > Ranked > Invite To Party for everyone on your friends list.

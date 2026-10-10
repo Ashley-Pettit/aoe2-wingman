@@ -611,6 +611,9 @@ class HerdWatcher(threading.Thread):
 # '--X Research Complete--' lines. Nothing is read out of the running game.
 TC_BUILDING = 109
 HOUSE_GRACE_MIN = 2.0                     # game minutes before 'Build a house' can show
+CASTLE_NOTE_MIN = 15                      # game minute for the 'two buildings for Castle Age?' reminder
+# each badge strip flashes between its own two shades: red TC idle, blue house, gold reminder
+TC_RED, TC_BLUE, TC_GOLD = ('#7d1510', '#e0362b'), ('#0f3f7a', '#1e78d6'), ('#a87a00', '#e6b422')
 Q_DX, Q_DY, Q_SIZE = -1300, 84, 74       # first queue icon vs the pop counter (left edge, text middle), UI canvas units
 SPAN = 1148                               # wood number to pop counter, UI canvas units (gives the UI scale)
 TC_DEBUG = os.path.join(GAMES if os.path.isdir(GAMES) else tempfile.gettempdir(), 'tc_debug')
@@ -3338,9 +3341,15 @@ def main():
         try: w_.attributes('-alpha', 0.96)        # makes it a layered window, which click-through needs
         except tk.TclError: pass
         w_.configure(bg='#ffd27a')
-        lab = tk.Label(w_, text='TC IDLE', fg='white', bg='#b3261e', font=(DISPLAY, 15, 'bold'),
+        # one strip each, each in its own colour, so you know which it is without reading it:
+        # red for the idle Town Center, blue for the house, gold for a timed reminder
+        lab = tk.Label(w_, text='TC IDLE', fg='white', bg=TC_RED[0], font=(DISPLAY, 15, 'bold'),
                        padx=14, pady=4)
-        lab.pack(padx=2, pady=2)
+        house = tk.Label(w_, text='BUILD A HOUSE', fg='white', bg=TC_BLUE[0], font=(DISPLAY, 15, 'bold'),
+                         padx=14, pady=4)
+        note = tk.Label(w_, text='', fg='#1d1606', bg=TC_GOLD[0], font=(DISPLAY, 13, 'bold'),
+                        padx=14, pady=4)
+        tc['house'], tc['note'] = house, note
         sub = tk.Label(w_, text='click to mute for this game', fg='#ffe9c2', bg='#b3261e', font=F_TINY)
         # (the 'click to mute' line is kept but not shown; clicking the badge still mutes it)
         # the badge sits over the map, so clicks go straight through it to the game (no muting by accident)
@@ -3362,25 +3371,121 @@ def main():
     def tc_draw():
         w_ = tc_window()
         st_ = tc['state']
-        show = tc['on'] and not tc['snooze'] and ('idle' in st_ or 'house' in st_)
-        if not show:
+        alerts = tc['on'] and not tc['snooze']
+        want = [(tc['label'], alerts and 'idle' in st_), (tc['house'], alerts and 'house' in st_),
+                (tc['note'], time.time() < tc.get('note_until', 0))]
+        if not any(on for _, on in want):
             w_.withdraw(); return
-        lines = (['TC IDLE'] if 'idle' in st_ else []) + (['BUILD A HOUSE'] if 'house' in st_ else [])
-        tc['label'].config(text='\n'.join(lines))
+        if [on for _, on in want] != tc.get('shown'):
+            tc['shown'] = [on for _, on in want]
+            for lb, _ in want: lb.pack_forget()
+            for lb, on in want:
+                if on: lb.pack(fill='x', padx=2, pady=2)
         where = tc.get('where')
         if where:
             qx, qy, phys_w = where
             sc = root.winfo_screenwidth() / float(phys_w or root.winfo_screenwidth())
             w_.geometry('+%d+%d' % (int(qx * sc), int(qy * sc)))
+        else:                                       # no queue position yet: top middle of the screen
+            w_.update_idletasks()
+            w_.geometry('+%d+%d' % ((root.winfo_screenwidth() - w_.winfo_reqwidth()) // 2, 150))
         w_.deiconify(); w_.lift()
 
     def tc_pulse():
-        """Flash while the TC sits idle (silently)."""
+        """Flash whatever is up (silently), each strip between its own two shades."""
         if tc['win'] is not None and tc['win'].winfo_viewable():
             tc['flash'] ^= 1
-            col = '#e0362b' if tc['flash'] else '#7d1510'
-            tc['label'].config(bg=col); tc['sub'].config(bg=col)
+            tc['label'].config(bg=TC_RED[tc['flash']]); tc['sub'].config(bg=TC_RED[tc['flash']])
+            tc['house'].config(bg=TC_BLUE[tc['flash']])
+            tc['note'].config(bg=TC_GOLD[tc['flash']])
+        if tc.get('note_until') and time.time() >= tc['note_until']:
+            tc['note_until'] = 0; tc_draw()         # the reminder has had its few seconds
         root.after(450, tc_pulse)
+
+    def tc_note(text, seconds=8):
+        """A timed reminder on the same badge: up for a few seconds, then gone."""
+        tc_window()
+        tc['note'].config(text=text); tc['note_until'] = time.time() + seconds
+        tc_draw()
+
+    def castle_reminder():
+        """At 15 game minutes, one quick nudge to check the two buildings Castle Age needs.
+        Not if you are already in Castle Age, and only once a game."""
+        if st.get('last') is None or st.get('castle_note') or not tcw.active: return
+        mins = tcw.game_minutes(time.time())
+        if mins < CASTLE_NOTE_MIN: return
+        st['castle_note'] = True
+        if mins >= CASTLE_NOTE_MIN + 1 or tcw.age >= 3: return               # opened part way through, or already up
+        if not load_settings().get('castle_note', True): return
+        log('%d minute reminder shown' % CASTLE_NOTE_MIN)
+        tc_note('%d:00  ·  2 BUILDINGS FOR CASTLE AGE?' % CASTLE_NOTE_MIN)
+
+    # ---- the game has started: get it in front of you, or say so loudly if Windows will not allow that
+    start_box = {'win': None, 'until': 0, 'flash': 0}
+
+    def start_alert():
+        """Windows would not hand the game the foreground, so put up a banner and make a noise instead.
+        Clicking it switches to the game (a click is what Windows wants before it allows that)."""
+        if start_box['win'] is None:
+            w_ = tk.Toplevel(root); w_.overrideredirect(True); w_.attributes('-topmost', True)
+            w_.configure(bg='#ffd27a')
+            lab = tk.Label(w_, text='YOUR GAME HAS STARTED', fg='white', bg=TC_RED[0],
+                           font=(DISPLAY, 26, 'bold'), padx=34, pady=14, cursor='hand2')
+            lab.pack(padx=3, pady=(3, 0), fill='x')
+            sub = tk.Label(w_, text='click here to switch to Age of Empires II', fg='#1d1606', bg=TC_GOLD[0],
+                           font=F_HEAD, pady=5, cursor='hand2')
+            sub.pack(padx=3, pady=(0, 3), fill='x')
+            def go(_=None):
+                start_box['until'] = 0; w_.withdraw()
+                h = find_game_window()
+                if h: threading.Thread(target=lambda: focus_window(h), daemon=True).start()
+            for x_ in (w_, lab, sub): x_.bind('<Button-1>', go)
+            start_box['win'], start_box['label'] = w_, lab
+        w_ = start_box['win']
+        w_.update_idletasks()
+        w_.geometry('+%d+%d' % ((root.winfo_screenwidth() - w_.winfo_reqwidth()) // 2, root.winfo_screenheight() // 5))
+        start_box['until'] = time.time() + 45
+        w_.deiconify(); w_.lift()
+        try:
+            import winsound
+            winsound.PlaySound('SystemExclamation', winsound.SND_ALIAS | winsound.SND_ASYNC)
+        except Exception: pass
+        start_pulse()
+
+    def start_pulse():
+        w_ = start_box['win']
+        if w_ is None or not start_box['until']: return
+        ctypes_, _wt, u_, _k = _win()
+        h = find_game_window()
+        if time.time() > start_box['until'] or (h and u_.GetForegroundWindow() == h):
+            start_box['until'] = 0; w_.withdraw(); return        # you are in the game now
+        start_box['flash'] ^= 1
+        start_box['label'].config(bg=TC_RED[start_box['flash']])
+        w_.lift()
+        root.after(450, start_pulse)
+
+    def game_started(f):
+        """Called when a new match's recording turns up, which is the moment loading finishes."""
+        if not load_settings().get('focus_game', True): return
+        try:
+            if time.time() - os.path.getctime(f) > 40: return   # the overlay was opened part way through a game
+        except OSError:
+            return
+        def work():
+            try:
+                size0 = os.path.getsize(f)
+                for _ in range(60):                             # the recording grows once the game clock runs
+                    if os.path.getsize(f) > size0: break
+                    time.sleep(0.25)
+                ctypes_, _wt, u_, _k = _win()
+                h = find_game_window()
+                if not h or (u_.GetForegroundWindow() == h and not u_.IsIconic(h)): return   # already looking at it
+                log('the game started while another window was in front: switching to it')
+                if focus_window(h): return
+                root.after(0, start_alert)
+            except Exception as e:
+                log('game start switch: %r' % (e,))
+        threading.Thread(target=work, daemon=True).start()
 
     def tc_notify(state, where):
         def go():
@@ -3996,6 +4101,18 @@ def main():
             tk.Checkbutton(outer, text=txt, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
                            activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
+        section('When the game starts',
+                'If you are in another window when a match finishes loading, the overlay switches you to the '
+                'game. If Windows will not allow that, it puts up a banner and plays a sound instead.')
+        fg_on = tk.BooleanVar(value=cfg.get('focus_game', True))
+        tk.Checkbutton(outer, text='Bring the game to the front when it starts', variable=fg_on, fg=TXT, bg=INK,
+                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        cn_on = tk.BooleanVar(value=cfg.get('castle_note', True))
+        tk.Checkbutton(outer, text='At %d minutes, remind me to check my two buildings for Castle Age' % CASTLE_NOTE_MIN,
+                       variable=cn_on, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
+                       activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
         section('Score check',
                 'Reads the score list in the corner of your own screen and compares your side\'s total with '
                 'the other side\'s. Once you have been more than %d%% behind for %d seconds (and not in the '
@@ -4081,6 +4198,7 @@ def main():
             return {'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(),
                     'tc_alert': bool(tc_on.get()), 'scout_alert': bool(sc_on.get()),
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
+                    'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
                     'friends': [l.strip() for l in fr.get('1.0', 'end').splitlines() if l.strip()],
                     'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
         def save():
@@ -4455,7 +4573,10 @@ def main():
         if body.cget('text') != txt: body.config(text=txt)
 
     def fast():
-        refresh(); hover_fade(); root.after(500, fast)
+        refresh(); hover_fade()
+        try: castle_reminder()
+        except Exception as e: log('reminder: %r' % (e,))
+        root.after(500, fast)
 
     def tick():
         try:
@@ -4476,6 +4597,7 @@ def main():
                 if lob:
                     name, desc, herd = map_text(maps, strings, lob['selected'], lob['resolved'], lob.get('size'), len(lob['players']))
                     watcher.reset(); st['extra'] = 0
+                    st['castle_note'] = False; game_started(f)
                     st['first'], st['herd'] = desc, herd
                     watcher.active = herd is not None
                     title.config(text=name); state.config(text='IN GAME', fg=GREEN)
