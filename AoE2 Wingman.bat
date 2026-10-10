@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v65'
+VERSION = 'v66'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -231,11 +231,27 @@ def _replay_entries():
             continue
     return out
 
+LIVE = {'path': None, 'size': -1, 't': 0.0}       # the newest recording, its size, and when that last changed
+
 def newest_replay():
+    """The recording of the game in progress, or None when no game is on.
+    The folder listing cannot say whether a recording is still being written: Windows only brings
+    a file's listed time and size up to date when the file is closed, so a game in progress looks
+    untouched from the minute it starts (and looks brand new the moment it ends). So the listing
+    only picks out the newest recording, and the file itself is then asked for its size. A game
+    is on for as long as that keeps growing."""
     best, best_t = None, 0.0
     for path, t in _replay_entries():
         if t > best_t: best, best_t = path, t
-    return best if best and time.time() - best_t < FRESH_S else None
+    if not best: return None
+    try: s = os.stat(best)
+    except OSError: return None
+    now = time.time()
+    if best != LIVE['path']:                          # first sight of it: go by the file's own clock
+        LIVE.update(path=best, size=s.st_size, t=max(s.st_mtime, best_t) if s.st_size else now)
+    elif s.st_size != LIVE['size']:                   # still being written: the game is on
+        LIVE.update(size=s.st_size, t=now)
+    return best if now - LIVE['t'] < FRESH_S else None
 
 # ---------------------------------------------------------------- relic count from the map script
 # Reads the game's own random-map script (the same file the lobby uses) and works out how many relics
