@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v68'
+VERSION = 'v69'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -3463,14 +3463,14 @@ def main():
             body.config(text=''); body.grid_remove()
             sep.grid_remove(); footsep.grid_remove()   # no dividers, nothing to divide
             frame.configure(padx=12, pady=9)
-            host_row.grid_configure(pady=(6, 0))       # button tucked under the header
+            title.config(font=F_TITLE)                 # the app's own name, smaller: the button shares its row
         else:
+            title.config(font=F_HEADLINE)              # the map's name is the headline while you play
             body.grid()
             if not st.get('rolled'):
                 sep.grid()
                 if st.get('footer', True): footsep.grid()
             frame.configure(padx=16, pady=13)
-            host_row.grid_configure(pady=(10, 0))
     rec_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w')
     rec_line.grid(row=3, column=0, columnspan=4, sticky='w', pady=(8, 0)); rec_line.grid_remove()
 
@@ -3494,21 +3494,26 @@ def main():
     footsep = Rule(frame)
     footsep.grid(row=6, column=0, columnspan=4, sticky='we', pady=(9, 0))
     host_row = tk.Frame(frame, bg=BG)
-    host_row.grid(row=7, column=0, columnspan=4, sticky='we', pady=(10, 0))
+    host_row.grid(row=7, column=0, columnspan=4, sticky='we', pady=(7, 0))
     host_row.columnconfigure(1, weight=1)
-    btn_plate = tk.Frame(host_row, bg=RIM, padx=1, pady=1)       # dark edge around the bronze face
-    host_btn = tk.Label(btn_plate, text='Ranked party invite', fg='#2a2113', bg=GOLD, font=F_HEAD,
-                        padx=14, pady=5, cursor='hand2')
+    # The party invite button sits up in the header, where the state tag goes while a game is on,
+    # so with no game on the whole panel is one row. The row below it only appears when the
+    # button has something to say.
+    btn_plate = tk.Frame(head, bg=RIM, padx=1, pady=1)           # dark edge around the bronze face
+    host_btn = tk.Label(btn_plate, text='Ranked party invite', fg='#2a2113', bg=GOLD, font=(DISPLAY, 9, 'bold'),
+                        padx=8, pady=3, cursor='hand2')
     host_btn.pack()
     host_btn.bind('<Enter>', lambda e: host_btn.cget('bg') == GOLD and host_btn.config(bg=GOLDD), add='+')
     host_btn.bind('<Leave>', lambda e: host_btn.cget('bg') == GOLDD and host_btn.config(bg=GOLD), add='+')
-    btn_plate.grid(row=0, column=0, sticky='w')
+    btn_plate.grid(row=0, column=2, sticky='e', padx=(10, 2))
+    state.grid_remove()                                          # the app opens with no game on
     hint = tk.Label(host_row, text='drag to move  \u00b7  click the name to roll up  \u00b7  W/L for your record', fg=FAINT, bg=BG,
                     font=F_TINY, anchor='e')
     hint.grid(row=0, column=1, sticky='e', padx=(12, 2)); hint.grid_remove()
     host_msg = tk.Label(host_row, text='', fg='#b8b19f', bg=BG, font=F_SMALL, anchor='w',
                         justify='left', wraplength=430)
-    host_msg.grid(row=1, column=0, columnspan=2, sticky='w', pady=(7, 0))
+    host_msg.grid(row=1, column=0, columnspan=2, sticky='w')
+    host_row.grid_remove()                                       # nothing to say yet
     idle_size(True)                 # the app opens with no game on, so start small
     try:
         if god_mode_status()[0] != 'on':
@@ -4226,32 +4231,39 @@ def main():
             piece.lift(); bind_all(piece)
     st['actions'][close] = root.destroy
 
+    def foot_fit():
+        """The row under the header is only there while the party invite has something to say."""
+        want = bool(host_msg.cget('text').strip()) and st.get('footer', True) and not st.get('rolled')
+        if want != bool(host_row.winfo_manager()):
+            if want: host_row.grid()
+            else: host_row.grid_remove()
+
     def show_footer(on):
-        """The party invite button only makes sense at the menu. Out of a game it is there,
-        in a game it is gone, so there is nothing to fat finger while you play."""
+        """The party invite button only makes sense at the menu. Out of a game it is there, in the
+        header; in a game the state tag takes its place, so there is nothing to fat finger while you play."""
         st['footer'] = on
+        if on: state.grid_remove(); btn_plate.grid()
+        else: btn_plate.grid_remove(); state.grid()
+        foot_fit()
         if st.get('rolled'): return
-        for w in (footsep, host_row):
-            if on:
-                if w is footsep and waiting_now[0]: continue      # no divider while idle
-                w.grid()
-            else:
-                w.grid_remove()
+        if on and not waiting_now[0]: footsep.grid()              # no divider while idle
+        else: footsep.grid_remove()
 
     def toggle_roll():
         """Click the name to roll the overlay up to just its header, and again to open it."""
         up = not st.get('rolled')
-        for w in (sep, body, rec_line, card, score_line, opp_area, footsep, host_row):
+        for w in (sep, body, rec_line, card, score_line, opp_area, footsep):
             if up: w.grid_remove()
             elif w is score_line:
                 if score_line.cget('text'): w.grid()
-            elif w in (footsep, host_row) and not st.get('footer', True): continue
-            elif w is footsep and waiting_now[0]: continue
+            elif w is footsep and not st.get('footer', True): continue
+            elif w in (footsep, sep) and waiting_now[0]: continue    # no dividers while idle
             elif w is body and not body.cget('text'): continue      # nothing to show while waiting
             elif w is card: 
                 if st.get('card'): w.grid()
             elif w is not rec_line or rec_line.cget('text'): w.grid()
         st['rolled'] = up
+        foot_fit()
     st['actions'][title] = toggle_roll
 
     def hover_fade():
@@ -4886,7 +4898,7 @@ def main():
         if body.cget('text') != txt: body.config(text=txt)
 
     def fast():
-        refresh(); hover_fade()
+        refresh(); hover_fade(); foot_fit()
         try: castle_reminder()
         except Exception as e: log('reminder: %r' % (e,))
         root.after(500, fast)
