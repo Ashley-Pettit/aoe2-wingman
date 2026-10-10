@@ -1,9 +1,9 @@
-# AoE2 Map Overlay
+# AoE2 Wingman
 
 90,000 lines that I didn't read. But it's amazing.
 
 <!-- screenshot: save an in-game capture as docs/screenshot.png, then replace this line with:
-![AoE2 Map Overlay](docs/screenshot.png) -->
+![AoE2 Wingman](docs/screenshot.png) -->
 
 Does:
 
@@ -13,14 +13,15 @@ Does:
 - **Ratings:** your opponent's 1v1 and team ladder ratings, from the official ladder.
 - **Score check:** compares your side's total score with theirs and shows CONCEDE AVAILABLE once you have been more than 30% behind for 20 seconds. It only tells you; it never resigns for you.
 - **Loading screen:** a short cheat sheet for your civ and theirs while the game loads.
+- **Game start:** if you are in another window when the match loads, it switches you to the game, or shows a banner with a sound if Windows will not allow that.
 - **Herd and relics:** counts each sheep, pig, goose or buffalo you find, and the relics picked up.
 - **Idle TC alert:** a red warning when your Town Center stops working, and a blue one before you get housed.
 - **15-minute reminder:** a quick gold flash at 15:00 to check you have the two buildings Castle Age needs.
-- **Game start:** if you are in another window when the match loads, it switches you to the game, or shows a banner with a sound if Windows will not allow that.
 - **Scouting call-outs:** says out loud when an enemy colour shows up on your minimap.
 - **Your record:** win/loss by civ, map and opponent, using results from your official match history. Also suggests map bans and shows a result card after each game.
 - **Ranked party invite:** clicks through Multiplayer > Ranked > Invite To Party for everyone on your friends list.
 - **Discord:** hosts a lobby and posts the join link to your channel.
+- **God Mode mod:** shows whether the God Mode mod is installed and switched on, with a button that opens its page on the official mod site so you can subscribe.
 - **Mod clash check:** finds enabled mods that overwrite each other's files, and which one wins.
 
 It does not read game memory. It reads the replay file's lobby settings, the game's own data
@@ -29,9 +30,13 @@ that is already on your screen.
 
 ## Run
 
-Needs Python 3 on PATH. Double-click `AoE2 Map Overlay.bat`.
+Needs Python 3 on PATH. Double-click `AoE2 Wingman.bat`.
 
-Settings (Discord webhook, friends) and stats are stored in `%APPDATA%\AoE2MapOverlay`.
+It is built around the [God Mode mod](https://www.ageofempires.com/mods/details/517794/): the
+idle Town Center alert reads the queue where that mod puts it. Settings has an Install button.
+
+Settings (Discord webhook, friends) and stats are stored in `%APPDATA%\AoE2MapOverlay`. The
+folder keeps the app's first name, AoE2 Map Overlay, so nothing saved is lost.
 
 ## Branches
 

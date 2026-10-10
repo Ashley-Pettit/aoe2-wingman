@@ -1,5 +1,5 @@
 @(where pythonw >nul 2>nul && start "" pythonw -x "%~f0" %*) || start "" /min python -x "%~f0" %* & exit /b
-# AoE2 Map Overlay - map name and resources, plus your opponent's civ, in a small always-on-top box.
+# AoE2 Wingman (was AoE2 Map Overlay) - map facts, your opponent, alerts and your record, in a small always-on-top box.
 # NOT A CHEAT: it only reads the LOBBY SETTINGS block at the start of the replay file the game writes
 # (map picked, each player's name, team and civ - all shown to you in the lobby / loading screen) and
 # the game's own description text and map script. It never reads the game's memory.
@@ -11,7 +11,8 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v64'
+VERSION = 'v65'
+APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
 POLL_MS = 3000
@@ -1240,6 +1241,7 @@ class ScoreWatcher(threading.Thread):
 # ---------------------------------------------------------------- host a lobby and post the link to Discord
 # Clicks through the game's own menus (Multiplayer > Host Game > Create Lobby) by reading the button
 # text off the screen, presses the lobby's Copy button, then posts the join link to your Discord channel.
+# the folder keeps the app's first name, so settings and stats carry over from older versions
 SETTINGS = os.path.join(os.environ.get('APPDATA', HOME), 'AoE2MapOverlay', 'settings.json')
 
 def load_settings():
@@ -1349,7 +1351,7 @@ def relic_matches(profile):
     if not profile: return out
     import urllib.request
     try:
-        req = urllib.request.Request(MATCH_URL % int(profile), headers={'User-Agent': 'AoE2MapOverlay/1.0'})
+        req = urllib.request.Request(MATCH_URL % int(profile), headers={'User-Agent': 'AoE2Wingman/1.0'})
         with urllib.request.urlopen(req, timeout=8) as r:
             data = json.loads(r.read().decode('utf-8'))
     except Exception as e:
@@ -1561,6 +1563,32 @@ def map_bans(games, least=4, n=3):
     rows.sort(key=lambda r: (r[2] / float(r[2] + r[3]), -(r[2] + r[3])))
     return rows[:n]
 
+GOD_MODE_ID = 517794                       # God Mode [CORE] on the official mod site
+GOD_MODE_URL = 'https://www.ageofempires.com/mods/details/%d/' % GOD_MODE_ID
+
+def god_mode_status():
+    """('on' | 'off' | 'missing', a line to show), read from the game's own mod list.
+    Counts the published mod and a local build of it alike."""
+    found = False
+    for f in glob.glob(os.path.join(GAMES, '*', 'mods', 'mod-status.json')):
+        try: d = json.load(open(f, encoding='utf-8-sig'))
+        except Exception: continue
+        for m in d.get('Mods', []):
+            name = _norm2('%s %s' % (m.get('Title') or '', m.get('Path') or ''))
+            if m.get('WorkshopID') != GOD_MODE_ID and 'godmode' not in name: continue
+            parts = [p for p in re.split(r'[\\/]+', m.get('Path', '')) if p]
+            if not parts or not os.path.isdir(os.path.join(os.path.dirname(f), *parts)): continue
+            if m.get('Enabled'): return 'on', 'Installed and switched on.'
+            found = True
+    if found: return 'off', 'Installed but switched off. Turn it on in the game under Mods.'
+    return 'missing', 'Not installed.'
+
+def open_god_mode_page():
+    """The official mod site needs you signed in to subscribe, so this opens the page for you to do that."""
+    import webbrowser
+    log('opening the God Mode mod page')
+    webbrowser.open(GOD_MODE_URL)
+
 def mod_clashes():
     """Files that more than one enabled mod ships. mod_dirs() is already in the game's own
     priority order, so the first mod listed for a file is the one that actually wins.
@@ -1591,7 +1619,7 @@ def post_discord(url, content):
     import urllib.request
     body = json.dumps({'content': content, 'allowed_mentions': {'parse': ['users']}}).encode('utf-8')
     req = urllib.request.Request(url, data=body, method='POST',
-                                 headers={'Content-Type': 'application/json', 'User-Agent': 'AoE2MapOverlay (local, 1.0)'})
+                                 headers={'Content-Type': 'application/json', 'User-Agent': 'AoE2Wingman (local, 1.0)'})
     with urllib.request.urlopen(req, timeout=15) as r: return r.status
 
 def mention(name):
@@ -2713,7 +2741,7 @@ def match_openings(mid, holders):
     raw = None
     for pid in holders[:2]:
         try:
-            req = urllib.request.Request(REPLAY_URL % (int(mid), int(pid)), headers={'User-Agent': 'AoE2MapOverlay/1.0'})
+            req = urllib.request.Request(REPLAY_URL % (int(mid), int(pid)), headers={'User-Agent': 'AoE2Wingman/1.0'})
             with urllib.request.urlopen(req, timeout=20) as r:
                 blob = r.read(40_000_000)
             z = zipfile.ZipFile(io.BytesIO(blob))
@@ -2797,7 +2825,7 @@ def fetch_elo(profile=None, name=None, fresh=False):
     q = 'profile_ids=[%d]' % profile if profile else 'aliases=' + urllib.parse.quote(json.dumps([name]))
     res = {}
     try:
-        req = urllib.request.Request(ELO_URL + q, headers={'User-Agent': 'AoE2MapOverlay/1.0'})
+        req = urllib.request.Request(ELO_URL + q, headers={'User-Agent': 'AoE2Wingman/1.0'})
         with urllib.request.urlopen(req, timeout=6) as r:
             data = json.loads(r.read().decode('utf-8'))
         stats = {s.get('leaderboard_id'): s.get('rating') for s in data.get('leaderboardStats', [])}
@@ -3155,7 +3183,7 @@ def main():
     head = tk.Frame(frame, bg=BG)
     head.grid(row=0, column=0, columnspan=4, sticky='we')
     head.columnconfigure(1, weight=1)
-    title = tk.Label(head, text='AoE2 Map Overlay', fg=GOLDC, bg=BG, font=F_HEADLINE, anchor='w', cursor='hand2')
+    title = tk.Label(head, text=APP_NAME, fg=GOLDC, bg=BG, font=F_HEADLINE, anchor='w', cursor='hand2')
     title.grid(row=0, column=1, sticky='w', padx=(2, 0))
     state = tk.Label(head, text='WAITING', fg=MUT, bg=PANEL, font=F_TINY, padx=7, pady=3,
                      highlightthickness=1, highlightbackground=RIM)
@@ -3297,6 +3325,13 @@ def main():
                         justify='left', wraplength=430)
     host_msg.grid(row=1, column=0, columnspan=2, sticky='w', pady=(7, 0))
     idle_size(True)                 # the app opens with no game on, so start small
+    try:
+        if god_mode_status()[0] != 'on':
+            host_msg.config(text='God Mode mod is %s. The idle Town Center alert needs it: '
+                                 'click the cog to install it.' % ('not installed' if god_mode_status()[0] == 'missing'
+                                                                   else 'switched off'))
+    except Exception as e:
+        log('god mode check: %r' % (e,))
     cfg0 = load_settings()
     pos = cfg0.get('pos')
     try:                                   # go back to where it was left, if that spot is still on a screen
@@ -3328,7 +3363,7 @@ def main():
     except Exception as e:
         log('window setup: %r' % (e,))
     try:
-        with open(LOG, 'w', encoding='utf-8') as f: f.write('AoE2 Map Overlay %s started\n' % VERSION)
+        with open(LOG, 'w', encoding='utf-8') as f: f.write('%s %s started\n' % (APP_NAME, VERSION))
     except OSError: pass
     watcher = HerdWatcher(strings); watcher.start()
 
@@ -3938,7 +3973,7 @@ def main():
             watcher.active = False; watcher.reset()
             tcw.active = False
             scout.active = False; scout.stop_game(); score_off()
-            title.config(text='AoE2 Map Overlay'); idle_size(True)
+            title.config(text=APP_NAME); idle_size(True)
             rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
             stats_btn.grid()
             show_opponents([]); hide_boxes()
@@ -4054,11 +4089,30 @@ def main():
             except tk.TclError: st['settings_win'] = None
         cfg = load_settings()
         win = tk.Toplevel(root); st['settings_win'] = win
-        win.title('AoE2 Map Overlay settings'); win.configure(bg=BORDER); win.attributes('-topmost', True)
+        win.title(APP_NAME + ' settings'); win.configure(bg=BORDER); win.attributes('-topmost', True)
         win.resizable(False, False)
 
-        outer = tk.Frame(win, bg=INK, padx=18, pady=14)
-        outer.pack(fill='both', expand=True, padx=1, pady=1)
+        # The sections scroll (mouse wheel or the bar) so the window always fits the screen,
+        # and the Save row is pinned underneath where it can always be reached.
+        shell_ = tk.Frame(win, bg=INK); shell_.pack(fill='both', expand=True, padx=1, pady=1)
+        foot = tk.Frame(shell_, bg=INK, padx=18); foot.pack(side='bottom', fill='x', pady=(0, 14))
+        bar_ = tk.Scrollbar(shell_, orient='vertical', width=12)
+        board_ = tk.Canvas(shell_, bg=INK, highlightthickness=0, bd=0, yscrollcommand=bar_.set)
+        bar_.config(command=board_.yview)
+        board_.pack(side='left', fill='both', expand=True)
+        outer = tk.Frame(board_, bg=INK, padx=18, pady=14)
+        board_.create_window((0, 0), window=outer, anchor='nw')
+        def fit_(_=None):
+            room = win.winfo_screenheight() - 230               # leave space for the Save row and the taskbar
+            board_.configure(scrollregion=board_.bbox('all'), width=outer.winfo_reqwidth(),
+                             height=min(outer.winfo_reqheight(), room))
+            if outer.winfo_reqheight() > room: bar_.pack(side='right', fill='y')
+            else: bar_.pack_forget()
+        outer.bind('<Configure>', fit_)
+        def wheel_(e):
+            if outer.winfo_reqheight() > board_.winfo_height():
+                board_.yview_scroll(-1 if e.delta > 0 else 1, 'units')
+        win.bind('<MouseWheel>', wheel_)
 
         hd = tk.Frame(outer, bg=INK); hd.pack(fill='x')
         tk.Frame(hd, bg=GOLD, width=3, height=18).pack(side='left', padx=(0, 9))
@@ -4161,6 +4215,17 @@ def main():
         flat_button(voice_row, 'Record and test the voice', test_voice).pack(side='left')
 
         sr3_ = Rule(outer); sr3_.configure(bg=INK); sr3_.pack(fill='x', pady=(14, 0))
+        section('God Mode mod',
+                'The UI mod this app is built around. It pins the resource bar and the Global Queue in place, '
+                'which is what the idle Town Center alert reads. The button opens its page on the official mod '
+                'site: sign in and press Subscribe, and the game downloads it the next time it starts.')
+        gm_row = tk.Frame(outer, bg=INK); gm_row.pack(fill='x', pady=(2, 0))
+        gm_state, gm_text = god_mode_status()
+        flat_button(gm_row, 'Install God Mode' if gm_state == 'missing' else 'Open its mod page',
+                    open_god_mode_page, fill=gm_state == 'missing').pack(side='left')
+        tk.Label(gm_row, text=gm_text, fg=GREEN if gm_state == 'on' else GOLDC if gm_state == 'off' else REDC,
+                 bg=INK, font=F_SMALL, anchor='w').pack(side='left', padx=(10, 0))
+
         section('Mod clashes',
                 'Two enabled mods shipping the same file means only one of them is doing anything. '
                 'This reads your enabled mod list in the order the game layers it and tells you which '
@@ -4193,7 +4258,7 @@ def main():
             threading.Thread(target=work, daemon=True).start()
         flat_button(clash_row, 'Check my mods', run_clash_check).pack(side='left')
 
-        sr2_ = Rule(outer); sr2_.configure(bg=INK); sr2_.pack(fill='x', pady=(14, 0))
+        sr2_ = Rule(foot); sr2_.configure(bg=INK); sr2_.pack(fill='x', pady=(6, 0))
         def collect():
             return {'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(),
                     'tc_alert': bool(tc_on.get()), 'scout_alert': bool(sc_on.get()),
@@ -4213,7 +4278,7 @@ def main():
             c = collect()
             if not c['webhook']: msg.config(text='Paste the webhook link first.', fg=REDC); return
             try:
-                post_discord(c['webhook'], 'Test from the AoE2 Map Overlay. Invites will look like this:\n' +
+                post_discord(c['webhook'], 'Test from %s. Invites will look like this:\n' % APP_NAME +
                              invite_message('aoe2de://0/123456789', '123456789', c['pings'] or c['friends']))
                 msg.config(text='Sent a test message to #%s.' % (c['channel'] or 'discord'), fg=GREEN)
             except Exception as e:
@@ -4221,13 +4286,17 @@ def main():
         def close_win():
             st['settings_win'] = None; win.destroy()
 
-        btns = tk.Frame(outer, bg=INK); btns.pack(fill='x', pady=(12, 0))
+        btns = tk.Frame(foot, bg=INK); btns.pack(fill='x', pady=(12, 0))
         flat_button(btns, 'Save', save, fill=True).pack(side='left')
         flat_button(btns, 'Send test', test).pack(side='left', padx=(8, 0))
         flat_button(btns, 'Cancel', close_win, accent=MUT, hot='#cfc8b6').pack(side='right')
-        msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
+        msg = tk.Label(foot, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
                        justify='left', wraplength=400)
         msg.pack(fill='x', pady=(10, 0))
+        win.update_idletasks(); fit_()
+        win.update_idletasks()                             # keep the whole window on the screen
+        win.geometry('+%d+%d' % (max(0, (win.winfo_screenwidth() - win.winfo_reqwidth()) // 2),
+                                 max(0, (win.winfo_screenheight() - win.winfo_reqheight()) // 2 - 24)))
 
         win.bind('<Escape>', lambda e: close_win())        # Esc does the same as Cancel
         win.protocol('WM_DELETE_WINDOW', close_win)
@@ -4246,7 +4315,7 @@ def main():
         st.setdefault('days', cfg_.get('stats_days', 0))
         st.setdefault('ranked', cfg_.get('stats_ranked', False))
         win = tk.Toplevel(root); st['stats_win'] = win
-        win.title('AoE2 Map Overlay record'); win.configure(bg=RIM); win.attributes('-topmost', True)
+        win.title(APP_NAME + ' record'); win.configure(bg=RIM); win.attributes('-topmost', True)
         win.geometry('600x720'); win.minsize(520, 460)
         outer = tk.Frame(win, bg=INK, padx=18, pady=14)
         outer.pack(fill='both', expand=True, padx=2, pady=2)
@@ -4587,7 +4656,7 @@ def main():
                     st['last'] = None; st['first'] = None; st['herd'] = None; watcher.active = False
                     tcw.active = False
                     scout.active = False; scout.stop_game(); score_off()
-                    title.config(text='AoE2 Map Overlay'); idle_size(True)
+                    title.config(text=APP_NAME); idle_size(True)
                     state.config(text='WAITING', fg=MUT)
                     rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
                     stats_btn.grid()
