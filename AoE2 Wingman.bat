@@ -11,12 +11,12 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v69'
+VERSION = 'v70'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
 POLL_MS = 3000
-FRESH_S = 150
+FRESH_S = 30        # a recording that has added nothing for this long is not a game in progress
 
 def find_install():
     cands = [r'F:\SteamLibrary\steamapps\common\AoE2DE', r'C:\Program Files (x86)\Steam\steamapps\common\AoE2DE',
@@ -252,6 +252,30 @@ def newest_replay():
     elif s.st_size != LIVE['size']:                   # still being written: the game is on
         LIVE.update(size=s.st_size, t=now)
     return best if now - LIVE['t'] < FRESH_S else None
+
+def recording_growing(path, wait=1.5):
+    """True if the game is still writing this recording. It adds to it several times a second for
+    as long as the match is running, so nothing added over a second or two means the match has
+    stopped. This is the one thing about a game being over that cannot be misread off the screen."""
+    try:
+        size = os.path.getsize(path)
+        end = time.time() + wait
+        while time.time() < end:
+            time.sleep(0.25)
+            if os.path.getsize(path) != size: return True
+    except OSError:
+        pass
+    return False
+
+def called_over_too_soon(st, f, now=None):
+    """A game the overlay called over, whose recording then keeps on growing, was not over.
+    The first 15 seconds are left out (a game writes its last few lines as it closes), and it
+    takes growth seen on two separate looks, so one late write never brings a finished game back."""
+    now = now or time.time()
+    if now - st.get('ended_t', 0) < 15 or LIVE['path'] != f: return False
+    if LIVE['size'] > st.get('ended_size', LIVE['size']): st['ended_hits'] = st.get('ended_hits', 0) + 1
+    st['ended_size'] = LIVE['size']
+    return st.get('ended_hits', 0) >= 2
 
 # ---------------------------------------------------------------- relic count from the map script
 # Reads the game's own random-map script (the same file the lobby uses) and works out how many relics
@@ -3109,6 +3133,8 @@ class LoadWatcher(threading.Thread):
         self.ended, self.in_game = ended, in_game or (lambda: False)
         self.needs_text = lambda: True
         self.started = lambda: True        # a game this PC has actually begun recording
+        self.still_running = lambda: False # is the game on screen still being recorded?
+        self.fake_log = 0
         # the end-of-game statistics screen has these tabs; Victory!/Defeat! banners too
         self.end_tabs = {_norm(clean(strings.get(str(i), d))) for i, d in
                          ((9939, 'Military'), (9940, 'Economy'), (9941, 'Technology'), (9942, 'Society'), (9943, 'Timeline'))}
@@ -3199,7 +3225,14 @@ class LoadWatcher(threading.Thread):
                 if not loading and self.ended and self.in_game() and time.time() - self.last_end_check > 3:
                     self.last_end_check = time.time()
                     if self.end_screen(read, grab, x, y, w, hh):
-                        log('end of game screen seen'); self.ended()
+                        # The tech tree and other screens share words with the end-of-game screen.
+                        # A game that is still being recorded is not over, whatever the screen says.
+                        if self.still_running():
+                            if time.time() - self.fake_log > 60:
+                                self.fake_log = time.time()
+                                log('this looked like the end of game screen, but the game is still being recorded: ignored')
+                        else:
+                            log('end of game screen seen'); self.ended()
             except Exception as e:
                 log('loading screen watch: %r' % (e,)); time.sleep(3)
 
@@ -4161,11 +4194,16 @@ def main():
             threading.Thread(target=lambda: service_check(45, gid), daemon=True).start()
             if st['last'] is None: return
             st['ended'] = st['last']                       # ignore this game's replay from now on
+            st['ended_t'], st['ended_hits'] = time.time(), 0
+            try: st['ended_size'] = os.path.getsize(st['last'])
+            except OSError: st['ended_size'] = 0
+            st['was'] = st['last']                         # so its counts survive if it turns out not to be over
             st['last'] = None; st['first'] = None; st['herd'] = None
-            watcher.active = False; watcher.reset()
+            watcher.active = False
             tcw.active = False
             scout.active = False; scout.stop_game(); score_off()
             title.config(text=APP_NAME); idle_size(True)
+            state.config(text='WAITING', fg=MUT)           # or the tag goes on saying IN GAME at the menu
             rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
             stats_btn.grid()
             show_opponents([]); hide_boxes()
@@ -4181,6 +4219,7 @@ def main():
     loadw = LoadWatcher(strings, show_boxes, lambda: root.after(0, hide_boxes), game_over,
                         lambda: st.get('last') is not None)
     loadw.needs_text = boxes_pending
+    loadw.still_running = lambda: bool(st.get('last')) and recording_growing(st['last'])
     tcw.pause_fn = lambda: loadw.showing or bool(st.get('hosting'))
     scout.pause_fn = lambda: loadw.showing or bool(st.get('hosting'))
 
@@ -4906,9 +4945,14 @@ def main():
     def tick():
         try:
             f = newest_replay()
-            if f is not None and f == st.get('ended'): f = None     # that game is over (end screen seen)
+            if f is not None and f == st.get('ended'):              # that game is over (end screen seen)
+                if called_over_too_soon(st, f):
+                    st['ended'] = None; log('that game is still being recorded, so it was not over: back in it')
+                else:
+                    f = None
             if f is None:
                 if st['last'] is not None:
+                    st['was'] = st['last']                 # a pause can look like the end: remember which game it was
                     st['last'] = None; st['first'] = None; st['herd'] = None; watcher.active = False
                     tcw.active = False
                     scout.active = False; scout.stop_game(); score_off()
@@ -4921,8 +4965,11 @@ def main():
                 lob = read_lobby(f); st['last'] = f
                 if lob:
                     name, desc, herd = map_text(maps, strings, lob['selected'], lob['resolved'], lob.get('size'), len(lob['players']))
-                    watcher.reset(); st['extra'] = 0
-                    st['castle_note'] = False; game_started(f)
+                    if f == st.get('was'):                 # the same game carrying on (unpaused, or called over too soon)
+                        log('back in the same game: counts kept')
+                    else:
+                        watcher.reset(); st['extra'] = 0; st['castle_note'] = False
+                    game_started(f)
                     st['first'], st['herd'] = desc, herd
                     watcher.active = herd is not None
                     title.config(text=name); state.config(text='IN GAME', fg=GREEN)
