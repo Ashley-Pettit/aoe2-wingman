@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v66'
+VERSION = 'v67'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -822,13 +822,26 @@ class TCWatcher(threading.Thread):
                           ((1, 'Dark Age'), (2, 'Feudal Age'), (3, 'Castle Age'), (4, 'Imperial Age'))]
         self.grace = 0
 
-    def reset(self, civ=None):
+    def reset(self, civ=None, started=None):
+        """started is when the game itself began (its recording appeared). The overlay may be opened
+        part way through a game, and the start-of-game graces must not begin again when it is."""
+        now = time.time()
         with self.lock:
             self.civ = civ; self.anchor = None; self.idle_since = None; self.tc_event = 0
             self.pop = self.pop_last = None; self.want, self.seen = 'off', 0
-            self.age, self.age_t, self.t0, self.grace = 1, 0, time.time(), 0
+            self.age, self.age_t, self.grace = 1, 0, 0
+            self.t0 = started if started and 0 < started <= now else now
             self.clock, self.clock_t, self.speed = None, 0, 1.7
         self.set('off')
+
+    def needs_house(self, mins, now):
+        """Warn before you get housed: how close to the limit depends on how far into the game you are."""
+        room = 2 if mins < 10 else 4 if mins < 20 else 8 if mins < 30 else 10 if mins < 40 else 15
+        if self.pop and self.pop[1] == 20:
+            room = 1          # Ash: nothing at 18/20, but 13/15 still warns
+        return (bool(self.pop) and self.pop[1] < 200 and self.pop[1] - self.pop[0] <= room
+                and mins >= HOUSE_GRACE_MIN           # you start 4/5: no nagging in the opening,
+                and now - self.t0 >= 60)              # even if the game clock is misread early on
 
     def message_lines(self, lines):
         """Called with the event-box lines the herd tracker already reads."""
@@ -954,7 +967,6 @@ class TCWatcher(threading.Thread):
             time.sleep(0.08)
             if self.active != self.was_active:
                 self.was_active = self.active
-                if self.active: self.t0 = time.time()
                 log('idle TC watch %s%s' % ('on' if self.active else 'off', ' (%s)' % self.civ if self.active and self.civ else ''))
             if not self.active or self.pause or not getattr(self, 'enabled', True) or self.pause_fn():
                 if self.state != 'off': self.set('off')
@@ -975,13 +987,7 @@ class TCWatcher(threading.Thread):
                          box=(int(x + w / 2.0 - 20 * s), int(y + 51 * s), int(320 * s), int(60 * s)))
                 self.rect = (x, y, w, hh)                         # for the slow reader thread
                 mins = self.game_minutes(now)
-                # warn before you get housed: how close to the limit depends on how far into the game you are
-                room = 2 if mins < 10 else 4 if mins < 20 else 8 if mins < 30 else 10 if mins < 40 else 15
-                if self.pop and self.pop[1] == 20:
-                    room = 1          # Ash: nothing at 18/20, but 13/15 still warns
-                house = (bool(self.pop) and self.pop[1] < 200 and self.pop[1] - self.pop[0] <= room
-                         and mins >= HOUSE_GRACE_MIN           # you start 4/5: no nagging in the opening,
-                         and now - self.t0 >= 60)              # even if the game clock is misread early on
+                house = self.needs_house(mins, now)
                 # the queue strip, at the screen's own resolution
                 z = int(round(Q_SIZE * s))
                 qx, qy = int(round(a['px'] + Q_DX * s)), int(round(a['cy'] + Q_DY * s))
@@ -4692,7 +4698,9 @@ def main():
                     log_game_start(f, lob)
                     mine_p = (next((p for p in lob['players'] if p['human'] and p['profile'] == me), None)
                               or next((p for p in lob['players'] if p['human']), None))
-                    tcw.reset(civ_name(mine_p['civ'], strings) if mine_p else None)
+                    try: began = os.path.getctime(f)             # when the game began, not when we noticed it
+                    except OSError: began = None
+                    tcw.reset(civ_name(mine_p['civ'], strings) if mine_p else None, began)
                     tc['snooze'] = False; tcw.active = mine_p is not None   # not while watching someone else
                     start_scout(lob['players'], mine_p, strings)
                     scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
