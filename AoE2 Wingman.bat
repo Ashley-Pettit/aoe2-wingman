@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v70'
+VERSION = 'v71'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2485,6 +2485,8 @@ class ScoutWatcher(threading.Thread):
     NEED = 6               # pixels inside one block
     SURE = 20              # this many is a building, no second look needed
     CONFIRM = 2            # a smaller one has to still be there on the next look
+    MASK_LOOKS = 3         # the first looks only learn what is always there: the frame, the buttons
+    SETTLE = 2.5           # seconds to wait after the game comes back to the front before trusting the picture
 
     def __init__(self, notify):
         super().__init__(daemon=True)
@@ -2502,12 +2504,16 @@ class ScoutWatcher(threading.Thread):
         self.look = 0
         self.lock = threading.Lock()
         self.fail = 0
+        self.mask_n, self.mask_rect, self.settle = 0, None, 0
 
-    def start_game(self, targets, voices=True):
-        """targets: {colour index: 'Blue'} for the opponents in this game, nobody else."""
+    def start_game(self, targets, voices=True, keep=False):
+        """targets: {colour index: 'Blue'} for the opponents in this game, nobody else.
+        keep: the same game carrying on, so colours already called are not called again."""
         with self.lock:
             self.targets = dict(targets)
-            self.found, self.near, self.mask, self.rect = set(), {}, None, None
+            self.found = (self.found & set(targets)) if keep else set()
+            self.near, self.mask, self.rect = {}, None, None
+            self.mask_n = 0
             self.colours = minimap_colours()
             self.t0 = time.time()
         if voices and targets:
@@ -2518,11 +2524,23 @@ class ScoutWatcher(threading.Thread):
 
     def stop_game(self):
         with self.lock:
-            self.targets, self.found, self.near = {}, set(), {}
+            self.targets, self.near = {}, {}                # found is kept: the game may carry on
             self.mask, self.rect = None, None
+            self.mask_n = 0
 
-    def _region(self):
-        h = find_game_window()
+    @staticmethod
+    def game_window_in_front():
+        """The game's window, but only while it is the one in front. This reads a patch of the
+        screen, so with anything else in front (another program, the desktop, the taskbar) that
+        patch is not the minimap, and its colours would be taken for players."""
+        ctypes, wintypes, u, _ = _win()
+        fg = u.GetForegroundWindow()
+        if not fg: return None
+        pid = wintypes.DWORD(); u.GetWindowThreadProcessId(fg, ctypes.byref(pid))
+        return fg if _proc_name(pid.value).startswith('aoe2de') else None
+
+    def _region(self, h=None):
+        h = h or find_game_window()
         if not h: return None
         x, y, w, hh = client_rect(h)
         box = minimap_rect(w, hh)
@@ -2543,11 +2561,19 @@ class ScoutWatcher(threading.Thread):
                 with self.lock:
                     targets = dict(self.targets)
                     left = [i for i in targets if i not in self.found]
-                if not (self.active and left) or self.pause_fn(): continue
+                fg = self.game_window_in_front() if (self.active and left) else None
+                if not fg or self.pause_fn():
+                    # not looking at the game (or it is loading): whatever is on screen is not the
+                    # minimap. Start the confirm count again and give the picture time to settle after.
+                    self.near = {}; self.settle = time.time() + self.SETTLE
+                    continue
+                if time.time() < self.settle: continue
                 if self.grab is None: self.grab = _grabber()
                 if self.rect is None:
-                    self.rect = self._region()
+                    self.rect = self._region(fg)
                     if self.rect is None: continue
+                if self.rect != self.mask_rect:           # the window moved or changed size: learn it again
+                    self.mask, self.mask_n, self.mask_rect = None, 0, self.rect
                 raw, w, h = self.grab(self.rect)
                 a = np.frombuffer(raw, dtype=np.uint8).reshape(h, w, 4)[:, :, :3].astype(np.int16)
                 bgr = a                                   # the grab hands back B, G, R
@@ -2558,8 +2584,12 @@ class ScoutWatcher(threading.Thread):
                     want = np.array([col[2], col[1], col[0]], dtype=np.int16)
                     m = (np.abs(bgr - want).sum(axis=2) <= self.TOL)
                     hits[idx] = m
-                if self.mask is None:                     # first look: anything already showing is
-                    self.mask = {i: m.copy() for i, m in hits.items()}   # part of the UI, not a player
+                if self.mask_n < self.MASK_LOOKS:         # the first few looks: anything already showing
+                    if self.mask is None: self.mask = {}  # is part of the UI, not a player
+                    for i, m in hits.items():
+                        old = self.mask.get(i)
+                        self.mask[i] = (old | m) if old is not None and old.shape == m.shape else m.copy()
+                    self.mask_n += 1
                     continue
                 for idx, m in hits.items():
                     base = self.mask.get(idx)
@@ -2573,6 +2603,8 @@ class ScoutWatcher(threading.Thread):
                     # pixels has to still be there next time round, so a stray dot cannot set it off
                     if big >= self.SURE or self.near[idx] >= self.CONFIRM:
                         with self.lock: self.found.add(idx)
+                        log('minimap: %s found (%d pixels together, %ds into watching)'
+                            % (targets.get(idx, idx), big, time.time() - self.t0))
                         self.notify(idx, targets.get(idx, ''))
                 self.fail = 0
                 self.look += 1
@@ -3807,7 +3839,7 @@ def main():
     scout = ScoutWatcher(scout_found)
     scout.start()
 
-    def start_scout(players, mine_p, strings_):
+    def start_scout(players, mine_p, strings_, same_game=False):
         """Watch for the opponents in this game, and nobody else. Allies and your own colour
         are never looked for, so your own units can never set it off."""
         st['opp_civ'] = {}
@@ -3821,7 +3853,7 @@ def main():
                 targets[idx] = PLAYER_NAMES[idx]
                 try: st['opp_civ'][idx] = civ_name(pp['civ'], strings_)
                 except Exception: pass
-        scout.start_game(targets)
+        scout.start_game(targets, keep=same_game)
         scout.active = bool(targets)
 
     def first_scan():
@@ -4870,6 +4902,8 @@ def main():
     def show_opponents(players):
         for w in opp_area.winfo_children(): w.destroy()
         opp_area.grid_configure(pady=(0, 0))
+        opp_area.config(width=1, height=1)         # an emptied frame keeps its old size unless told otherwise,
+                                                   # which left the panel tall after a game
         mine = next((p for p in players if p['human'] and p['profile'] == me), None)
         opps = [p for p in players if p is not mine and (mine is None or p['team'] <= 1 or p['team'] != mine['team'])]
         team_game = len(players) > 2
@@ -4983,7 +5017,7 @@ def main():
                     except OSError: began = None
                     tcw.reset(civ_name(mine_p['civ'], strings) if mine_p else None, began)
                     tc['snooze'] = False; tcw.active = mine_p is not None   # not while watching someone else
-                    start_scout(lob['players'], mine_p, strings)
+                    start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')))
                     scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
                                  [p['name'] for p in lob['players'] if p is not mine_p], len(lob['players']))
                     scorew.active = mine_p is not None                 # not while watching someone else
