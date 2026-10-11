@@ -1,45 +1,105 @@
 # AoE2 Wingman
 
-90,000 lines that I didn't read. But it's amazing.
+A small helper box that sits on top of **Age of Empires II: Definitive Edition** while you play ranked.
 
-<!-- screenshot: save an in-game capture as docs/screenshot.png, then replace this line with:
-![AoE2 Wingman](docs/screenshot.png) -->
+It tells you about the map, sizes up your opponent, and gives you a nudge when you forget something.
 
-Does:
+*90,000 lines that I didn't read. But it's amazing.*
 
-- **Map:** the map name, its resources, and how many herdables and relics it has for this map size.
-- **Opponent:** their civ, how they usually open, the bonuses to watch for, and how to beat their unique unit.
-- **Opponent's own openings:** reads your opponent's last few public games and shows how that player actually opened in each, for example "Scouts ×3 · Men-at-arms > Archers ×2 · Feudal around 9:40".
-- **Ratings:** your opponent's 1v1 and team ladder ratings, from the official ladder.
-- **Score check:** compares your side's total score with theirs and shows CONCEDE AVAILABLE once you have been more than 30% behind for 20 seconds. It only tells you; it never resigns for you.
-- **Update button:** Settings has "Update from Prod" and "Update from dev". Either one fetches the newest version from GitHub, then closes and restarts the app.
-- **Loading screen panels (off by default):** a short cheat sheet for your civ and theirs while the game loads. Switch it on in Settings if you want it.
-- **Game start:** if you are in another window when the match loads, it switches you to the game, or shows a banner with a sound if Windows will not allow that.
-- **Herd and relics:** counts each sheep, pig, goose or buffalo you find, and the relics picked up.
-- **Idle TC alert:** a red warning when your Town Center stops working, and a blue one before you get housed.
-- **15-minute reminder:** a quick gold flash at 15:00 to check you have the two buildings Castle Age needs.
-- **Scouting call-outs:** says out loud when an enemy colour shows up on your minimap.
-- **Your record:** win/loss by civ, map and opponent, using results from your official match history. Also suggests map bans and shows a result card after each game.
-- **Ranked party invite:** clicks through Multiplayer > Ranked > Invite To Party for everyone on your friends list.
-- **Discord:** hosts a lobby and posts the join link to your channel.
-- **God Mode mod:** shows whether the God Mode mod is installed and switched on, with a button that opens its page on the official mod site so you can subscribe.
-- **Mod clash check:** finds enabled mods that overwrite each other's files, and which one wins.
+<p align="center"><img src="docs/in-game.png" alt="AoE2 Wingman during a game on Arabia" width="466"></p>
 
-It does not read game memory. It reads the replay file's lobby settings, the game's own data
-files, the public ladder service, recorded games of matches that are already over, and text
-that is already on your screen.
+## What it does
 
-## Run
+- **Knows the map.** Shows the sheep, boar and relics on the map, and counts them off as you find them.
+- **Sizes up your opponent.** Their civ, their rating, how they started their last few games, and what beats their special unit.
+- **Spots the enemy.** Says the colour out loud ("Red found") the first time they show up on your minimap.
+- **Nags you, nicely.** A red flash when your Town Center stops making villagers. A blue one when you need a house. A reminder at 15 minutes to get ready for Castle Age.
+- **Tells you when the game looks lost.** If you fall a long way behind on score, it lets you know. It never quits for you.
+- **Keeps your record.** Wins and losses by civ and by map, and which maps you should ban.
+- **Rounds up your mates.** One button invites your friends to a ranked party, and can post the invite in Discord.
+- **Pulls you back to the game.** If you're in another window when the match starts, it switches you over.
 
-Needs Python 3 on PATH. Double-click `AoE2 Wingman.bat`.
+<p align="center"><img src="docs/alerts.png" alt="The Town Center idle and Build a house alerts" width="211"></p>
 
-It is built around the [God Mode mod](https://www.ageofempires.com/mods/details/517794/): the
-idle Town Center alert reads the queue where that mod puts it. Settings has an Install button.
+<p align="center"><img src="docs/behind.png" alt="The concede available warning" width="466"></p>
 
-Settings (Discord webhook, friends) and stats are stored in `%APPDATA%\AoE2MapOverlay`. The
-folder keeps the app's first name, AoE2 Map Overlay, so nothing saved is lost.
+### Is it cheating?
 
-## Branches
+No. It only uses things you can already see: the lobby, your own screen, and the public ladder. It never looks inside the game.
 
-- `Prod`: the version you play with.
-- `dev`: work in progress. Merge into `Prod` once tested.
+## How to install
+
+You need a Windows PC with Age of Empires II: Definitive Edition. It takes about five minutes.
+
+**1. Get Python**
+
+Python is the free program Wingman runs on.
+
+- Go to [python.org/downloads](https://www.python.org/downloads/) and click the big yellow download button.
+- Open the file you downloaded.
+- **Tick the box that says "Add python.exe to PATH"** at the bottom of the first screen. Don't skip this one.
+- Click **Install Now**.
+
+**2. Download Wingman**
+
+- At the top of this page, click the green **Code** button, then **Download ZIP**.
+- Open the ZIP and drag the folder inside it onto your Desktop.
+
+**3. Start it**
+
+- Open the folder and double-click **AoE2 Wingman.bat**.
+- A small bar shows up in the corner of your screen. That's it running.
+
+<p align="center"><img src="docs/waiting.png" alt="The small Wingman bar you see before a game" width="450"></p>
+
+The first time, give it a minute. It grabs a few extra bits it needs by itself.
+
+If Windows shows a blue "Windows protected your PC" box, click **More info**, then **Run anyway**.
+
+**4. Add the God Mode mod**
+
+The Town Center alert needs this mod to work.
+
+- Click the cog on the Wingman bar.
+- Scroll down to **God Mode mod** and click **Open its mod page**.
+- Subscribe to the mod, then switch it on in the game under **Mods**.
+
+**5. Play**
+
+Start a ranked game. The bar opens up into the full panel by itself when the match begins.
+
+## How to use it
+
+- **Move it:** drag it anywhere on your screen.
+- **Shrink it:** click the map name to roll it up. Click again to open it.
+- **Tips on your opponent:** click their name.
+- **Your record:** click **W/L** on the bar (between games).
+- **Settings:** click the cog.
+- **Close it:** click the cross.
+
+<p align="center"><img src="docs/record.png" alt="The Record window with win rate, best and worst civs, and maps to ban" width="600"></p>
+
+## How to update
+
+Click the cog, then **Update from Prod**. It gets the newest version and restarts.
+
+<p align="center"><img src="docs/settings-update.png" alt="The Update buttons in Settings" width="452"></p>
+
+If it says it could not download, just download the ZIP again (step 2) and swap the old file for the new one.
+
+Your settings and your record are saved separately, so you won't lose them.
+
+**Update from dev** gets the very latest changes before they have been tested much. Stick with Prod unless you like surprises.
+
+## Not working?
+
+- **Nothing happens when I double-click it.** Python is missing, or the "Add python.exe to PATH" box was not ticked. Install Python again and tick the box.
+- **No Town Center alert.** The God Mode mod is not switched on. Check the game's **Mods** menu.
+- **No "Red found" voice or animal count.** Give it a minute on your first game. It sets itself up the first time.
+
+## Extras
+
+Both of these are in Settings:
+
+- **Loading screen cheat sheet.** A quick reminder about your civ and theirs while the game loads. It is off until you switch it on.
+- **Mod clash check.** Finds mods that are getting in each other's way.
