@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v71'
+VERSION = 'v78'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -68,70 +68,71 @@ def load_data():
             read_strings(os.path.join(prof, mod, 'resources', 'en', 'strings', 'key-value', 'key-value-modded-strings-utf8.txt'), strings)
     return maps, strings, icons
 
-# Short, general "what to expect" notes per civ. Common ranked habits, not a rulebook.
+# One short line per civ: how it opens, then what comes later. Common ranked habits, not a
+# rulebook. Kept to a line you can read at a glance mid game.
 OPENINGS = {
- 'Britons': 'Feudal archers (often fast Feudal, 2-3 ranges) or a quick Castle Age into mass Crossbows and Longbows. Big range advantage late.',
- 'Franks': 'Scouts or men-at-arms into Knights; free farm upgrades make fast Castle Age Knights very common.',
- 'Goths': 'Scouts or drush, then a boom into huge infantry (Huskarl and Champion) spam. Weak early, scary late.',
- 'Teutons': 'Men-at-arms or scouts, often towers and a slow, strong Castle Age with Knights and Teutonic Knights.',
- 'Japanese': 'Men-at-arms into Feudal archers, or fast Castle. Strong fishing on water; Samurai vs unique units.',
- 'Chinese': 'Flexible: scouts or archers. Starts with extra villagers so the first minutes look slow, then fast.',
- 'Byzantines': 'Cheap counter units: Skirmishers, Spearmen and Camels. Often a defensive tower or trash-heavy game.',
- 'Persians': 'Scouts, then Knights or Elephants. Strong Town Centers make early raids and TC pushes common.',
- 'Saracens': 'Feudal archers or men-at-arms; Market tricks. Castle Age Camels and Mamelukes.',
- 'Turks': 'Scouts or fast Castle into gunpowder; free Light Cavalry and Hussar. Loves gold-heavy maps.',
- 'Vikings': 'Men-at-arms or archers with free Wheelbarrow and Hand Cart; infantry with Chieftains later.',
- 'Mongols': 'Scouts (strong hunt bonus) into Mangudai or Cavalry Archers; siege Onagers late.',
- 'Celts': 'Scouts or men-at-arms with fast lumberjacks; Woad Raiders and siege later.',
- 'Spanish': 'Scouts or men-at-arms; Conquistadors in Castle Age. Fast builders so towers or forward castles.',
- 'Aztecs': 'Very common Feudal men-at-arms or Eagle rush, then Monks and Jaguar Warriors. No cavalry.',
- 'Maya': 'Archers (cheap Plumed Archers later) or Eagle rush. Resources last longer, so strong eco.',
- 'Huns': 'Scouts every game, no houses needed. Cavalry Archers and Tarkans for raids.',
- 'Koreans': 'Archers or towers; War Wagons and Onagers later. Strong defence.',
- 'Italians': 'Archers or fast Castle; cheaper age-ups. Genoese Crossbows vs cavalry. Strong on water.',
- 'Hindustanis': 'Scouts or archers; cheaper villagers. Camels and Ghulams, Hand Cannoneers late.',
- 'Inca': 'Eagle or men-at-arms rush, villagers fight back. Kamayuks and Slingers later.',
- 'Magyars': 'Scouts (extra attack) into Magyar Huszars or Cavalry Archers.',
- 'Slavs': 'Scouts or men-at-arms; strong farming eco. Boyars and siege, Druzhina infantry.',
- 'Portuguese': 'Archers or fast Castle; gold discount. Organ Guns and strong navy.',
- 'Ethiopians': 'Archers with extra resources on age-up; Shotel Warriors and Torsion Engines.',
- 'Malians': 'Scouts or men-at-arms; Gbetos and Farimba cavalry later. Cheap buildings.',
- 'Berbers': 'Scouts or fast Castle into Camel Archers and Genitours. Fast villagers.',
- 'Khmer': 'Scouts, no building requirements, so often fast Castle or Elephants. Farmers drop at houses.',
- 'Malay': 'Archers or fast imperial boom (faster age-ups). Karambit Warriors and cheap Elephants.',
- 'Burmese': 'Scouts or men-at-arms; free lumber upgrades. Arambai and Battle Elephants.',
- 'Vietnamese': 'Archers with enemy positions revealed; Rattan Archers vs archers.',
- 'Bulgarians': 'Men-at-arms or scouts; free militia upgrades. Konniks and Krepost towers.',
- 'Tatars': 'Scouts or archers; extra hunt/sheep. Keshik and Cavalry Archers.',
- 'Cumans': 'Scouts, often an extra Feudal Town Center boom. Cavalry Archers and Kipchaks.',
- 'Lithuanians': 'Scouts (+food) into Knights; Leitis and relic-boosted cavalry.',
- 'Burgundians': 'Scouts or fast Castle; early Cavalier. Coustilliers and gunpowder late.',
- 'Sicilians': 'Scouts or men-at-arms; Donjons and Serjeants. Resist bonus damage.',
- 'Poles': 'Scouts or fast Castle into Szlachta cavalry; Obuch infantry. Folwark farms.',
- 'Bohemians': 'Monks and gunpowder; Hussite Wagons and Houfnice. Strong spear line.',
- 'Dravidians': 'Archers or men-at-arms; Urumi and Skirmishers. Strong on water, no Knights.',
- 'Bengalis': 'Archers or elephants; Ratha and Elephant Archers. Villagers resist conversion.',
- 'Gurjaras': 'Scouts or men-at-arms; Chakram Throwers and Shrivamsha riders. Camel-heavy.',
- 'Romans': 'Men-at-arms or scouts into Legionaries and Centurions; Scorpions late.',
- 'Armenians': 'Men-at-arms or archers (early infantry upgrades); Composite Bowmen.',
- 'Georgians': 'Scouts or men-at-arms; Monaspa cavalry. Strong on hills.',
+ 'Britons': 'Archers into Crossbows and Longbows. Outranges you late.',
+ 'Franks': 'Scouts or MAA into fast Knights.',
+ 'Goths': 'Scouts or drush, then infantry spam. Weak early, scary late.',
+ 'Teutons': 'MAA or scouts, towers, then Knights and Teutonic Knights.',
+ 'Japanese': 'MAA into archers, or fast Castle. Strong fishing.',
+ 'Chinese': 'Scouts or archers. Slow first minutes, then fast.',
+ 'Byzantines': 'Cheap Skirms, Spears and Camels. Towers and trash.',
+ 'Persians': 'Scouts into Knights or Elephants. Strong TCs, TC pushes.',
+ 'Saracens': 'Archers or MAA, Market tricks. Camels and Mamelukes.',
+ 'Turks': 'Scouts or fast Castle into gunpowder. Free Hussar.',
+ 'Vikings': 'MAA or archers, strong eco. Infantry later.',
+ 'Mongols': 'Scouts into Mangudai or Cav Archers. Onagers late.',
+ 'Celts': 'Scouts or MAA. Woad Raiders and siege later.',
+ 'Spanish': 'Scouts or MAA into Conquistadors. Forward towers, castles.',
+ 'Aztecs': 'MAA or Eagle rush, then Monks and Jaguars. No cavalry.',
+ 'Maya': 'Archers or Eagle rush. Plumed Archers later. Strong eco.',
+ 'Huns': 'Scouts every game. Cav Archer and Tarkan raids.',
+ 'Koreans': 'Archers or towers. War Wagons and Onagers later.',
+ 'Italians': 'Archers or fast Castle. Genoese Crossbows vs cavalry.',
+ 'Hindustanis': 'Scouts or archers. Camels, Ghulams, Hand Cannoneers.',
+ 'Inca': 'Eagle or MAA rush, villagers fight back. Kamayuks, Slingers.',
+ 'Magyars': 'Scouts into Magyar Huszars or Cav Archers.',
+ 'Slavs': 'Scouts or MAA, strong farms. Boyars and siege.',
+ 'Portuguese': 'Archers or fast Castle. Organ Guns, strong navy.',
+ 'Ethiopians': 'Archers. Shotel Warriors and Torsion Engines.',
+ 'Malians': 'Scouts or MAA. Gbetos and Farimba cavalry.',
+ 'Berbers': 'Scouts or fast Castle into Camel Archers, Genitours.',
+ 'Khmer': 'Scouts, then fast Castle or Elephants.',
+ 'Malay': 'Archers or fast Imperial boom. Karambits, cheap Elephants.',
+ 'Burmese': 'Scouts or MAA. Arambai and Battle Elephants.',
+ 'Vietnamese': 'Archers, and they see where you start. Rattan Archers.',
+ 'Bulgarians': 'MAA or scouts, free militia upgrades. Konniks, Kreposts.',
+ 'Tatars': 'Scouts or archers. Keshiks and Cav Archers.',
+ 'Cumans': 'Scouts, often a second Feudal TC. Cav Archers, Kipchaks.',
+ 'Lithuanians': 'Scouts into Knights. Leitis, relic-boosted cavalry.',
+ 'Burgundians': 'Scouts or fast Castle, early Cavalier. Coustilliers.',
+ 'Sicilians': 'Scouts or MAA. Donjons and Serjeants.',
+ 'Poles': 'Scouts or fast Castle into Szlachta cavalry. Obuch infantry.',
+ 'Bohemians': 'Monks and gunpowder. Hussite Wagons, Houfnice.',
+ 'Dravidians': 'Archers or MAA. Urumi and Skirms. No Knights.',
+ 'Bengalis': 'Archers or elephants. Ratha, Elephant Archers.',
+ 'Gurjaras': 'Scouts or MAA. Chakrams, Shrivamsha riders, Camels.',
+ 'Romans': 'MAA or scouts into Legionaries, Centurions. Scorpions late.',
+ 'Armenians': 'MAA or archers. Composite Bowmen.',
+ 'Georgians': 'Scouts or MAA. Monaspa cavalry. Strong on hills.',
  'Achaemenids': None,
  'Athenians': None,
  'Spartans': None,
- 'Shu': 'Archers with food from lumberjacks; War Chariots and Crossbows.',
- 'Wu': 'Scouts or archers; Fire Archers and strong navy.',
- 'Wei': 'Scouts with free villagers from eco upgrades; Tiger Cavalry and Xianbei Raiders.',
- 'Jurchens': 'Scouts or archers; Grenadiers and Iron Pagoda cavalry.',
- 'Khitans': 'Pastures instead of farms; Mounted Archers and Liao Dao infantry.',
+ 'Shu': 'Archers. War Chariots and Crossbows.',
+ 'Wu': 'Scouts or archers. Fire Archers, strong navy.',
+ 'Wei': 'Scouts. Tiger Cavalry and Xianbei Raiders.',
+ 'Jurchens': 'Scouts or archers. Grenadiers, Iron Pagoda cavalry.',
+ 'Khitans': 'Pastures, not farms. Mounted Archers, Liao Dao infantry.',
  'Macedonians': None,
  'Thracians': None,
  'Puru': None,
  'Muisca': None,
  'Mapuche': None,
  'Tupi': None,
- 'Saxons': 'New civ. Infantry and defence: expect towers and Castles (extra arrows), cheaper foot soldiers per TC/Castle, Hearth Troops.',
- 'Varangians': 'New civ. Scouts into Knights and Varangian Guards; extra gold from hunt, sheep and fish. Jarls vs infantry.',
- 'Danes': 'New civ. Infantry and siege: Varangian Guards, cheap Jomsvikings and siege that loots destroyed buildings.',
+ 'Saxons': 'Infantry and defence: towers, Castles, Hearth Troops.',
+ 'Varangians': 'Scouts into Knights and Varangian Guards. Jarls vs infantry.',
+ 'Danes': 'Infantry and siege: Varangian Guards, cheap Jomsvikings.',
 }
 
 # ---------------------------------------------------------------- replay lobby settings
@@ -652,6 +653,21 @@ class HerdWatcher(threading.Thread):
 # '--X Research Complete--' lines. Nothing is read out of the running game.
 TC_BUILDING = 109
 HOUSE_GRACE_MIN = 2.0                     # game minutes before 'Build a house' can show
+# How much spare pop is left before the warning shows, per stage of the game. Editable in
+# Settings; these are the starting values.
+HOUSE_BANDS = [(10, 2), (20, 4), (30, 8), (40, 10), (999, 15)]
+HOUSE_CAP20 = 1                           # the 20 pop exception: nothing at 18/20, 13/15 still warns
+
+def house_room(mins, cap, cfg=None):
+    """Spare population at which 'Build a house' starts showing, for this point in the game."""
+    c = cfg if cfg is not None else load_settings()
+    bands = c.get('house_bands') or HOUSE_BANDS
+    room = bands[-1][1]
+    for upto, spare in bands:
+        if mins < upto: room = spare; break
+    if cap == 20:
+        room = min(room, c.get('house_cap20', HOUSE_CAP20))
+    return room
 CASTLE_NOTE_MIN = 15                      # game minute for the 'two buildings for Castle Age?' reminder
 # each badge strip flashes between its own two shades: red TC idle, blue house, gold reminder
 TC_RED, TC_BLUE, TC_GOLD = ('#7d1510', '#e0362b'), ('#0f3f7a', '#1e78d6'), ('#a87a00', '#e6b422')
@@ -860,11 +876,12 @@ class TCWatcher(threading.Thread):
 
     def needs_house(self, mins, now):
         """Warn before you get housed: how close to the limit depends on how far into the game you are."""
-        room = 2 if mins < 10 else 4 if mins < 20 else 8 if mins < 30 else 10 if mins < 40 else 15
-        if self.pop and self.pop[1] == 20:
-            room = 1          # Ash: nothing at 18/20, but 13/15 still warns
-        return (bool(self.pop) and self.pop[1] < 200 and self.pop[1] - self.pop[0] <= room
-                and mins >= HOUSE_GRACE_MIN           # you start 4/5: no nagging in the opening,
+        if not self.pop: return False
+        cfg = load_settings()
+        room = house_room(mins, self.pop[1], cfg)
+        grace = cfg.get('house_grace', HOUSE_GRACE_MIN)
+        return (self.pop[1] < 200 and self.pop[1] - self.pop[0] <= room
+                and mins >= grace                     # you start 4/5: no nagging in the opening,
                 and now - self.t0 >= 60)              # even if the game clock is misread early on
 
     def message_lines(self, lines):
@@ -1299,6 +1316,7 @@ def save_settings(cfg):
     json.dump(cfg, open(SETTINGS, 'w', encoding='utf-8'), indent=2)
 
 STATS = os.path.join(os.path.dirname(SETTINGS), 'stats.json')
+PIDFILE = os.path.join(os.path.dirname(SETTINGS), 'overlay.pid')
 
 _stats_cache = {'key': None, 'data': None}
 
@@ -1908,8 +1926,9 @@ def overlay_is_admin():
     except Exception:
         return False
 
-ADMIN_MSG = ("The game is running as administrator (because Steam is), so Windows blocks the overlay's clicks. "
-             "Turn off 'Run as administrator' for Steam, restart Steam and the game, then try again.")
+ADMIN_MSG = ("The game runs as administrator, and Windows will not let a normal program click an "
+             "administrator window. Close this app, right click it and choose Run as administrator, "
+             "then try the invite again. Leave Steam as it is.")
 
 def focus_window(h):
     """Bring the game to the front. Windows blocks this unless we look like the user, so tap Alt first."""
@@ -2539,6 +2558,41 @@ class ScoutWatcher(threading.Thread):
         pid = wintypes.DWORD(); u.GetWindowThreadProcessId(fg, ctypes.byref(pid))
         return fg if _proc_name(pid.value).startswith('aoe2de') else None
 
+    @staticmethod
+    def own_windows():
+        """Screen rectangles of this app's own windows that a screen read would pick up. The
+        ones Windows is already hiding from screen reads are left out: they cannot be seen
+        anyway, and the minimap underneath them still can."""
+        ctypes, wintypes, u, _ = _win()
+        u.GetWindowDisplayAffinity.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        mine, out = os.getpid(), []
+        proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def cb(h, l):
+            if u.IsWindowVisible(h):
+                pid = wintypes.DWORD(); u.GetWindowThreadProcessId(h, ctypes.byref(pid))
+                if pid.value == mine:
+                    aff = wintypes.DWORD(0)
+                    hidden = u.GetWindowDisplayAffinity(h, ctypes.byref(aff)) and aff.value == 0x11
+                    r = wintypes.RECT()
+                    if not hidden and u.GetWindowRect(h, ctypes.byref(r)):
+                        out.append((r.left, r.top, r.right, r.bottom))
+            return True
+        u.EnumWindows(proto(cb), 0)
+        return out
+
+    def own_mask(self, np, w, h):
+        """True wherever one of this app's own windows covers the patch being read. Whatever
+        the overlay draws there is never a player, even when it is in a player's exact colour."""
+        m = np.zeros((h, w), dtype=bool)
+        try:
+            rx, ry = self.rect[0], self.rect[1]
+            for l_, t_, r_, b_ in self.own_windows():
+                x0, y0, x1, y1 = max(0, l_ - rx), max(0, t_ - ry), min(w, r_ - rx), min(h, b_ - ry)
+                if x1 > x0 and y1 > y0: m[y0:y1, x0:x1] = True
+        except Exception as e:
+            log('minimap watch, own windows: %r' % (e,))
+        return m
+
     def _region(self, h=None):
         h = h or find_game_window()
         if not h: return None
@@ -2577,13 +2631,14 @@ class ScoutWatcher(threading.Thread):
                 raw, w, h = self.grab(self.rect)
                 a = np.frombuffer(raw, dtype=np.uint8).reshape(h, w, 4)[:, :, :3].astype(np.int16)
                 bgr = a                                   # the grab hands back B, G, R
+                ours = self.own_mask(np, w, h)            # the overlay is never a player
                 hits = {}
                 for idx in left:
                     col = self.colours.get(idx)
                     if not col: continue
                     want = np.array([col[2], col[1], col[0]], dtype=np.int16)
                     m = (np.abs(bgr - want).sum(axis=2) <= self.TOL)
-                    hits[idx] = m
+                    hits[idx] = m & ~ours
                 if self.mask_n < self.MASK_LOOKS:         # the first few looks: anything already showing
                     if self.mask is None: self.mask = {}  # is part of the UI, not a player
                     for i, m in hits.items():
@@ -2594,7 +2649,7 @@ class ScoutWatcher(threading.Thread):
                 for idx, m in hits.items():
                     base = self.mask.get(idx)
                     if base is not None and base.shape == m.shape: m = m & ~base
-                    big = self._cluster(np, m)
+                    big, cx, cy = self._cluster(np, m)
                     if big < self.NEED:
                         self.near[idx] = 0
                         continue
@@ -2605,7 +2660,8 @@ class ScoutWatcher(threading.Thread):
                         with self.lock: self.found.add(idx)
                         log('minimap: %s found (%d pixels together, %ds into watching)'
                             % (targets.get(idx, idx), big, time.time() - self.t0))
-                        self.notify(idx, targets.get(idx, ''))
+                        self.notify(idx, targets.get(idx, ''),
+                                    self.rect[0] + cx, self.rect[1] + cy)
                 self.fail = 0
                 self.look += 1
                 if self.look % 40 == 0: self.rect = None     # in case the window has moved
@@ -2616,17 +2672,22 @@ class ScoutWatcher(threading.Thread):
                 time.sleep(2)
 
     def _cluster(self, np, m):
-        """The biggest bunch of matching pixels anywhere in the picture. One stray pixel off a
-        compression artefact scores 1; a scout scores a handful; a building scores plenty."""
+        """The biggest bunch of matching pixels, and where it is. One stray pixel off a
+        compression artefact scores 1; a scout scores a handful; a building scores plenty.
+        Returns (count, x, y) with the middle of the winning patch in layer pixels."""
         total = int(m.sum())
-        if total < self.NEED: return total
-        best, b = 0, self.BLOCK
+        if total < self.NEED: return 0, 0, 0
+        best, bx, by, b = 0, 0, 0, self.BLOCK
         for y in range(0, m.shape[0] - 1, b):
             row = m[y:y + b]
             if int(row.sum()) <= best: continue
             for x in range(0, m.shape[1] - 1, b):
-                best = max(best, int(row[:, x:x + b].sum()))
-        return best
+                n = int(row[:, x:x + b].sum())
+                if n > best: best, bx, by = n, x, y
+        if not best: return 0, 0, 0
+        patch = m[by:by + b, bx:bx + b]
+        ys, xs = np.nonzero(patch)                    # the middle of the pixels, not of the block
+        return best, int(bx + xs.mean()), int(by + ys.mean())
 
 def icon_names(seg, icons):
     out = []
@@ -2722,18 +2783,40 @@ def ensure_pillow():
         log('no Pillow, falling back to drawn crests: %r' % (e,))
         return False
 
-PLAYER_COLOURS = ['#3f6fd8', '#c4402f', '#3e9b39', '#d6c131',    # blue red green yellow
-                  '#2fb3c4', '#9142b5', '#9b9b93', '#e07f22']   # cyan purple grey orange
+# The game's own player colours, the same hex values it uses. It keeps two per player: the solid
+# colour it paints them in on the minimap, and the lighter one it writes their name in on the
+# score list. Both are read from the game's UIColors.json, so a colour mod is followed too;
+# these are the stock values, for when that file cannot be read.
+PLAYER_COLOURS = ['#0000ff', '#fe0000', '#00ff00', '#ffff01',    # blue red green yellow
+                  '#00ffe1', '#ff00ff', '#434343', '#ff8201']   # cyan purple grey orange
+PLAYER_TEXT = ['#6ea6eb', '#ff6464', '#00ff00', '#ffff00',
+               '#00ffe1', '#f16ce8', '#acacac', '#ffb415']
 PLAYER_NAMES = ['Blue', 'Red', 'Green', 'Yellow', 'Cyan', 'Purple', 'Grey', 'Orange']
+GAME_COLOURS = []
+
+def game_colours():
+    """(solid colours, name colours) for the eight players, straight from the game's own file."""
+    if not GAME_COLOURS:
+        solid, text = list(PLAYER_COLOURS), list(PLAYER_TEXT)
+        try:
+            tabs = (ui_json('UIColors.json') or {}).get('ColorTables', {})
+            for i, n in enumerate(MINIMAP_ORDER):
+                for key, into in (('MiniMap', solid), ('Text', text)):
+                    c = (tabs.get(n) or {}).get(key)
+                    if isinstance(c, list) and len(c) >= 3:
+                        into[i] = '#%02x%02x%02x' % (int(c[0]), int(c[1]), int(c[2]))
+        except Exception as e:
+            log('could not read the player colours, using the stock ones: %r' % (e,))
+        GAME_COLOURS.append((solid, text))
+    return GAME_COLOURS[0]
 
 def player_colour(idx):
-    """The colour this player actually has in the game, or None when it is not known."""
-    try: return PLAYER_COLOURS[int(idx) % 8], PLAYER_NAMES[int(idx) % 8]
+    """The solid colour this player has in the game, or None when it is not known."""
+    try: return game_colours()[0][int(idx) % 8], PLAYER_NAMES[int(idx) % 8]
     except Exception: return None, None
 
 def lighten(hex_colour, amount=0.42):
-    """Mix a colour towards white. The player colours are picked to read on grass, not on a
-    dark panel, so names drawn in them need lifting before they are easy to read."""
+    """Mix a colour towards white. Used to light a name up while the mouse is over it."""
     try:
         r, g, b = (int(hex_colour[i:i + 2], 16) for i in (1, 3, 5))
         mix = lambda c: int(round(c + (255 - c) * amount))
@@ -2742,9 +2825,9 @@ def lighten(hex_colour, amount=0.42):
         return hex_colour
 
 def name_colour(idx, fallback):
-    """The tone to write a player's name in: their own colour, lifted so it reads."""
-    hexc, _ = player_colour(idx)
-    return lighten(hexc) if hexc else fallback
+    """The colour to write a player's name in: the one the game itself writes it in."""
+    try: return game_colours()[1][int(idx) % 8]
+    except Exception: return fallback
 
 def short_record(games):
     w_ = sum(1 for g in games if g.get('result') == 'win')
@@ -2804,39 +2887,101 @@ def unique_units(blurb):
     if not m: return []
     return [re.sub(r'\s*\(.*?\)\s*$', '', u).strip(' •') for u in m.group(1).split('\\n') if u.strip(' •')]
 
-def uu_info(name, strings, icons):
+# The two openings each civ is usually played with on open maps. Common ranked habits, the kind
+# of thing you would say out loud in the lobby, not a rulebook. Shown until the opponent's own
+# recent games have been read, and when they have none to read.
+CIV_OPEN = {
+ 'Britons': ('Archers', 'Fast Castle'),      'Franks': ('Scouts', 'MAA'),
+ 'Goths': ('Scouts', 'Drush'),               'Teutons': ('MAA', 'Scouts'),
+ 'Japanese': ('MAA', 'Archers'),             'Chinese': ('Scouts', 'Archers'),
+ 'Byzantines': ('Archers', 'Skirms'),        'Persians': ('Scouts', 'Fast Castle'),
+ 'Saracens': ('Archers', 'MAA'),             'Turks': ('Scouts', 'Fast Castle'),
+ 'Vikings': ('MAA', 'Archers'),              'Mongols': ('Scouts', 'Cav Archers'),
+ 'Celts': ('Scouts', 'MAA'),                 'Spanish': ('Scouts', 'MAA'),
+ 'Aztecs': ('MAA', 'Eagles'),                'Maya': ('Archers', 'Eagles'),
+ 'Huns': ('Scouts', 'Cav Archers'),          'Koreans': ('Archers', 'Towers'),
+ 'Italians': ('Archers', 'Fast Castle'),     'Hindustanis': ('Scouts', 'Archers'),
+ 'Inca': ('Eagles', 'MAA'),                  'Magyars': ('Scouts', 'Cav Archers'),
+ 'Slavs': ('Scouts', 'MAA'),                 'Portuguese': ('Archers', 'Fast Castle'),
+ 'Ethiopians': ('Archers', 'Fast Castle'),   'Malians': ('Scouts', 'MAA'),
+ 'Berbers': ('Scouts', 'Fast Castle'),       'Khmer': ('Scouts', 'Fast Castle'),
+ 'Malay': ('Archers', 'Fast Castle'),        'Burmese': ('Scouts', 'MAA'),
+ 'Vietnamese': ('Archers', 'Skirms'),        'Bulgarians': ('MAA', 'Scouts'),
+ 'Tatars': ('Scouts', 'Archers'),            'Cumans': ('Scouts', 'Feudal TC'),
+ 'Lithuanians': ('Scouts', 'Knights'),       'Burgundians': ('Scouts', 'Fast Castle'),
+ 'Sicilians': ('Scouts', 'MAA'),             'Poles': ('Scouts', 'Fast Castle'),
+ 'Bohemians': ('Archers', 'Monks'),          'Dravidians': ('Archers', 'MAA'),
+ 'Bengalis': ('Archers', 'Elephants'),       'Gurjaras': ('Scouts', 'MAA'),
+ 'Romans': ('MAA', 'Scouts'),                'Armenians': ('MAA', 'Archers'),
+ 'Georgians': ('Scouts', 'MAA'),             'Shu': ('Archers', 'Scouts'),
+ 'Wu': ('Scouts', 'Archers'),                'Wei': ('Scouts', 'Archers'),
+ 'Jurchens': ('Scouts', 'Archers'),          'Khitans': ('Scouts', 'Mounted Archers'),
+ 'Saxons': ('MAA', 'Towers'),                'Varangians': ('Scouts', 'Knights'),
+ 'Danes': ('MAA', 'Scouts'),
+}
+
+def civ_typical(name, n=2):
+    """How this civ is usually opened, short enough to sit in a chip."""
+    return list(CIV_OPEN.get(name, ()))[:n]
+
+def uu_counter(civ, strings, icons, n=3):
+    """('Mangudai', 'Skirmishers, Knights') for a civ: their unique unit and the short answer
+    to it. The one thing worth reading mid game, so it is kept to one line."""
+    blurb = strings.get(str(120149 + civ), '')
+    for uu in unique_units(blurb):
+        v = next((strings[k] for k in strings
+                  if k.startswith('26') and strings[k].startswith('Create <b>%s<b>' % uu)), None)
+        if not v: continue
+        m = re.search(r'<AQUA>Countered by:(.*?)<DEFAULT>', v)
+        if not m: continue
+        beats = icon_names(m.group(1), icons)[:n]
+        if beats: return uu, ', '.join(beats)
+    return (unique_units(blurb) or [None])[0], ''
+
+def uu_facts(name, strings, icons):
+    """(strong against, countered by, sometimes countered by) for a unique unit, from the game's
+    own description of it. None when the game has no description for that unit."""
     key = next((k for k, v in strings.items() if k.startswith('26') and v.startswith('Create <b>%s<b>' % name)), None)
     if not key: return None
     v = strings[key]
     strong = re.search(r'<GREEN>Strong vs (.*?)<DEFAULT>', v)
     counter = re.search(r'<AQUA>Countered by:(.*?)<DEFAULT>', v)
     situ = re.search(r'<ORANGE>Situationally countered by:(.*?)<DEFAULT>', v)
+    return (clean(strong.group(1)) if strong else '',
+            icon_names(counter.group(1), icons) if counter else [],
+            icon_names(situ.group(1), icons) if situ else [])
+
+def uu_info(name, strings, icons):
+    facts = uu_facts(name, strings, icons)
+    if facts is None: return None
+    strong, counter, situ = facts
     lines = []
-    if strong: lines.append('Strong vs ' + clean(strong.group(1)))
-    if counter:
-        c = icon_names(counter.group(1), icons)
-        if c: lines.append('Counter with: ' + ', '.join(c))
-    if situ:
-        c = icon_names(situ.group(1), icons)
-        if c: lines.append('Sometimes: ' + ', '.join(c))
+    if strong: lines.append('Strong vs ' + strong)
+    if counter: lines.append('Counter with: ' + ', '.join(counter))
+    if situ: lines.append('Sometimes: ' + ', '.join(situ))
     return lines
 
 def civ_text(civ, strings, icons):
+    """The lines behind an opponent's name, kept to what is not on the panel already: what kind
+    of civ it is and how it plays in one line, then one line for each unique unit."""
     name = STOCK.get(str(10270 + civ)) or strings.get(str(10270 + civ), 'Civ %d' % civ)
-    from_openings = OPENINGS.get(name)
+    note = OPENINGS.get(name)
     blurb = strings.get(str(120149 + civ), '')
+    kind = re.sub(r'\s*civili[sz]ation\s*$', ' civ', clean(blurb.split('\\n')[0]), flags=re.I) if blurb else ''
     lines = []
-    if blurb:
-        first = clean(blurb.split('\\n')[0])
-        lines.append(first)
-    lines.append('Openings: ' + (from_openings or 'no notes yet, check their bonuses below.'))
-    if blurb and not from_openings:
-        bullets = [clean(b) for b in blurb.split('\\n') if b.strip().startswith('•')][:3]
-        lines += bullets
+    if kind or note: lines.append('. '.join(x.rstrip('.') for x in (kind, note) if x) + '.')
+    if blurb and not note:
+        for b in [clean(b).lstrip('• ') for b in blurb.split('\\n') if b.strip().startswith('•')][:2]:
+            lines.append(b if len(b) <= 80 else b[:79].rstrip() + '\u2026')
+    shown = uu_counter(civ, strings, icons)[0]         # its first three counters are on the panel already
     for uu in unique_units(blurb):
-        info = uu_info(uu, strings, icons)
-        lines.append('Unique unit: ' + uu)
-        if info: lines += ['   ' + x for x in info]
+        strong, beat, maybe = uu_facts(uu, strings, icons) or ('', [], [])
+        more = ((beat[3:] if uu == shown else beat) + maybe)[:3]
+        strong = strong.split(';')[0].strip()
+        bits = []
+        if strong: bits.append('strong vs ' + strong[:1].lower() + strong[1:].rstrip('.'))
+        if more: bits.append(('also ' if uu == shown and beat else '') + 'beaten by ' + ', '.join(more))
+        if bits: lines.append('%s: %s.' % (uu, '. '.join([bits[0]] + [b[:1].upper() + b[1:] for b in bits[1:]])))
     return name, '\n'.join(lines)
 
 
@@ -3033,21 +3178,50 @@ def _opponent_openings(profile, mode, n, key):
     log('openings for %s: %s' % (profile, ', '.join(r['o'] for r in rows) or 'none readable'))
     return rows
 
-def openings_lines(rows, civ=None, strings=None):
-    """Two short lines: what they open with most, then when they hit Feudal and how those games went."""
+SHORT_OPEN = [('Fast Castle into a boom', 'FC boom'), ('Men-at-arms', 'MAA'), ('Cavalry Archers', 'Cav Archers'),
+              ('Fast Castle into ', 'FC '), ('Fast Castle', 'Fast Castle'),
+              ('Steppe Lancers', 'Lancers'), ('Battle Elephants', 'Elephants'),
+              ('Skirmishers', 'Skirms'), ('Light Cavalry', 'Scouts'),
+              ('No early army', 'Nothing early')]
+
+def short_opening(label, parts=2, cap=20):
+    """'Men-at-arms > Archers > Towers' -> 'MAA > Archers'. Short enough to read at a glance
+    mid game, which is the whole point of putting it on screen."""
+    for long_, small in SHORT_OPEN: label = label.replace(long_, small)
+    bits = [b.strip() for b in label.split('>') if b.strip()][:parts]
+    out = ' > '.join(bits)
+    while len(out) > cap and len(bits) > 1:
+        bits.pop(); out = ' > '.join(bits)
+    return out
+
+def top_openings(rows, n=2):
+    """The openings this player uses most, as [(short label, how many times)]. Compound openings
+    are counted under their first move too, so 'Scouts' and 'Scouts > Knights' pull together."""
     if not rows: return []
-    tally = collections.Counter(r['o'] for r in rows)
-    top = [('%s ×%d' % (k, v)) if v > 1 else k for k, v in tally.most_common(4)]
-    out = ['Last %d game%s:  %s' % (len(rows), '' if len(rows) == 1 else 's', '  ·  '.join(top))]
-    bits = []
+    tally = collections.Counter(short_opening(r['o']) for r in rows)
+    if len(tally) > n:                       # too scattered to read: group by the opening move
+        first = collections.Counter(short_opening(r['o'], parts=1) for r in rows)
+        if first.most_common(1)[0][1] > tally.most_common(1)[0][1]: tally = first
+    tops = tally.most_common(n)
+    # a one-off next to a clear favourite is noise, not a habit, so it does not earn a chip
+    if len(rows) >= 4 and len(tops) > 1 and tops[0][1] >= 3:
+        tops = [t for t in tops if t[1] > 1]
+    return tops
+
+def openings_lines(rows, civ=None, strings=None):
+    """Two short lines: what they open with most, then how those games went."""
+    if not rows: return []
+    tally = collections.Counter(short_opening(r['o']) for r in rows)
+    top = [('%s ×%d' % (k, v)) if v > 1 else k for k, v in tally.most_common(3)]
+    out = ['Last %d: %s' % (len(rows), ', '.join(top))]
+    won = sum(1 for r in rows if r.get('result') == 'win')
+    bits = ['%dW %dL' % (won, len(rows) - won)]
     fs = sorted(r['f'] for r in rows if r.get('f'))
     if fs:
         mid = fs[len(fs) // 2]
-        bits.append('Feudal around %d:%02d' % (mid // 60, mid % 60))
-    won = sum(1 for r in rows if r.get('result') == 'win')
-    bits.append('won %d, lost %d' % (won, len(rows) - won))
+        bits.append('Feudal ~%d:%02d' % (mid // 60, mid % 60))
     if civ is not None and strings is not None:
-        mine = collections.Counter(r['o'] for r in rows if r.get('civ') == civ)
+        mine = collections.Counter(short_opening(r['o']) for r in rows if r.get('civ') == civ)
         if mine:
             bits.append('as %s: %s' % (civ_name(civ, strings), ', '.join(k for k, _ in mine.most_common(2))))
     out.append('  ·  '.join(bits))
@@ -3291,6 +3465,7 @@ REDC   = '#c0503a'
 DISPLAY = 'Georgia'
 F_TITLE = (DISPLAY, 12, 'bold')
 F_HEADLINE = (DISPLAY, 16, 'bold')
+F_MAP   = (DISPLAY, 13, 'bold')          # the map's name on the panel while you play
 F_HEAD  = (DISPLAY, 10, 'bold')
 F_BODY  = ('Segoe UI', 10)
 F_SMALL = ('Segoe UI', 8)
@@ -3298,7 +3473,7 @@ F_TINY  = ('Segoe UI', 7)
 
 def pick_fonts():
     """Called once Tk is up, when the font list can be read."""
-    global DISPLAY, F_TITLE, F_HEADLINE, F_HEAD
+    global DISPLAY, F_TITLE, F_HEADLINE, F_HEAD, F_MAP
     try:
         import tkinter.font as tkfont
         have = set(f.lower() for f in tkfont.families())
@@ -3310,6 +3485,7 @@ def pick_fonts():
         pass
     F_TITLE = (DISPLAY, 12, 'bold')
     F_HEADLINE = (DISPLAY, 16, 'bold')
+    F_MAP = (DISPLAY, 13, 'bold')
     F_HEAD = (DISPLAY, 10, 'bold')
 
 def hover(widget, normal, hot, key='fg'):
@@ -3402,8 +3578,30 @@ def icon_for(head):
     return 'diamond'
 
 # ---------------------------------------------------------------- window
+def single_instance():
+    """Only one overlay at a time. A second copy, however it was started, bows out quietly.
+    Also leaves its process id where the watchdog can find it to close it later."""
+    try:
+        import ctypes
+        h = ctypes.windll.kernel32.CreateMutexW(None, False, 'AoE2MapOverlay.SingleInstance')
+        if not h or ctypes.windll.kernel32.GetLastError() == 183:      # ERROR_ALREADY_EXISTS
+            return False
+        globals()['_INSTANCE_MUTEX'] = h                               # held for the life of the app
+    except Exception as e:
+        log('single instance check failed, carrying on: %r' % (e,))
+    try:
+        os.makedirs(os.path.dirname(PIDFILE), exist_ok=True)
+        with io.open(PIDFILE, 'w', encoding='utf-8') as fh: fh.write(str(os.getpid()))
+        import atexit
+        atexit.register(lambda: os.path.exists(PIDFILE) and os.remove(PIDFILE))
+    except Exception as e:
+        log('could not write the pid file: %r' % (e,))
+    return True
+
 def main():
     import tkinter as tk
+    if not single_instance():
+        log('another copy is already running'); return
     maps, strings, icons = load_data()
     me = my_profile()
     root = tk.Tk()
@@ -3446,17 +3644,21 @@ def main():
     close = icon_button(head, '\u2715', BG, hot=REDC)
     close.grid(row=0, column=5, sticky='e')
     sep = Rule(frame)
-    sep.grid(row=1, column=0, columnspan=4, sticky='we', pady=(8, 8))
+    sep.grid(row=1, column=0, columnspan=4, sticky='we', pady=(4, 5))
 
     # the map's facts, laid out as chips rather than one run-on line
     class Facts(object):
         """Stands in for the old body label: same .config(text=...) in, a tidy chip strip out."""
-        WIDTH = 430
+        WIDTH = 400                         # the room there is inside the panel
 
         def __init__(self, parent):
+            import tkinter.font as tkfont
+            self.font = tkfont.Font(font=F_SMALL)
             self.frame = tk.Frame(parent, bg=BG)
             self.text = ''
             self.binds = []
+            self.prose = []                 # the map's own description, hidden until asked for
+            self.show_prose = False
 
         # the bits the rest of main() uses it as a widget for
         def grid(self, **kw): self.frame.grid(**kw)
@@ -3472,8 +3674,8 @@ def main():
 
         def _chip(self, row, label):
             c = tk.Frame(row, bg=PANEL, highlightthickness=1, highlightbackground=RIM)
-            tk.Label(c, text=label, fg=TXT, bg=PANEL, font=F_SMALL, padx=8, pady=3).pack()
-            c.pack(side='left', padx=(0, 6), pady=(0, 6))
+            tk.Label(c, text=label, fg=TXT, bg=PANEL, font=F_SMALL, padx=6, pady=1).pack()
+            c.pack(side='left', padx=(0, 4), pady=(0, 4))
             return c
 
         def _note(self, parent, label, colour):
@@ -3482,9 +3684,20 @@ def main():
             n.pack(fill='x', pady=(0, 4))
             return n
 
+        def tell_me_about_the_map(self, on=None):
+            """The map's own description is hidden by default: mid game the counts are what you
+            want, not a paragraph. Click the map name to read it."""
+            self.show_prose = (not self.show_prose) if on is None else on
+            self.render()
+            return self.show_prose
+
+        def has_prose(self):
+            return bool(self.prose)
+
         def render(self):
             for w in self.frame.winfo_children(): w.destroy()
             made = []
+            self.prose = []
             lines = [l for l in self.text.split('\n') if l.strip()]
             for li, line in enumerate(lines):
                 if li and line.startswith('('):                       # the herd-tracking status notes
@@ -3500,10 +3713,14 @@ def main():
                     else:
                         prose.append(part)                            # the map's own description
                 if prose:
-                    made.append(self._note(self.frame, '  \u00b7  '.join(prose), '#bdb7a6'))
+                    n = self._note(self.frame, '  \u00b7  '.join(prose), '#bdb7a6')
+                    made.append(n)
+                    self.prose.append(n)
+                    if not self.show_prose: n.pack_forget()
                 row, used = None, 0
                 for ch in chips:
-                    w = 9 + 7 * len(ch)                               # near enough for wrapping
+                    ch = ch.replace(' OR ', ' / ')
+                    w = self.font.measure(ch) + 18                    # the words, the chip around them, the gap after
                     if row is None or used + w > self.WIDTH:
                         row = tk.Frame(self.frame, bg=BG); row.pack(fill='x'); used = 0
                         made.append(row)
@@ -3530,14 +3747,14 @@ def main():
             frame.configure(padx=12, pady=9)
             title.config(font=F_TITLE)                 # the app's own name, smaller: the button shares its row
         else:
-            title.config(font=F_HEADLINE)              # the map's name is the headline while you play
+            title.config(font=F_MAP)                   # the map's name is the headline while you play
             body.grid()
             if not st.get('rolled'):
                 sep.grid()
                 if st.get('footer', True): footsep.grid()
-            frame.configure(padx=16, pady=13)
+            frame.configure(padx=12, pady=8)
     rec_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w')
-    rec_line.grid(row=3, column=0, columnspan=4, sticky='w', pady=(8, 0)); rec_line.grid_remove()
+    rec_line.grid(row=3, column=0, columnspan=4, sticky='w', pady=(3, 0)); rec_line.grid_remove()
 
     # the card that goes up once the service confirms how the last game went
     card = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=RIM, padx=10, pady=7)
@@ -3550,8 +3767,8 @@ def main():
     card_line = tk.Label(card, text='', fg=TXT, bg=PANEL, font=F_SMALL, anchor='w', justify='left')
     card_line.grid(row=1, column=0, columnspan=2, sticky='w', pady=(3, 0))
     # the score line: how your side's total compares, and the flag when the game looks gone
-    score_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w', pady=2)
-    score_line.grid(row=4, column=0, columnspan=4, sticky='we', pady=(8, 0)); score_line.grid_remove()
+    score_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w', pady=1)
+    score_line.grid(row=4, column=0, columnspan=4, sticky='we', pady=(3, 0)); score_line.grid_remove()
     opp_area = tk.Frame(frame, bg=BG)
     opp_area.grid(row=5, column=0, columnspan=4, sticky='we')
 
@@ -3797,20 +4014,32 @@ def main():
     watcher.on_lines = tcw.message_lines
 
     # ---- score check: your side's total against theirs, and a flag once the game looks gone
+    def place_found():
+        """The 'Red found' note sits on the score's line, over on the right. When the two do not
+        fit side by side, or the red concede bar has the line, it takes the line above instead."""
+        if ' found' not in rec_line.cget('text') or st.get('rolled'): return
+        beside = bool(score_line.winfo_manager()) and score_line.cget('bg') == BG
+        if beside:
+            frame.update_idletasks()
+            beside = score_line.winfo_reqwidth() + rec_line.winfo_reqwidth() + 12 <= 400
+        rec_line.grid(row=4 if beside else 3, column=0, columnspan=4, sticky='e' if beside else 'w', pady=(3, 0))
+        rec_line.lift()                               # the score's label runs the full width under it
+
     def score_notify(mine_, theirs, behind, flag):
         def go():
             if mine_ is None or st.get('last') is None:
-                score_line.config(text=''); score_line.grid_remove(); return
+                score_line.config(text=''); score_line.grid_remove(); place_found(); return
             pct = int(round(abs(behind) * 100))
             nums = '{:,} against {:,}'.format(mine_, theirs)
             if flag:
-                score_line.config(text='  CONCEDE AVAILABLE   \u00b7   %d%% behind   \u00b7   %s  ' % (pct, nums),
+                score_line.config(text=' CONCEDE AVAILABLE  \u00b7  %d%% behind  \u00b7  %s ' % (pct, nums),
                                   fg='white', bg='#b3261e', font=(DISPLAY, 9, 'bold'))
             else:
                 where = 'level' if pct == 0 else '%d%% %s' % (pct, 'behind' if behind > 0 else 'ahead')
                 score_line.config(text='Score   %s   \u00b7   %s' % (nums, where), bg=BG, font=F_SMALL,
                                   fg=REDC if behind > CONCEDE_BEHIND else MUT)
             if not st.get('rolled'): score_line.grid()
+            place_found()
         try: root.after(0, go)
         except Exception: pass
     scorew = ScoreWatcher(score_notify, lambda: tcw.game_minutes(time.time()))
@@ -3821,17 +4050,71 @@ def main():
         scorew.active = False
         score_line.config(text=''); score_line.grid_remove()
 
-    def scout_found(idx, label):
+    def ping_at(x, y, colour):
+        """A ring drawn on the screen over the spot on your minimap where the opponent turned up.
+
+        This is a picture sitting on top of your own screen, like the rest of the overlay. It is
+        not the game's flare: nothing is sent to the game, nothing is placed in the world, and
+        your team sees none of it.
+        """
+        KEY = '#010203'                      # the colour the window makes see-through
+        S = 74
+        try:
+            w = tk.Toplevel(root)
+            w.overrideredirect(True)
+            w.attributes('-topmost', True)
+            try:
+                w.attributes('-transparentcolor', KEY)
+            except tk.TclError:
+                w.destroy(); return          # without it this would be a black square on your map
+            px = max(0, min(int(x - S / 2), root.winfo_screenwidth() - S))
+            py = max(0, min(int(y - S / 2), root.winfo_screenheight() - S))
+            w.geometry('%dx%d+%d+%d' % (S, S, px, py))
+            c = tk.Canvas(w, width=S, height=S, bg=KEY, highlightthickness=0)
+            c.pack()
+            w.update_idletasks()
+            try:
+                import ctypes
+                h = ctypes.windll.user32.GetParent(w.winfo_id()) or w.winfo_id()
+                ex = ctypes.windll.user32.GetWindowLongW(h, -20)
+                ctypes.windll.user32.SetWindowLongW(h, -20, ex | 0x20 | 0x80 | 0x08000000)
+                ctypes.windll.user32.SetWindowDisplayAffinity(h, 0x11)   # keep it out of captures
+            except Exception:
+                pass
+        except tk.TclError:
+            return
+        mid = S / 2.0
+        def frame(step=0):
+            try:
+                c.delete('all')
+                for k in range(2):                       # two thin rings chasing each other outward
+                    t = step - k * 8
+                    if t < 0: continue
+                    t %= 21
+                    r = 5 + t * 1.5
+                    if r > mid - 2: continue
+                    c.create_oval(mid - r, mid - r, mid + r, mid + r, outline=colour,
+                                  width=2 if t < 8 else 1)
+                c.create_oval(mid - 2, mid - 2, mid + 2, mid + 2, fill=colour, outline=colour)
+                if step < 46: w.after(45, lambda: frame(step + 1))   # about two seconds, then gone
+                else: w.destroy()
+            except tk.TclError:
+                pass
+        frame()
+
+    def scout_found(idx, label, x=None, y=None):
         """An opponent's colour has turned up on your own minimap for the first time."""
         def go():
             civ = (st.get('opp_civ') or {}).get(idx, '')
             rec_line.config(text='\u25b8 %s found%s' % (label, ('   \u00b7   ' + civ) if civ else ''),
                             fg=name_colour(idx, GOLDC))
-            rec_line.grid()
+            rec_line.grid(); place_found()
             def clear():
                 if '%s found' % label in rec_line.cget('text'):
                     rec_line.config(text=''); rec_line.grid_remove()
             root.after(25000, clear)
+            if x is not None and load_settings().get('scout_ping', True):
+                ping_at(x, y, name_colour(idx, GOLDC))
         try: root.after(0, go)
         except Exception: pass
         play_voice(os.path.join(sound_dir(), '%s.wav' % (label or '').lower()))
@@ -4175,7 +4458,7 @@ def main():
         if not t:
             rec_line.config(text=''); rec_line.grid_remove(); return
         rec_line.config(text='%s  \u00b7  %s' % (civ, t.replace('Your record: ', '')))
-        rec_line.grid()
+        rec_line.grid(row=3, column=0, columnspan=4, sticky='w', pady=(3, 0))
 
     def hide_card():
         st['card'] = None
@@ -4335,7 +4618,14 @@ def main():
             elif w is not rec_line or rec_line.cget('text'): w.grid()
         st['rolled'] = up
         foot_fit()
-    st['actions'][title] = toggle_roll
+
+    def title_click():
+        """In a game the map name reads out the map's description. Out of a game, where there is
+        nothing to describe, it still rolls the overlay up as it always did."""
+        if st.get('last') is not None and body.has_prose():
+            body.tell_me_about_the_map(); foot_fit(); return
+        toggle_roll()
+    st['actions'][title] = title_click
 
     def hover_fade():
         """Solid while the mouse is over it, faded while you are playing. Polled, because
@@ -4445,6 +4735,28 @@ def main():
             except Exception: pass
         threading.Thread(target=where_am_i, daemon=True).start()
 
+        # Ash's position on the one question everyone asks. First thing in Settings on purpose.
+        fair = tk.Frame(outer, bg=PANEL, highlightthickness=1, highlightbackground=RIM,
+                        padx=12, pady=10)
+        fair.pack(fill='x', pady=(14, 0))
+        fh = tk.Frame(fair, bg=PANEL); fh.pack(fill='x')
+        fc = tk.Canvas(fh, width=15, height=15, bg=PANEL, highlightthickness=0)
+        draw_icon(fc, 'shield', 15, GOLD); fc.pack(side='left', padx=(0, 7))
+        tk.Label(fh, text='IS THIS CHEATING?', fg=GOLD, bg=PANEL,
+                 font=(DISPLAY, 9, 'bold')).pack(side='left')
+        for body_, col_ in (
+            ('No. I absolutely do not like cheating. This app never exposes you to information '
+             'you do not have, and it will never do things like moving units or performing a '
+             'game based action.', TXT),
+            ('The grey area: the overlay reads information from visible logs, such as SHEEP FOUND, '
+             'and makes it more presentable. That is not reading hidden information, so it is not '
+             'viewed as breaching the rules, though I understand some may be concerned. The rules '
+             'here are going to be clarified with the dev team.', '#cfc8b6'),
+            ('Rest assured: this app will never expose new information to the player. It does not '
+             'give you anything you do not already have, and it does not move units.', GOLDD)):
+            tk.Label(fair, text=body_, fg=col_, bg=PANEL, font=F_SMALL, anchor='w',
+                     justify='left', wraplength=404).pack(fill='x', pady=(7, 0))
+
         section('Discord channel name')
         ch = tk.Entry(outer, width=46); style_entry(ch)
         ch.insert(0, cfg.get('channel', 'wesley')); ch.pack(fill='x', ipady=3)
@@ -4454,24 +4766,108 @@ def main():
         wh = tk.Entry(outer, width=46, show='\u2022'); style_entry(wh)
         wh.insert(0, cfg.get('webhook', '')); wh.pack(fill='x', ipady=3)
 
-        section('Friends to invite to your ranked party (one per line)',
-                "Type their names exactly as they show in the game's Invite To Party list.")
-        fr = tk.Text(outer, width=46, height=6); style_entry(fr)
-        fr.insert('1.0', '\n'.join(cfg.get('friends', []))); fr.pack(fill='x')
+        section('Friends to invite to your ranked party',
+                "Exactly as their name shows in the game's Invite To Party list. "
+                'Saved the moment you add or remove one, no need to press Save.')
+        friends = [f for f in cfg.get('friends', []) if f.strip()]
+        fr_list = tk.Frame(outer, bg=INK); fr_list.pack(fill='x')
+        fr_add = tk.Frame(outer, bg=INK); fr_add.pack(fill='x', pady=(6, 0))
+        fr_msg = tk.Label(outer, text='', fg=GREEN, bg=INK, font=F_TINY, anchor='w')
+        fr_msg.pack(fill='x')
+
+        def friends_saved(note):
+            merged = load_settings(); merged['friends'] = list(friends); save_settings(merged)
+            fr_msg.config(text=note, fg=GREEN)
+            win.after(2000, lambda: fr_msg.cget('text') == note and fr_msg.config(text=''))
+
+        def draw_friends():
+            for w in fr_list.winfo_children(): w.destroy()
+            if not friends:
+                tk.Label(fr_list, text='Nobody yet. Add a name below.', fg=FAINT, bg=INK,
+                         font=F_SMALL, anchor='w').pack(fill='x', pady=(2, 0))
+                return
+            for nm in list(friends):
+                row = tk.Frame(fr_list, bg=PANEL, highlightthickness=1, highlightbackground=EDGE)
+                row.pack(fill='x', pady=2)
+                tk.Label(row, text=nm, fg=TXT, bg=PANEL, font=F_BODY, anchor='w',
+                         padx=9, pady=4).pack(side='left')
+                x = tk.Label(row, text='\u2715', fg=MUT, bg=PANEL, font=F_SMALL, padx=10, pady=4,
+                             cursor='hand2')
+                x.pack(side='right')
+                hover(x, MUT, REDC)
+                def drop(_e=None, who=nm):
+                    if who in friends: friends.remove(who)
+                    draw_friends(); friends_saved('Removed %s.' % who)
+                x.bind('<Button-1>', drop)
+
+        fr_entry = tk.Entry(fr_add); style_entry(fr_entry)
+        fr_entry.pack(side='left', fill='x', expand=True, ipady=3)
+        def add_friend(_e=None):
+            nm = fr_entry.get().strip()
+            if not nm: return
+            if nm.lower() in [f.lower() for f in friends]:
+                fr_msg.config(text='%s is already on the list.' % nm, fg=GOLDC)
+                fr_entry.delete(0, 'end'); return
+            friends.append(nm); fr_entry.delete(0, 'end')
+            draw_friends(); friends_saved('Added %s.' % nm)
+        fr_entry.bind('<Return>', add_friend)
+        flat_button(fr_add, 'Add', add_friend).pack(side='left', padx=(8, 0))
+        draw_friends()
 
         section('Discord people to tag (optional, one per line)',
-                'A plain name shows as @name. A Discord user ID (numbers) pings them properly. Blank uses the list above.')
+                'A plain name shows as @name, which does not notify anyone. A user ID does, and looks '
+                'like 1153617537565728808.\n'
+                'To get one: Discord > User Settings > Advanced > turn on Developer Mode, then right '
+                'click the person (in a chat or the member list) and choose Copy User ID.\n'
+                'Leave this blank to use the friends list above.')
         pg = tk.Text(outer, width=46, height=4); style_entry(pg)
         pg.insert('1.0', '\n'.join(cfg.get('pings', []))); pg.pack(fill='x')
 
         section('Idle Town Center alert',
-                'A red badge under the Global Queue when nothing is queued at your Town Center, or BUILD A HOUSE '
-                'when you are close to the pop limit (2 spare to 10 min, 4 to 20, 8 to 30, 10 to 40, then 15; '
-                'not in the first 2 game minutes). Clicks go straight through the badge to the game.')
+                'A red badge under the Global Queue when nothing is queued at your Town Center. '
+                'Clicks go straight through the badge to the game.')
         tc_on = tk.BooleanVar(value=cfg.get('tc_alert', True))
         for var, txt in ((tc_on, 'Show the alert'),):
             tk.Checkbutton(outer, text=txt, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
                            activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
+        section('Build a house warning',
+                'How much spare population is left when the warning starts. Lower means it waits '
+                'until you are closer to being housed. Early on you want a small number, late on a '
+                'big one, because you build pop much faster.')
+        bands = cfg.get('house_bands') or HOUSE_BANDS
+        band_grid = tk.Frame(outer, bg=INK); band_grid.pack(fill='x', pady=(2, 0))
+        band_e = []
+        for col, (upto, spare) in enumerate(bands):
+            cell = tk.Frame(band_grid, bg=INK); cell.grid(row=0, column=col, padx=(0, 10))
+            tk.Label(cell, text=('to %d min' % upto) if upto < 999 else 'after that',
+                     fg=MUT, bg=INK, font=F_TINY).pack()
+            e = tk.Entry(cell, width=4, justify='center'); style_entry(e)
+            e.insert(0, str(spare)); e.pack(ipady=2)
+            band_e.append((upto, e))
+        extra_grid = tk.Frame(outer, bg=INK); extra_grid.pack(fill='x', pady=(8, 0))
+        tk.Label(extra_grid, text='Nothing before', fg=MUT, bg=INK, font=F_SMALL).pack(side='left')
+        hg_e = tk.Entry(extra_grid, width=4, justify='center'); style_entry(hg_e)
+        hg_e.insert(0, str(cfg.get('house_grace', HOUSE_GRACE_MIN))); hg_e.pack(side='left', padx=6, ipady=2)
+        tk.Label(extra_grid, text='game minutes.      On a 20 pop cap, at most',
+                 fg=MUT, bg=INK, font=F_SMALL).pack(side='left')
+        h20_e = tk.Entry(extra_grid, width=4, justify='center'); style_entry(h20_e)
+        h20_e.insert(0, str(cfg.get('house_cap20', HOUSE_CAP20))); h20_e.pack(side='left', padx=6, ipady=2)
+        tk.Label(extra_grid, text='spare', fg=MUT, bg=INK, font=F_SMALL).pack(side='left')
+        tk.Label(outer, text='With 1 there, 18/20 stays quiet but 13/15 still warns.',
+                 fg=FAINT, bg=INK, font=F_TINY, anchor='w').pack(fill='x', pady=(4, 0))
+
+        def house_cfg():
+            """The warning rules as typed, falling back to what they were if a box is not a number."""
+            out = []
+            for i, (upto, e) in enumerate(band_e):
+                try: out.append([upto, max(0, min(100, int(float(e.get().strip()))))])
+                except ValueError: out.append([upto, bands[i][1]])
+            try: grace = max(0.0, min(30.0, float(hg_e.get().strip())))
+            except ValueError: grace = cfg.get('house_grace', HOUSE_GRACE_MIN)
+            try: cap20 = max(0, min(20, int(float(h20_e.get().strip()))))
+            except ValueError: cap20 = cfg.get('house_cap20', HOUSE_CAP20)
+            return out, grace, cap20
 
         lp_on = tk.BooleanVar(value=cfg.get('loading_panels', False))
         section('Loading screen panels',
@@ -4514,13 +4910,17 @@ def main():
 
         section('Opponent spotted alert',
                 'Says the colour out loud the first time an opponent shows up on your own minimap, '
-                'and puts a line on the overlay. It reads the minimap only, which paints explored '
-                'ground and nothing else, so it never tells you anything you are not already being '
-                'shown. It does not flare or click for you.')
+                'puts a line on the overlay, and rings the spot. It reads the minimap only, which '
+                'paints explored ground and nothing else, so it never tells you anything you are '
+                'not already being shown. The ring is drawn on your screen, it is not the game\'s '
+                'flare: nothing is sent to the game and your team sees none of it.')
         sc_on = tk.BooleanVar(value=cfg.get('scout_alert', True))
-        tk.Checkbutton(outer, text='Call out opponents', variable=sc_on, fg=TXT, bg=INK,
-                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
-                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        sp_on = tk.BooleanVar(value=cfg.get('scout_ping', True))
+        for var, txt in ((sc_on, 'Call out opponents'),
+                         (sp_on, 'Ring the spot on the minimap as well')):
+            tk.Checkbutton(outer, text=txt, variable=var, fg=TXT, bg=INK,
+                           selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                           font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
         voice_row = tk.Frame(outer, bg=INK); voice_row.pack(fill='x', pady=(4, 0))
         voice_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_TINY, anchor='w',
                              justify='left', wraplength=400)
@@ -4586,12 +4986,15 @@ def main():
 
         sr2_ = Rule(foot); sr2_.configure(bg=INK); sr2_.pack(fill='x', pady=(6, 0))
         def collect():
-            return {'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(),
+            hb, hg, h20 = house_cfg()
+            return {'house_bands': hb, 'house_grace': hg, 'house_cap20': h20,
+                    'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(),
                     'tc_alert': bool(tc_on.get()), 'scout_alert': bool(sc_on.get()),
+                    'scout_ping': bool(sp_on.get()),
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
                     'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
                     'loading_panels': bool(lp_on.get()),
-                    'friends': [l.strip() for l in fr.get('1.0', 'end').splitlines() if l.strip()],
+                    'friends': list(friends),
                     'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
         def save():
             c = collect()
@@ -4908,52 +5311,162 @@ def main():
         opps = [p for p in players if p is not mine and (mine is None or p['team'] <= 1 or p['team'] != mine['team'])]
         team_game = len(players) > 2
         if opps:
-            opp_area.grid_configure(pady=(10, 0))
-            cap = tk.Label(opp_area, text='OPPONENT' + ('S' if len(opps) > 1 else ''), fg=BRONZE, bg=BG,
+            opp_area.grid_configure(pady=(5, 0))
+        if len(opps) > 1:                          # one opponent needs no heading
+            cap = tk.Label(opp_area, text='OPPONENTS', fg=BRONZE, bg=BG,
                            font=(DISPLAY, 8, 'bold'), anchor='w')
             cap.grid(row=0, column=0, sticky='w'); bind_all(cap)
+        folded = bool(load_settings().get('opp_folded', False))    # how you left it last time
+        opp_area.columnconfigure(0, weight=1)                      # the rating stays hard right, folded or not
         for i, p in enumerate(opps):
             name, text = civ_text(p['civ'], strings, icons)
-            info = {'elo': ''}
-            tone = name_colour(p.get('colour'), RED)        # their own player colour, lifted to read
-            head = tk.Label(opp_area, text='', fg=tone, bg=BG, font=F_HEAD, anchor='w', cursor='hand2')
-            det = tk.Label(opp_area, text=text, fg='#cfc8b6', bg=BG, font=F_SMALL, anchor='w', justify='left', wraplength=415)
-            # how this player has actually been opening, filled in once their recent games are read
-            opn = tk.Label(opp_area, text='', fg=FAINT, bg=BG, font=F_SMALL, anchor='w', justify='left', wraplength=415)
-            head.grid(row=3 * i + 1, column=0, sticky='w', pady=(4, 1)); det.grid(row=3 * i + 3, column=0, sticky='w', padx=(14, 0))
-            opn.grid(row=3 * i + 2, column=0, sticky='w', padx=(14, 0)); opn.grid_remove()
-            hover(head, tone, lighten(tone, 0.35))
-            det.grid_remove()                                             # starts collapsed
-            def label(h=head, dt=det, nm=name, pn=p['name'], inf=info):
-                arrow = '\u25BE ' if dt.winfo_manager() else '\u25B8 '
-                h.config(text=arrow + '%s  (%s)%s' % (nm, pn, ('   ' + inf['elo']) if inf['elo'] else ''))
-            label()
-            def flip(dt=det, lb=label):
-                toggle(dt); lb()
-            st['actions'][head] = flip
-            bind_all(head); bind_all(det)
+            tone = name_colour(p.get('colour'), RED)        # the colour the game writes their name in
+            solid = player_colour(p.get('colour'))[0] or tone   # and the one it paints them in
+            nm = {'shown': p['name'] if len(p['name']) <= 20 else p['name'][:19] + '\u2026'}
+            row = tk.Frame(opp_area, bg=BG)
+            row.grid(row=i + 1, column=0, sticky='we', pady=(3 if i else 0, 0))
+            row.columnconfigure(0, weight=1)
+
+            # The player's line: who they are, their civ, what they open with, and their ladder
+            # rating. 1v1 is the number that matters, so it is the big one; the team rating sits
+            # beside it, quieter. Click the line and everything under it folds away.
+            top = tk.Frame(row, bg=BG); top.grid(row=0, column=0, sticky='we')
+            top.columnconfigure(4, weight=1)
+            dot = tk.Canvas(top, width=11, height=11, bg=BG, highlightthickness=0, cursor='hand2')
+            dot.create_oval(1, 1, 10, 10, fill=solid, outline=RIM)
+            dot.grid(row=0, column=0, padx=(0, 7))
+            who = tk.Label(top, text='', fg=tone, bg=BG, font=F_HEAD, anchor='w', cursor='hand2')
+            who.grid(row=0, column=1, sticky='w')
+            civl = tk.Label(top, text=name.upper(), fg=TXT, bg=BG, font=(DISPLAY, 9, 'bold'),
+                            anchor='w', cursor='hand2')
+            civl.grid(row=0, column=2, sticky='w', padx=(8, 0), pady=(2, 0))
+            opn = tk.Frame(top, bg=BG)
+            opn.grid(row=0, column=3, sticky='w', padx=(8, 0))
+            elo1 = tk.Label(top, text='', fg=GOLDD, bg=BG, font=(DISPLAY, 11, 'bold'), anchor='e')
+            elo1.grid(row=0, column=5, sticky='e')
+            elo2 = tk.Label(top, text='', fg=MUT, bg=BG, font=F_TINY, anchor='e')
+            elo2.grid(row=0, column=6, sticky='e', padx=(6, 0))
+
+            # Under it: what beats their unique unit, and behind that line the notes on the civ.
+            more = tk.Frame(row, bg=BG)
+            more.grid(row=1, column=0, sticky='we', padx=(18, 0))
+            beat = tk.Frame(more, bg=BG)
+            beat.grid(row=0, column=0, sticky='w', pady=(2, 0))
+            det = tk.Label(more, text=text, fg='#cfc8b6', bg=BG, font=F_SMALL, anchor='w',
+                           justify='left', wraplength=380)
+            det.grid(row=1, column=0, sticky='w', pady=(2, 0)); det.grid_remove()
+            if folded: more.grid_remove()
+
+            def mark(parent, kind, col):
+                c = tk.Canvas(parent, width=14, height=14, bg=BG, highlightthickness=0)
+                draw_icon(c, kind, 14, col); c.pack(side='left', padx=(0, 6))
+                bind_all(c); return c
+
+            uu, beats = uu_counter(p['civ'], strings, icons)
+            mark(beat, 'swords', BRONZE)
+            u1 = tk.Label(beat, text=uu or 'Civ notes', fg='#e6d9b0', bg=BG, font=F_SMALL, cursor='hand2')
+            u1.pack(side='left')
+            u2 = tk.Label(beat, text=('  \u2192 ' + beats) if beats else '  (no listed counter)' if uu else '',
+                          fg=GREEN if beats else FAINT, bg=BG, font=F_SMALL, cursor='hand2')
+            u2.pack(side='left')
+            u3 = tk.Label(beat, text='  \u25be', fg=FAINT, bg=BG, font=F_SMALL, cursor='hand2')   # there is more behind this line
+            u3.pack(side='left')
+
+            def name_now(h=who, box=more, nm=nm):
+                h.config(text=('\u25be ' if box.winfo_manager() else '\u25b8 ') + nm['shown'])
+            def fold(box=more, show=name_now):
+                """A click on the player's line: everything under it folds away, or comes back.
+                It is remembered, so the next game starts the way you left this one."""
+                toggle(box); show()
+                try:
+                    c = load_settings(); c['opp_folded'] = not box.winfo_manager(); save_settings(c)
+                except Exception as e:
+                    log('could not remember the fold: %r' % (e,))
+            def notes(dt=det, arrow=u3):
+                """A click on the unique unit's line: the notes on the civ, and how this player opens."""
+                toggle(dt); arrow.config(text='  \u25b4' if dt.winfo_manager() else '  \u25be')
+            def fit(line=top, box=opn, nm=nm, show=name_now):
+                """Keep the player's line inside the panel. The second opening goes first, then
+                the end of a long name."""
+                for _ in range(24):
+                    line.update_idletasks()
+                    if line.winfo_reqwidth() <= 400: break
+                    kids = [w for w in box.winfo_children() if isinstance(w, tk.Frame)]
+                    if len(kids) > 1: kids[-1].destroy()
+                    elif len(nm['shown']) > 9: nm['shown'] = nm['shown'][:-3].rstrip('\u2026') + '\u2026'; show()
+                    else: break
+            name_now()
+            hover(who, tone, lighten(tone, 0.35))
+            for w in (top, dot, who, civl, opn): st['actions'][w] = fold
+            for w in [beat] + beat.winfo_children(): st['actions'][w] = notes
+            for w in (row, top, dot, who, civl, opn, more, beat, det, u1, u2, u3): bind_all(w)
+
+            # the civ's usual openings until their own games have been read
+            def chips(box, tops, lead_colour, click, after):
+                for w in box.winfo_children(): w.destroy()
+                for n_, (lab, cnt) in enumerate(tops):
+                    lead = n_ == 0
+                    c = tk.Frame(box, bg=PANEL, highlightthickness=1, cursor='hand2',
+                                 highlightbackground=lead_colour if lead else RIM)
+                    t = tk.Label(c, text=lab.upper(), fg=GOLDD if lead else TXT, bg=PANEL,
+                                 font=(DISPLAY, 9, 'bold'), padx=6, pady=1)
+                    t.pack(side='left')
+                    bits = [t]
+                    if cnt:
+                        x = tk.Label(c, text='×%d' % cnt, fg=MUT, bg=PANEL, font=F_SMALL, pady=1)
+                        x.pack(side='left', padx=(0, 6)); bits.append(x)
+                    c.pack(side='left', padx=(0, 4))
+                    for w in [c] + bits:
+                        st['actions'][w] = click; bind_all(w)
+                box.grid(); after()
+
+            def note(box, txt, click, after, col=FAINT):
+                for w in box.winfo_children(): w.destroy()
+                lb = tk.Label(box, text=txt, fg=col, bg=BG, font=F_SMALL, anchor='w')
+                lb.pack(side='left'); st['actions'][lb] = click; bind_all(lb)
+                box.grid(); after()
+
+            typical = [(x, 0) for x in civ_typical(name)]
+            if typical: chips(opn, typical, RIM, fold, fit)
+            else: note(opn, 'no openings on file', fold, fit)
+
             if p.get('human'):
-                def look(pp=p, inf=info, lb=label):
-                    inf['elo'] = elo_text(fetch_elo(pp.get('profile') or None, pp['name']), team_game)
-                    try: root.after(0, lb)
+                def look(pp=p, a=elo1, b=elo2, fit_=fit):
+                    e = fetch_elo(pp.get('profile') or None, pp['name'])
+                    def put():
+                        try:
+                            if e.get('1v1'): a.config(text=str(e['1v1']))
+                            if e.get('tg'): b.config(text='TG %d' % e['tg'])
+                            if not e.get('1v1') and e.get('tg'):
+                                a.config(text=str(e['tg'])); b.config(text='TG')
+                            fit_()
+                        except Exception: pass
+                    try: root.after(0, put)
                     except Exception: pass
                 threading.Thread(target=look, daemon=True).start()
-                def habits(pp=p, lab_=opn):
-                    def show(txt, col):
-                        try:
-                            lab_.config(text=txt, fg=col); lab_.grid(); bind_all(lab_)
-                        except Exception: pass                           # a new game has replaced this row
+
+                def habits(pp=p, box=opn, dt=det, base=text, tone_=tone, civ_=name, fold_=fold, fit_=fit,
+                           chips_=chips, note_=note):
                     def post(fn):
                         for _ in range(40):
                             try: root.after(0, fn); return
-                            except RuntimeError: time.sleep(0.25)        # the window is still starting up
+                            except RuntimeError: time.sleep(0.25)   # the window is still starting up
                     try:
-                        post(lambda: show('Reading their recent games...', FAINT))
+                        post(lambda: note_(box, 'reading their games\u2026', fold_, fit_))
                         rows = opponent_openings(pp['profile'], 'TG' if team_game else '1v1',
                                                  5 if team_game else OPEN_GAMES)
-                        lines = openings_lines(rows, pp['civ'], strings)
-                        post(lambda: show('\n'.join(lines) if lines else 'No recent recorded games to read.',
-                                          '#e6d9b0' if lines else FAINT))
+                        tops = top_openings(rows)
+                        detail = '\n'.join(openings_lines(rows, pp['civ'], strings))
+                        def done():
+                            try:
+                                if tops: chips_(box, tops, tone_, fold_, fit_)
+                                else:
+                                    back = [(x, 0) for x in civ_typical(civ_)]
+                                    if back: chips_(box, back, RIM, fold_, fit_)
+                                    else: note_(box, 'no recent games', fold_, fit_)
+                                if detail: dt.config(text=base + '\n' + detail)
+                            except Exception: pass
+                        post(done)
                     except Exception as e:
                         log('openings lookup failed: %r' % (e,))
                 if pp_ok(p, i): threading.Thread(target=habits, daemon=True).start()

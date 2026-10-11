@@ -6,7 +6,7 @@ It tells you about the map, sizes up your opponent, and gives you a nudge when y
 
 *90,000 lines that I didn't read. But it's amazing.*
 
-<p align="center"><img src="docs/in-game.png" alt="AoE2 Wingman during a game on Arabia" width="466"></p>
+<p align="center"><img src="docs/in-game.png" alt="AoE2 Wingman during a game on Arabia" width="430"></p>
 
 ## What it does
 
@@ -21,7 +21,7 @@ It tells you about the map, sizes up your opponent, and gives you a nudge when y
 
 <p align="center"><img src="docs/alerts.png" alt="The Town Center idle and Build a house alerts" width="211"></p>
 
-<p align="center"><img src="docs/behind.png" alt="The concede available warning" width="466"></p>
+<p align="center"><img src="docs/behind.png" alt="The concede available warning" width="430"></p>
 
 ### Is it cheating?
 
@@ -72,10 +72,13 @@ Start a ranked game. The bar opens up into the full panel by itself when the mat
 
 - **Move it:** drag it anywhere on your screen.
 - **Shrink it:** click the map name to roll it up. Click again to open it.
-- **Tips on your opponent:** click their name.
+- **Tuck your opponent away:** click their name and everything under it folds up to one line. Click again to bring it back.
+- **Tips on your opponent:** click the line under their name.
 - **Your record:** click **W/L** on the bar (between games).
 - **Settings:** click the cog.
 - **Close it:** click the cross.
+
+<p align="center"><img src="docs/folded.png" alt="The panel with the opponent folded up to one line" width="430"></p>
 
 <p align="center"><img src="docs/record.png" alt="The Record window with win rate, best and worst civs, and maps to ban" width="600"></p>
 
@@ -83,7 +86,7 @@ Start a ranked game. The bar opens up into the full panel by itself when the mat
 
 Click the cog, then **Update from Prod**. It gets the newest version and restarts.
 
-<p align="center"><img src="docs/settings-update.png" alt="The Update buttons in Settings" width="452"></p>
+<p align="center"><img src="docs/settings-update.png" alt="The Update buttons in Settings" width="490"></p>
 
 If it says it could not download, just download the ZIP again (step 2) and swap the old file for the new one.
 
