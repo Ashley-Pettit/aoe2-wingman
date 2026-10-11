@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v78'
+VERSION = 'v79'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -668,7 +668,15 @@ def house_room(mins, cap, cfg=None):
     if cap == 20:
         room = min(room, c.get('house_cap20', HOUSE_CAP20))
     return room
-CASTLE_NOTE_MIN = 15                      # game minute for the 'two buildings for Castle Age?' reminder
+CASTLE_NOTE_MIN = 16                      # game minute for the 'two buildings for Castle Age?' reminder
+FEUDAL_NOTE_POP = 18                      # population for the 'click up to Feudal Age?' reminder
+# both are only where they start: Settings has a box for each
+
+def typed_number(value, fallback, low, high):
+    """A number someone typed into a settings box, kept inside sensible limits. The fallback
+    when the box does not hold a number."""
+    try: return max(low, min(high, float(str(value).strip())))
+    except (TypeError, ValueError): return fallback
 # each badge strip flashes between its own two shades: red TC idle, blue house, gold reminder
 TC_RED, TC_BLUE, TC_GOLD = ('#7d1510', '#e0362b'), ('#0f3f7a', '#1e78d6'), ('#a87a00', '#e6b422')
 Q_DX, Q_DY, Q_SIZE = -1300, 84, 74       # first queue icon vs the pop counter (left edge, text middle), UI canvas units
@@ -1206,30 +1214,42 @@ def _score_name(text, names):
             elif len(n) >= 5 and difflib.SequenceMatcher(None, t[-len(n):], n).ratio() >= 0.8: best = max(best, 1)
     return best
 
-def read_scores(lines, mine, others=(), players=2):
-    """Score list text -> (your side's total, the best opposing total), or None when your own line
-    could not be picked out. Only your line has to be recognised by name: every line carries its
-    team's total, so any total that is not yours belongs to the other side."""
+def read_scores(lines, mine, others=(), players=2, allies=()):
+    """Score list text -> (your side's number, the best opposing one), or None when your side
+    could not be picked out. Every line reads 'Name: score/side', and the second number is the
+    same for everyone on a side. In a team game it is the side's average, so it can be lower
+    than a player's own score. Your side is found from your own line, or failing that an
+    ally's, or failing that by ruling out the lines that are clearly the other side's."""
     rows = []
     for t in lines:
         hits = [m for m in SCORE_PAIR.finditer(t) if re.search(r'\d', m.group(1)) and re.search(r'\d', m.group(2))]
         if not hits: continue
         m = hits[-1]
         a, b = [int(re.sub(r'\s', '', v).replace('O', '0').replace('o', '0')) for v in m.groups()]
-        if b < a or b < 10: continue                          # a team total under your own score is a misread
+        if b < 10 or b * 8 < a: continue                      # a side's number that far under a score is a misread
         if players == 2 and a != b: continue                  # one against one, the two numbers are the same
         rows.append((t[:m.start()], a, b))
     if len(rows) < 2: return None
-    scored = sorted(((_score_name(r[0], mine), i) for i, r in enumerate(rows)), reverse=True)
-    me = None
-    if scored[0][0] and (len(scored) < 2 or scored[0][0] > scored[1][0] or rows[scored[0][1]][2] == rows[scored[1][1]][2]):
-        me = rows[scored[0][1]]
-    elif not scored[0][0] and players == 2 and len(rows) == 2 and others:
-        theirs = [i for i, r in enumerate(rows) if _score_name(r[0], others)]
-        if len(theirs) == 1: me = rows[1 - theirs[0]]         # 1v1 and their line read: the other one is you
-    if me is None: return None
-    rest = [r[2] for r in rows if r[2] != me[2]]
-    return me[2], (max(rest) if rest else me[2])
+
+    def side_of(names):
+        """The side number on the line that clearly belongs to one of these names, or None."""
+        if not names: return None
+        scored = sorted(((_score_name(r[0], names), i) for i, r in enumerate(rows)), reverse=True)
+        if scored[0][0] and (scored[0][0] > scored[1][0] or rows[scored[0][1]][2] == rows[scored[1][1]][2]):
+            return rows[scored[0][1]][2]
+        return None
+
+    side = side_of(mine)
+    if side is None: side = side_of(allies)
+    if side is None:
+        foes = [n for n in others if n not in allies]
+        theirs = set(r[2] for r in rows if foes and _score_name(r[0], foes))
+        rest = set(r[2] for r in rows) - theirs
+        if len(theirs) == 1 and len(rest) <= 1:               # every other line is one side: yours
+            side = rest.pop() if rest else next(iter(theirs))
+    if side is None: return None
+    rest = [r[2] for r in rows if r[2] != side]
+    return side, (max(rest) if rest else side)
 
 class ScoreWatcher(threading.Thread):
     """Reads the score list every few seconds while you play and keeps track of how far behind you are."""
@@ -1242,9 +1262,10 @@ class ScoreWatcher(threading.Thread):
         self.lock = threading.Lock()
         self.reset()
 
-    def reset(self, mine=(), others=(), players=2):
+    def reset(self, mine=(), others=(), players=2, allies=()):
         with self.lock:
             self.mine, self.others, self.players = list(mine), list(others), players
+            self.allies = list(allies)
             self.since, self.n, self.clear, self.flag, self.miss = None, 0, 0, False, 0
 
     def step(self, mine, theirs, now):
@@ -1289,7 +1310,7 @@ class ScoreWatcher(threading.Thread):
                 if rw < 50 or rh < 20: continue
                 lines = read(*grab((x + rx, y + ry, rw, rh, 2 if hh < 1800 else 1)))
                 with self.lock:
-                    got = read_scores(lines, self.mine, self.others, self.players)
+                    got = read_scores(lines, self.mine, self.others, self.players, self.allies)
                     if not got:
                         self.miss += 1
                         if self.miss in (5, 60): log('score list not read: %s' % ' | '.join(lines)[:160])
@@ -2492,6 +2513,8 @@ def play_voice(path):
     except Exception as e:
         log('could not play the alert: %r' % (e,))
 
+SCOUT_DEBUG = os.path.join(GAMES if os.path.isdir(GAMES) else tempfile.gettempdir(), 'scout_debug')
+
 class ScoutWatcher(threading.Thread):
     """Says the colour out loud the first time an opponent turns up on your minimap.
 
@@ -2506,6 +2529,15 @@ class ScoutWatcher(threading.Thread):
     CONFIRM = 2            # a smaller one has to still be there on the next look
     MASK_LOOKS = 3         # the first looks only learn what is always there: the frame, the buttons
     SETTLE = 2.5           # seconds to wait after the game comes back to the front before trusting the picture
+    # The game draws markers of its own on the minimap in pure red and yellow, which are player
+    # colours too: the blinking cross when something of yours or an ally's is attacked (a boar
+    # will do it), and flares. A player's units and buildings sit there solidly; those markers
+    # blink and go. So nothing is called until it has been watched for a few seconds.
+    BURST = 8              # quick looks in a row: it has to be there on every one of them
+    BURST_GAP = 0.25       # seconds between those looks
+    HOLD = 2.5             # then this long again, and it has to still be there
+    AFTER = 2              # on this many looks
+    SNOOZE = 6             # after something came and went, leave that colour alone for this long
 
     def __init__(self, notify):
         super().__init__(daemon=True)
@@ -2524,6 +2556,7 @@ class ScoutWatcher(threading.Thread):
         self.lock = threading.Lock()
         self.fail = 0
         self.mask_n, self.mask_rect, self.settle = 0, None, 0
+        self.snooze = {}
 
     def start_game(self, targets, voices=True, keep=False):
         """targets: {colour index: 'Blue'} for the opponents in this game, nobody else.
@@ -2533,6 +2566,7 @@ class ScoutWatcher(threading.Thread):
             self.found = (self.found & set(targets)) if keep else set()
             self.near, self.mask, self.rect = {}, None, None
             self.mask_n = 0
+            self.snooze = {}
             self.colours = minimap_colours()
             self.t0 = time.time()
         if voices and targets:
@@ -2593,6 +2627,53 @@ class ScoutWatcher(threading.Thread):
             log('minimap watch, own windows: %r' % (e,))
         return m
 
+    def look_at(self, np, idx, cx, cy, r=28):
+        """A fresh look at one spot on the minimap: how many pixels there are in this colour,
+        and where their middle is now (a scout moves)."""
+        raw, w, h = self.grab(self.rect)
+        bgr = np.frombuffer(raw, dtype=np.uint8).reshape(h, w, 4)[:, :, :3].astype(np.int16)
+        col = self.colours[idx]
+        m = (np.abs(bgr - np.array([col[2], col[1], col[0]], dtype=np.int16)).sum(axis=2) <= self.TOL)
+        m &= ~self.own_mask(np, w, h)
+        base = (self.mask or {}).get(idx)
+        if base is not None and base.shape == m.shape: m &= ~base
+        x0, y0 = max(0, cx - r), max(0, cy - r)
+        patch = m[y0:cy + r, x0:cx + r]
+        n = int(patch.sum())
+        if n:
+            ys, xs = np.nonzero(patch)
+            cx, cy = int(x0 + xs.mean()), int(y0 + ys.mean())
+        return n, cx, cy
+
+    def steady(self, np, idx, cx, cy):
+        """Watch a hit for a few seconds before believing it. Returns (it stayed, the pixel
+        counts seen). It has to be there on every look, about the same size each time, and
+        still there after a pause. A marker that blinks, pulses or fades fails one of those."""
+        seen = []
+        for i in range(self.BURST + self.AFTER):
+            time.sleep(self.HOLD if i == self.BURST else self.BURST_GAP)
+            if not self.game_window_in_front() or self.pause_fn(): return False, seen
+            n, cx, cy = self.look_at(np, idx, cx, cy)
+            seen.append(n)
+            if n < self.NEED - 2: return False, seen             # it went out
+        burst = seen[:self.BURST]
+        return min(burst) * 2 >= max(burst), seen                 # and it did not pulse
+
+    def picture(self, np, bgr, cx, cy, name):
+        """Keeps a close-up of what was just called or ignored (the last 40), so that a wrong
+        call can be looked at afterwards instead of guessed at."""
+        try:
+            from PIL import Image
+            r = 40
+            x0, y0 = max(0, cx - r), max(0, cy - r)
+            crop = np.ascontiguousarray(bgr[y0:cy + r, x0:cx + r, ::-1].astype(np.uint8))
+            os.makedirs(SCOUT_DEBUG, exist_ok=True)
+            Image.fromarray(crop).resize((crop.shape[1] * 4, crop.shape[0] * 4), Image.NEAREST).save(
+                os.path.join(SCOUT_DEBUG, 'm_%s_%s.png' % (time.strftime('%H%M%S'), name)))
+            for f in sorted(glob.glob(os.path.join(SCOUT_DEBUG, 'm_*.png')))[:-40]: os.remove(f)
+        except Exception as e:
+            log('minimap picture: %r' % (e,))
+
     def _region(self, h=None):
         h = h or find_game_window()
         if not h: return None
@@ -2650,18 +2731,26 @@ class ScoutWatcher(threading.Thread):
                     base = self.mask.get(idx)
                     if base is not None and base.shape == m.shape: m = m & ~base
                     big, cx, cy = self._cluster(np, m)
-                    if big < self.NEED:
+                    if big < self.NEED or time.time() < self.snooze.get(idx, 0):
                         self.near[idx] = 0
                         continue
                     self.near[idx] = self.near.get(idx, 0) + 1
-                    # a solid blob is a building or a group and is called straight away; a couple of
-                    # pixels has to still be there next time round, so a stray dot cannot set it off
-                    if big >= self.SURE or self.near[idx] >= self.CONFIRM:
-                        with self.lock: self.found.add(idx)
-                        log('minimap: %s found (%d pixels together, %ds into watching)'
-                            % (targets.get(idx, idx), big, time.time() - self.t0))
-                        self.notify(idx, targets.get(idx, ''),
-                                    self.rect[0] + cx, self.rect[1] + cy)
+                    # a couple of pixels has to still be there next time round, so a stray dot
+                    # does not start anything; a solid blob is looked into straight away
+                    if big < self.SURE and self.near[idx] < self.CONFIRM: continue
+                    name = targets.get(idx, idx)
+                    stayed, seen = self.steady(np, idx, cx, cy)
+                    self.picture(np, a, cx, cy, '%s_%s' % ('found' if stayed else 'ignored', name))
+                    if not stayed:
+                        self.near[idx] = 0; self.snooze[idx] = time.time() + self.SNOOZE
+                        log('minimap: %s showed up but did not stay put (%s pixels on %d looks), so it was not called'
+                            % (name, '/'.join(str(n) for n in seen), len(seen)))
+                        continue
+                    with self.lock: self.found.add(idx)
+                    log('minimap: %s found (%d pixels together, steady on %d looks, %ds into watching)'
+                        % (name, big, len(seen), time.time() - self.t0))
+                    self.notify(idx, targets.get(idx, ''),
+                                self.rect[0] + cx, self.rect[1] + cy)
                 self.fail = 0
                 self.look += 1
                 if self.look % 40 == 0: self.rect = None     # in case the window has moved
@@ -3915,17 +4004,43 @@ def main():
         tc['note'].config(text=text); tc['note_until'] = time.time() + seconds
         tc_draw()
 
+    def reminders():
+        """The reminder settings. Looked up afresh every few seconds, not twice a second."""
+        now = time.time()
+        if now - st.get('rem_t', 0) > 5:
+            c = load_settings()
+            st['rem'] = dict(castle=c.get('castle_note', True), feudal=c.get('feudal_note', True),
+                             castle_min=typed_number(c.get('castle_min'), CASTLE_NOTE_MIN, 5, 60),
+                             feudal_pop=int(typed_number(c.get('feudal_pop'), FEUDAL_NOTE_POP, 5, 60)))
+            st['rem_t'] = now
+        return st['rem']
+
     def castle_reminder():
-        """At 15 game minutes, one quick nudge to check the two buildings Castle Age needs.
-        Not if you are already in Castle Age, and only once a game."""
+        """At 16 game minutes (or the time set in Settings), one quick nudge to check the two
+        buildings Castle Age needs. Not if you are already in Castle Age, and only once a game."""
         if st.get('last') is None or st.get('castle_note') or not tcw.active: return
+        want = reminders(); at = want['castle_min']
         mins = tcw.game_minutes(time.time())
-        if mins < CASTLE_NOTE_MIN: return
+        if mins < at: return
         st['castle_note'] = True
-        if mins >= CASTLE_NOTE_MIN + 1 or tcw.age >= 3: return               # opened part way through, or already up
-        if not load_settings().get('castle_note', True): return
-        log('%d minute reminder shown' % CASTLE_NOTE_MIN)
-        tc_note('%d:00  ·  2 BUILDINGS FOR CASTLE AGE?' % CASTLE_NOTE_MIN)
+        if mins >= at + 1 or tcw.age >= 3: return               # opened part way through, or already up
+        if not want['castle']: return
+        clock = '%d:%02d' % (int(at), int(round((at % 1) * 60)))
+        log('%s reminder shown' % clock)
+        tc_note('%s  ·  2 BUILDINGS FOR CASTLE AGE?' % clock)
+
+    def feudal_reminder():
+        """When your population reaches 18 (or the number set in Settings) and you are still in
+        the Dark Age, one quick nudge to click up to Feudal Age. Only once a game."""
+        if st.get('last') is None or st.get('feudal_note') or not tcw.active or not tcw.pop: return
+        want = reminders(); at = want['feudal_pop']
+        pop = tcw.pop[0]
+        if pop < at: return
+        st['feudal_note'] = True
+        if tcw.age >= 2 or pop > at + 3: return                 # already up, or opened part way through
+        if not want['feudal']: return
+        log('%d pop reminder shown' % at)
+        tc_note('%d POP  ·  CLICK UP TO FEUDAL AGE?' % at)
 
     # ---- the game has started: get it in front of you, or say so loudly if Windows will not allow that
     start_box = {'win': None, 'until': 0, 'flash': 0}
@@ -4884,10 +4999,23 @@ def main():
         tk.Checkbutton(outer, text='Bring the game to the front when it starts', variable=fg_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        section('Reminders', 'A gold flash on the alert badge for a few seconds, once a game. '
+                             'Change the numbers to suit how you play.')
         cn_on = tk.BooleanVar(value=cfg.get('castle_note', True))
-        tk.Checkbutton(outer, text='At %d minutes, remind me to check my two buildings for Castle Age' % CASTLE_NOTE_MIN,
-                       variable=cn_on, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
-                       activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        fn_on = tk.BooleanVar(value=cfg.get('feudal_note', True))
+        def reminder_row(var, before, value, after):
+            """A tick box with a number you can change in the middle of its sentence."""
+            line = tk.Frame(outer, bg=INK); line.pack(fill='x', pady=(2, 0))
+            tk.Checkbutton(line, text=before, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
+                           activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(side='left')
+            e = tk.Entry(line, width=4, justify='center'); style_entry(e)
+            e.insert(0, value); e.pack(side='left', padx=6, ipady=1)
+            tk.Label(line, text=after, fg=TXT, bg=INK, font=F_SMALL).pack(side='left')
+            return e
+        fp_e = reminder_row(fn_on, 'Remind me to click up to Feudal Age at',
+                            '%d' % typed_number(cfg.get('feudal_pop'), FEUDAL_NOTE_POP, 5, 60), 'population')
+        cm_e = reminder_row(cn_on, 'Remind me about my two Castle Age buildings at',
+                            '%g' % typed_number(cfg.get('castle_min'), CASTLE_NOTE_MIN, 5, 60), 'game minutes')
 
         section('Score check',
                 'Reads the score list in the corner of your own screen and compares your side\'s total with '
@@ -4993,6 +5121,9 @@ def main():
                     'scout_ping': bool(sp_on.get()),
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
                     'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
+                    'feudal_note': bool(fn_on.get()),
+                    'castle_min': typed_number(cm_e.get(), cfg.get('castle_min', CASTLE_NOTE_MIN), 5, 60),
+                    'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
                     'loading_panels': bool(lp_on.get()),
                     'friends': list(friends),
                     'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
@@ -5485,7 +5616,7 @@ def main():
 
     def fast():
         refresh(); hover_fade(); foot_fit()
-        try: castle_reminder()
+        try: feudal_reminder(); castle_reminder()
         except Exception as e: log('reminder: %r' % (e,))
         root.after(500, fast)
 
@@ -5515,7 +5646,7 @@ def main():
                     if f == st.get('was'):                 # the same game carrying on (unpaused, or called over too soon)
                         log('back in the same game: counts kept')
                     else:
-                        watcher.reset(); st['extra'] = 0; st['castle_note'] = False
+                        watcher.reset(); st['extra'] = 0; st['castle_note'] = False; st['feudal_note'] = False
                     game_started(f)
                     st['first'], st['herd'] = desc, herd
                     watcher.active = herd is not None
@@ -5532,7 +5663,9 @@ def main():
                     tc['snooze'] = False; tcw.active = mine_p is not None   # not while watching someone else
                     start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')))
                     scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
-                                 [p['name'] for p in lob['players'] if p is not mine_p], len(lob['players']))
+                                 [p['name'] for p in lob['players'] if p is not mine_p], len(lob['players']),
+                                 [p['name'] for p in lob['players'] if mine_p and p is not mine_p
+                                  and mine_p.get('team', 0) > 1 and p.get('team') == mine_p.get('team')])
                     scorew.active = mine_p is not None                 # not while watching someone else
                     rec_line.config(text=''); rec_line.grid_remove()   # not while you are playing
                     hide_card()                                       # last game's result is history now

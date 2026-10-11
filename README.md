@@ -13,7 +13,7 @@ It tells you about the map, sizes up your opponent, and gives you a nudge when y
 - **Knows the map.** Shows the sheep, boar and relics on the map, and counts them off as you find them.
 - **Sizes up your opponent.** Their civ, their rating, how they started their last few games, and what beats their special unit.
 - **Spots the enemy.** Says the colour out loud ("Red found") the first time they show up on your minimap.
-- **Nags you, nicely.** A red flash when your Town Center stops making villagers. A blue one when you need a house. A reminder at 15 minutes to get ready for Castle Age.
+- **Nags you, nicely.** A red flash when your Town Center stops making villagers. A blue one when you need a house. A reminder at 18 population to click up to Feudal Age, and another at 16 minutes to get ready for Castle Age. You can change both numbers in Settings.
 - **Tells you when the game looks lost.** If you fall a long way behind on score, it lets you know. It never quits for you.
 - **Keeps your record.** Wins and losses by civ and by map, and which maps you should ban.
 - **Rounds up your mates.** One button invites your friends to a ranked party, and can post the invite in Discord.
