@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v79'
+VERSION = 'v80'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -669,7 +669,7 @@ def house_room(mins, cap, cfg=None):
         room = min(room, c.get('house_cap20', HOUSE_CAP20))
     return room
 CASTLE_NOTE_MIN = 16                      # game minute for the 'two buildings for Castle Age?' reminder
-FEUDAL_NOTE_POP = 18                      # population for the 'click up to Feudal Age?' reminder
+FEUDAL_NOTE_POP = 18                      # population for the 'two buildings for Feudal Age?' reminder
 # both are only where they start: Settings has a box for each
 
 def typed_number(value, fallback, low, high):
@@ -4031,7 +4031,7 @@ def main():
 
     def feudal_reminder():
         """When your population reaches 18 (or the number set in Settings) and you are still in
-        the Dark Age, one quick nudge to click up to Feudal Age. Only once a game."""
+        the Dark Age, one quick nudge to check the two buildings Feudal Age needs. Only once a game."""
         if st.get('last') is None or st.get('feudal_note') or not tcw.active or not tcw.pop: return
         want = reminders(); at = want['feudal_pop']
         pop = tcw.pop[0]
@@ -4040,7 +4040,7 @@ def main():
         if tcw.age >= 2 or pop > at + 3: return                 # already up, or opened part way through
         if not want['feudal']: return
         log('%d pop reminder shown' % at)
-        tc_note('%d POP  ·  CLICK UP TO FEUDAL AGE?' % at)
+        tc_note('%d POP  ·  2 BUILDINGS FOR FEUDAL AGE?' % at)
 
     # ---- the game has started: get it in front of you, or say so loudly if Windows will not allow that
     start_box = {'win': None, 'until': 0, 'flash': 0}
@@ -5012,7 +5012,7 @@ def main():
             e.insert(0, value); e.pack(side='left', padx=6, ipady=1)
             tk.Label(line, text=after, fg=TXT, bg=INK, font=F_SMALL).pack(side='left')
             return e
-        fp_e = reminder_row(fn_on, 'Remind me to click up to Feudal Age at',
+        fp_e = reminder_row(fn_on, 'Remind me about my two Feudal Age buildings at',
                             '%d' % typed_number(cfg.get('feudal_pop'), FEUDAL_NOTE_POP, 5, 60), 'population')
         cm_e = reminder_row(cn_on, 'Remind me about my two Castle Age buildings at',
                             '%g' % typed_number(cfg.get('castle_min'), CASTLE_NOTE_MIN, 5, 60), 'game minutes')
