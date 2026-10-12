@@ -15,7 +15,7 @@ It tells you about the map, sizes up your opponent, and gives you a nudge when y
 - **Spots the enemy.** Says the colour out loud ("Red found") the first time they show up on your minimap.
 - **Nags you, nicely.** A red flash when your Town Center stops making villagers. A blue one when you need a house. A reminder at 18 population to check your two buildings for Feudal Age, and another at 16 minutes to do the same for Castle Age. You can change both numbers in Settings.
 - **Tells you when the game looks lost.** If you fall a long way behind on score, it lets you know. It never quits for you.
-- **Keeps your record.** Wins and losses by civ and by map, and which maps you should ban.
+- **Keeps your record.** Wins and losses by civ and by map, your rating game by game, and which maps you should ban.
 - **Rounds up your mates.** One button invites your friends to a ranked party, and can post the invite in Discord. It works from the end-of-game screen too: it takes you back to the main menu first.
 - **Pulls you back to the game.** If you're in another window when the match starts, it switches you over.
 
@@ -80,7 +80,7 @@ Start a ranked game. The bar opens up into the full panel by itself when the mat
 
 <p align="center"><img src="docs/folded.png" alt="The panel with the opponent folded up to one line" width="430"></p>
 
-<p align="center"><img src="docs/record.png" alt="The Record window with win rate, best and worst civs, and maps to ban" width="600"></p>
+<p align="center"><img src="docs/record.png" alt="The Record window with win rate, form, rating, best and worst civs, and maps to ban" width="600"></p>
 
 ## How to update
 
