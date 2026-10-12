@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v82'
+VERSION = 'v83'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2684,6 +2684,15 @@ class ScoutWatcher(threading.Thread):
     HOLD = 2.5             # then this long again, and it has to still be there
     AFTER = 2              # on this many looks
     SNOOZE = 6             # after something came and went, leave that colour alone for this long
+    # The minimap is a diamond inside the box that is read. The corners of that box are not map:
+    # the game writes its messages there ('Not enough food.' in red, hints in yellow), and those
+    # are player colours too. So only what is inside the diamond can be a player, and while a line
+    # of writing in a colour is up beside the map, that colour is left alone altogether.
+    INSET = 0.97           # how much of the diamond counts: a hair inside its gold edge
+    PAD = 0.06             # the slack minimap_rect adds round the map, taken off again here
+    BAND, WORDS = 18, 30   # this many pixels of one colour within a strip this tall is a line of writing
+    WIDE, TOP = 70, 0.4    # ...or, across the top of the map where the messages run on: this wide, this far down
+    EARLY = 45             # seconds: a building's worth of colour this soon was on the map from the start
 
     def __init__(self, notify):
         super().__init__(daemon=True)
@@ -2703,10 +2712,15 @@ class ScoutWatcher(threading.Thread):
         self.fail = 0
         self.mask_n, self.mask_rect, self.settle = 0, None, 0
         self.snooze = {}
+        self.diamond, self.area, self.area_for = None, None, None
+        self.rec, self.rec_size, self.begun = None, -1, True
 
-    def start_game(self, targets, voices=True, keep=False):
+    def start_game(self, targets, voices=True, keep=False, recording=None):
         """targets: {colour index: 'Blue'} for the opponents in this game, nobody else.
-        keep: the same game carrying on, so colours already called are not called again."""
+        keep: the same game carrying on, so colours already called are not called again.
+        recording: the game's replay file. It only starts to grow once the match is actually
+        running, so until then the loading screen (which shows a little map of its own, with
+        every player marked on it) is not looked at."""
         with self.lock:
             self.targets = dict(targets)
             self.found = (self.found & set(targets)) if keep else set()
@@ -2715,6 +2729,10 @@ class ScoutWatcher(threading.Thread):
             self.snooze = {}
             self.colours = minimap_colours()
             self.t0 = time.time()
+            self.rec = recording
+            try: self.rec_size = os.path.getsize(recording) if recording else -1
+            except OSError: self.rec_size = -1
+            self.begun = bool(keep) or not recording
         if voices and targets:
             def record():
                 for name in sorted(set(targets.values())):
@@ -2783,6 +2801,9 @@ class ScoutWatcher(threading.Thread):
         m &= ~self.own_mask(np, w, h)
         base = (self.mask or {}).get(idx)
         if base is not None and base.shape == m.shape: m &= ~base
+        area = self.map_area(np, w, h)
+        if self.writing(np, m, area): return 0, cx, cy            # a message in this colour came up over the map
+        m &= area
         x0, y0 = max(0, cx - r), max(0, cy - r)
         patch = m[y0:cy + r, x0:cx + r]
         n = int(patch.sum())
@@ -2820,6 +2841,37 @@ class ScoutWatcher(threading.Thread):
         except Exception as e:
             log('minimap picture: %r' % (e,))
 
+    def map_area(self, np, w, h):
+        """True inside the minimap's diamond, False in the corners of the box round it."""
+        if not self.diamond: return np.ones((h, w), dtype=bool)
+        if self.area_for != (w, h, self.diamond):
+            cx, cy, a, b = self.diamond
+            ys, xs = np.mgrid[0:h, 0:w]
+            self.area = (np.abs(xs - cx) / float(a) + np.abs(ys - cy) / float(b)) <= self.INSET
+            self.area_for = (w, h, self.diamond)
+        return self.area
+
+    def writing(self, np, m, area):
+        """True when this colour is up as a line of the game's own message text. Beside the map
+        (outside the diamond) enough of it in one strip is all it takes: a player is never
+        drawn out there. The messages also run on across the top of the map, so up there a
+        strip counts when it is long, low and broken up the way letters are, which a scout or
+        a building coming into view is not."""
+        def line(part, lettered):
+            rows = part.sum(axis=1)
+            if int(rows.sum()) < self.WORDS: return False
+            top = 0
+            if len(rows) > self.BAND:
+                c = np.cumsum(np.concatenate(([0], rows)))
+                sums = c[self.BAND:] - c[:-self.BAND]
+                top = int(sums.argmax())
+                if int(sums[top]) < self.WORDS: return False
+            if not lettered: return True
+            cols = np.nonzero(part[top:top + self.BAND].any(axis=0))[0]
+            return len(cols) > 0 and int(cols[-1] - cols[0]) >= self.WIDE and len(set((cols // 14).tolist())) >= 5
+        if line(m & ~area, False): return True
+        return line(m[:int(m.shape[0] * self.TOP)], True)
+
     def _region(self, h=None):
         h = h or find_game_window()
         if not h: return None
@@ -2827,9 +2879,12 @@ class ScoutWatcher(threading.Thread):
         box = minimap_rect(w, hh)
         if not box: return None
         bx, by, bw, bh = box
+        mid = (bx + bw / 2.0, by + bh / 2.0)                      # the map's middle, before the box is cut to the screen
+        half = (bw / (2 * (1 + 2 * self.PAD)), bh / (2 * (1 + 2 * self.PAD)))
         bx, by = max(0, bx), max(0, by)
         bw, bh = min(bw, w - bx), min(bh, hh - by)
         if bw < 40 or bh < 20: return None
+        self.diamond = (mid[0] - bx, mid[1] - by, half[0], half[1])
         return (x + bx, y + by, bw, bh, 1)
 
     def run(self):
@@ -2849,6 +2904,16 @@ class ScoutWatcher(threading.Thread):
                     self.near = {}; self.settle = time.time() + self.SETTLE
                     continue
                 if time.time() < self.settle: continue
+                if not self.begun:
+                    # the replay has not started to grow, so this is still the loading screen
+                    # (four minutes at the outside, in case a recording never grows)
+                    try: grown = os.path.getsize(self.rec) > self.rec_size
+                    except OSError: grown = True
+                    if not grown and time.time() - self.t0 < 240: continue
+                    self.begun = True
+                    self.mask, self.mask_n, self.near = None, 0, {}     # learn the real screen, not the loading one
+                    self.t0 = time.time(); self.settle = time.time() + self.SETTLE
+                    continue
                 if self.grab is None: self.grab = _grabber()
                 if self.rect is None:
                     self.rect = self._region(fg)
@@ -2859,6 +2924,7 @@ class ScoutWatcher(threading.Thread):
                 a = np.frombuffer(raw, dtype=np.uint8).reshape(h, w, 4)[:, :, :3].astype(np.int16)
                 bgr = a                                   # the grab hands back B, G, R
                 ours = self.own_mask(np, w, h)            # the overlay is never a player
+                area = self.map_area(np, w, h)            # nor is anything outside the map's own diamond
                 hits = {}
                 for idx in left:
                     col = self.colours.get(idx)
@@ -2876,6 +2942,10 @@ class ScoutWatcher(threading.Thread):
                 for idx, m in hits.items():
                     base = self.mask.get(idx)
                     if base is not None and base.shape == m.shape: m = m & ~base
+                    if self.writing(np, m, area):         # one of the game's messages, in this colour, over the map
+                        self.near[idx] = 0; self.snooze[idx] = time.time() + 2
+                        continue
+                    m = m & area
                     big, cx, cy = self._cluster(np, m)
                     if big < self.NEED or time.time() < self.snooze.get(idx, 0):
                         self.near[idx] = 0
@@ -2892,9 +2962,21 @@ class ScoutWatcher(threading.Thread):
                         log('minimap: %s showed up but did not stay put (%s pixels on %d looks), so it was not called'
                             % (name, '/'.join(str(n) for n in seen), len(seen)))
                         continue
+                    if big >= self.SURE and time.time() - self.t0 < self.EARLY:
+                        # a whole building in the first seconds was not scouted: it was on the map from
+                        # the start (a revealed map, or a picture that is not the game). That spot is
+                        # passed over from now on, and nothing is called for it
+                        old = self.mask.get(idx)
+                        spot = np.zeros((h, w), dtype=bool)
+                        spot[max(0, cy - 14):cy + 14, max(0, cx - 14):cx + 14] = True
+                        self.mask[idx] = (old | spot) if old is not None and old.shape == spot.shape else spot
+                        self.near[idx] = 0
+                        log('minimap: %s was already on the map %ds in (%d pixels), so it was not called'
+                            % (name, time.time() - self.t0, big))
+                        continue
                     with self.lock: self.found.add(idx)
-                    log('minimap: %s found (%d pixels together, steady on %d looks, %ds into watching)'
-                        % (name, big, len(seen), time.time() - self.t0))
+                    log('minimap: %s found (%d pixels together at %d,%d of %dx%d, steady on %d looks, %ds into watching)'
+                        % (name, big, cx, cy, w, h, len(seen), time.time() - self.t0))
                     self.notify(idx, targets.get(idx, ''),
                                 self.rect[0] + cx, self.rect[1] + cy)
                 self.fail = 0
@@ -4383,7 +4465,7 @@ def main():
     scout = ScoutWatcher(scout_found)
     scout.start()
 
-    def start_scout(players, mine_p, strings_, same_game=False):
+    def start_scout(players, mine_p, strings_, same_game=False, recording=None):
         """Watch for the opponents in this game, and nobody else. Allies and your own colour
         are never looked for, so your own units can never set it off."""
         st['opp_civ'] = {}
@@ -4397,7 +4479,7 @@ def main():
                 targets[idx] = PLAYER_NAMES[idx]
                 try: st['opp_civ'][idx] = civ_name(pp['civ'], strings_)
                 except Exception: pass
-        scout.start_game(targets, keep=same_game)
+        scout.start_game(targets, keep=same_game, recording=recording)
         scout.active = bool(targets)
 
     def first_scan():
@@ -5865,7 +5947,7 @@ def main():
                     except OSError: began = None
                     tcw.reset(civ_name(mine_p['civ'], strings) if mine_p else None, began)
                     tc['snooze'] = False; tcw.active = mine_p is not None   # not while watching someone else
-                    start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')))
+                    start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')), recording=f)
                     scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
                                  [p['name'] for p in lob['players'] if p is not mine_p], len(lob['players']),
                                  [p['name'] for p in lob['players'] if mine_p and p is not mine_p
