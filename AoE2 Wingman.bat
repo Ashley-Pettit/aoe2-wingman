@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v81'
+VERSION = 'v82'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -1417,7 +1417,13 @@ def _record_game(entry):
     d = load_stats()
     for g in d['games']:
         if g.get('id') == entry.get('id'):
-            g.update({k: v for k, v in entry.items() if v not in (None, '')})
+            for k, v in entry.items():
+                if v in (None, ''): continue
+                # the row written when a game starts says 'no result yet' and 'no end time yet'.
+                # Written again later (the game picked up a second time) it must not wipe what is known
+                if k == 'result' and v == '?' and g.get('result') in ('win', 'loss'): continue
+                if k == 'ended' and not v: continue
+                g[k] = v
             save_stats(d); return g
     d['games'].append(entry)
     d['games'] = d['games'][-2000:]
@@ -1428,6 +1434,58 @@ def civ_name(cid, strings):
 
 MATCH_URL = ('https://aoe-api.worldsedgelink.com/community/leaderboard/'
              'getRecentMatchHistory?title=age2&profile_ids=[%d]')
+
+# which ladder each of the service's match types is played on
+LADDERS = {6: '1v1 Random Map', 7: 'Team Random Map', 8: 'Team Random Map', 9: 'Team Random Map',
+           26: '1v1 Empire Wars', 27: 'Team Empire Wars', 28: 'Team Empire Wars', 29: 'Team Empire Wars'}
+PAIR_S = 90                 # a game and its line in the match history start within seconds of each other
+COMPANION_URL = 'https://data.aoe2companion.com/api/matches?profile_ids=%d&page=%d&per_page=50'
+COMPANION_AT = [0.0]        # when the older history was last asked for
+
+def online_game(g):
+    """False for a game against the computer. Those have no match history and never get a result."""
+    return not str(g.get('id', '')).startswith('SP ')
+
+def companion_matches(profile, since, pages=10):
+    """Your older games, from aoe2companion.com. The game's own service only keeps the last ten
+    games of each kind, so anything older than that has dropped off it; this community site
+    keeps the same public match history for good. Only your profile number is sent, the same
+    one on the public ladder. Same shape as relic_matches; reads back as far as `since`."""
+    out = []
+    if not profile: return out
+    import urllib.request, calendar
+    def when(s):
+        return calendar.timegm(time.strptime(str(s)[:19], '%Y-%m-%dT%H:%M:%S'))
+    for page in range(1, pages + 1):
+        try:
+            req = urllib.request.Request(COMPANION_URL % (int(profile), page),
+                                         headers={'User-Agent': 'AoE2Wingman/1.0', 'Accept': 'application/json'})
+            with urllib.request.urlopen(req, timeout=12) as r:
+                rows = json.loads(r.read().decode('utf-8')).get('matches') or []
+        except Exception as e:
+            log('older match history lookup failed: %r' % (e,)); break
+        oldest = None
+        for x in rows:
+            try: start = when(x.get('started'))
+            except Exception: continue
+            oldest = start if oldest is None else min(oldest, start)
+            teams = x.get('teams') or []
+            mine = next((p for t in teams for p in (t.get('players') or []) if p.get('profileId') == int(profile)), None)
+            if not mine or mine.get('won') not in (True, False): continue
+            try: end = when(x.get('finished'))
+            except Exception: end = 0
+            sizes = sorted((len(t.get('players') or []) for t in teams), reverse=True)
+            old, diff = mine.get('rating'), mine.get('ratingDiff')
+            out.append(dict(match=x.get('matchId'), start=start, end=end, src='companion',
+                            result='win' if mine['won'] else 'loss',
+                            mode='1v1' if sum(sizes) == 2 else 'TG',
+                            size='v'.join(str(n) for n in sizes) if len(sizes) > 1 else '%d players' % sum(sizes),
+                            ranked=x.get('leaderboardId') not in (None, '', 'unranked'),
+                            ladder=x.get('leaderboardName') or '',
+                            rating=old if isinstance(old, int) else None,
+                            rating_after=(old + diff) if isinstance(old, int) and isinstance(diff, int) else None))
+        if len(rows) < 50 or (oldest is not None and oldest < since): break
+    return out
 
 def relic_matches(profile):
     """Your recent games as the ranked service recorded them: when, how big, and whether you won.
@@ -1445,6 +1503,7 @@ def relic_matches(profile):
         rows = m.get('matchhistoryreportresults') or []
         mine = next((x for x in rows if x.get('profile_id') == int(profile)), None)
         if not mine or mine.get('resulttype') not in (0, 1): continue
+        mem = next((x for x in (m.get('matchhistorymember') or []) if x.get('profile_id') == int(profile)), {})
         teams = {}
         for x in rows:
             teams[x.get('teamid')] = teams.get(x.get('teamid'), 0) + 1
@@ -1459,6 +1518,8 @@ def relic_matches(profile):
                         civ_id=mine.get('civilization_id'),
                         map=(m.get('mapname') or ''),
                         ranked=(m.get('description') or '').upper() == 'AUTOMATCH',
+                        ladder=LADDERS.get(m.get('matchtype_id'), ''), src='service',
+                        rating=(mem.get('oldrating') or None), rating_after=(mem.get('newrating') or None),
                         # whose recorded game the service still holds for this match
                         replays=[u.get('profile_id') for u in (m.get('matchurls') or [])
                                  if isinstance(u, dict) and u.get('profile_id')
@@ -1469,47 +1530,74 @@ def _mapkey(name):
     """'Arabia.rms' and 'Arabia' come out the same; '' when there is nothing to compare."""
     return re.sub(r'[^a-z]', '', re.sub(r'\.rms\d*$', '', (name or '').lower()))
 
-def fill_results(profile, days=21):
-    """Write in the result for any recent game the service knows about. Only the service sets a
-    result: it cannot be misread, and a wrong win in the record is worse than no result at all."""
+def fill_results(profile, days=60, force=False):
+    """Write in the result for every recent game the match history knows about. Only the match
+    history sets a result: it cannot be misread, and a wrong win in the record is worse than no
+    result at all. The game's own service is asked first. It only keeps the last ten games of
+    each kind, so what it no longer lists is looked up on aoe2companion.com (at most every
+    half hour, or when asked to with force)."""
     cut = time.time() - days * 86400
-    if not [g for g in load_stats()['games']
-            if max(g.get('started', 0), g.get('ended', 0)) > cut and g.get('src') != 'service']:
-        return 0
+    def waiting():
+        return [g for g in load_stats()['games'] if (g.get('started') or 0) > cut and online_game(g)
+                and g.get('result') not in ('win', 'loss')]
+    if not waiting() and not force: return 0
+    n = 0
     matches = relic_matches(profile)       # the slow bit, so no lock is held while it runs
-    if not matches: return 0
-    with STATS_LOCK:
-        return _fill_results(matches, cut)
+    if matches:
+        with STATS_LOCK: n += _fill_results(matches, cut)
+    left = waiting()
+    if left and load_settings().get('companion_results', True) and (force or time.time() - COMPANION_AT[0] > 1800):
+        COMPANION_AT[0] = time.time()
+        older = companion_matches(profile, min(g['started'] for g in left) - 600)
+        if older:
+            with STATS_LOCK: n += _fill_results(older, cut)
+    return n
 
 def _fill_results(matches, cut):
+    """Pair games with lines of the match history by when they started, which agrees to within
+    seconds, and write the result in. The map name is not used for this: the one the service
+    gives is often not the map that was played, which used to leave real matches unpaired. A
+    result already in the record is put right if the line that starts with the game disagrees."""
     d = load_stats()
-    todo = [g for g in d['games']
-            if max(g.get('started', 0), g.get('ended', 0)) > cut and g.get('src') != 'service']
-    if not todo: return 0
-    taken = {g.get('match') for g in d['games'] if g.get('match')}
-    filled = 0
-    for g in sorted(todo, key=lambda x: -x.get('started', 0)):
-        t, e = g.get('started') or 0, g.get('ended') or 0
-        if not t and not e: continue
-        best, best_gap = None, 1e9
-        for m in matches:
-            if m['match'] in taken: continue
-            mk, gk = _mapkey(m.get('map')), _mapkey(g.get('map'))
-            if mk and gk and mk != gk: continue             # a different map, so a different game
-            if t and m['end'] < t - 120: continue           # it finished before this game started
-            gap = min(abs(m['start'] - t) if t else 1e9,
-                      abs(m['end'] - e) if e else 1e9)
-            if gap < best_gap: best, best_gap = m, gap
-        if best is None or best_gap > 600: continue         # 10 minutes, or it is not the same game
-        g.update(result=best['result'], src='service', match=best['match'],
-                 ranked=best['ranked'], mode=best['mode'], size=best['size'])
-        taken.add(best['match'])
-        if best.get('civ_id') is not None and g.get('civ'):
-            d.setdefault('civmap', {})[str(best['civ_id'])] = g['civ']   # learn their civ numbering
-        filled += 1
-    if filled:
-        save_stats(d); log('filled in %d result(s) from the match history' % filled)
-    return filled
+    games = [g for g in d['games'] if (g.get('started') or 0) > cut and online_game(g)]
+    if not games or not matches: return 0
+    changed, dirty, owner = 0, False, {}
+    for m in matches:
+        g = min(games, key=lambda x: abs(x['started'] - m['start']))
+        if abs(g['started'] - m['start']) > PAIR_S: continue
+        if min(matches, key=lambda x: abs(x['start'] - g['started'])) is not m: continue   # each the other's closest
+        owner[m['match']] = g
+        extras = {k: m[k] for k in ('rating', 'rating_after', 'ladder') if m.get(k)}
+        if not g.get('ended') and m.get('end'): extras['ended'] = m['end']
+        source = m.get('src', 'service')
+        # the ratings an older version noted itself (looked up before and after a game) were often
+        # the same number twice. The match history's are right, so they replace those once
+        own = not g.get('rated') or g.get('src') == source
+        if g.get('match') == m['match'] and g.get('result') == m['result']:
+            new = {k: v for k, v in extras.items() if (g.get(k) != v) if (own or not g.get(k))}   # already paired
+        else:
+            new = dict(extras, result=m['result'], src=source, match=m['match'], ranked=m['ranked'])
+        if extras.get('rating_after') and not g.get('rated'): new['rated'] = True
+        if not new: continue
+        if 'result' in new:
+            if g.get('result') in ('win', 'loss') and g['result'] != new['result']:
+                log('record put right: %s on %s was down as a %s, the match history says %s'
+                    % (g.get('at'), g.get('map'), g['result'], new['result']))
+            if g.get('result') != new['result']: changed += 1
+        g.update(new); dirty = True
+        if m.get('civ_id') is not None and g.get('civ'):
+            d.setdefault('civmap', {})[str(m['civ_id'])] = g['civ']       # learn their civ numbering
+    # a line of the match history belongs to one game. Another game still holding the same line
+    # was paired with it by mistake, so its result goes back to unknown
+    for g in d['games']:
+        mid = g.get('match')
+        if mid in owner and owner[mid] is not g:
+            log('record put right: %s on %s had been given another game\'s result' % (g.get('at'), g.get('map')))
+            g.pop('match', None); g.pop('src', None); g['result'] = '?'; dirty = True
+    if dirty:
+        save_stats(d)
+        if changed: log('filled in %d result(s) from the match history' % changed)
+    return changed
 
 def repair_results():
     """One off: drop any result that did not come from the service, and the bogus end times that
@@ -1632,6 +1720,23 @@ def game_length(g):
 
 def fmt_len(sec):
     return '-' if not sec else '%d min' % round(sec / 60.0)
+
+def rating_line(games):
+    """Your rating after each rated game, on whichever ladder most of these games were played:
+    (the ladder's name, [rating, ...] oldest first, the change across them)."""
+    by = {}
+    for g in games:
+        if g.get('rating_after') and g.get('ladder'): by.setdefault(g['ladder'], []).append(g)
+    if not by: return '', [], 0
+    name, rows = max(sorted(by.items()), key=lambda kv: len(kv[1]))
+    rows = sorted(rows, key=lambda g: g.get('started', 0))
+    pts = [g['rating_after'] for g in rows]
+    return name, pts, pts[-1] - (rows[0].get('rating') or pts[0])
+
+def rating_change(g):
+    """'+15' or '-16' for a rated game, '' when it is not known."""
+    a, b = g.get('rating'), g.get('rating_after')
+    return ('%+d' % (b - a)) if a and b else ''
 
 def best_worst(rows, least=3):
     """The strongest and weakest entries with at least `least` decided games."""
@@ -5058,6 +5163,14 @@ def main():
         cm_e = reminder_row(cn_on, 'Remind me about my two Castle Age buildings at',
                             '%g' % typed_number(cfg.get('castle_min'), CASTLE_NOTE_MIN, 5, 60), 'game minutes')
 
+        section('Your record', 'The game\'s own service only keeps your last ten games of each kind. For results '
+                               'older than that the app asks aoe2companion.com, a community site that keeps '
+                               'the same public match history. Only your ladder profile number is sent.')
+        cr_on = tk.BooleanVar(value=cfg.get('companion_results', True))
+        tk.Checkbutton(outer, text='Fill in older results from aoe2companion.com', variable=cr_on, fg=TXT, bg=INK,
+                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
         section('Score check',
                 'Reads the score list in the corner of your own screen and compares your side\'s total with '
                 'the other side\'s. Once you have been more than %d%% behind for %d seconds (and not in the '
@@ -5162,7 +5275,7 @@ def main():
                     'scout_ping': bool(sp_on.get()),
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
                     'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
-                    'feudal_note': bool(fn_on.get()),
+                    'feudal_note': bool(fn_on.get()), 'companion_results': bool(cr_on.get()),
                     'castle_min': typed_number(cm_e.get(), cfg.get('castle_min', CASTLE_NOTE_MIN), 5, 60),
                     'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
                     'loading_panels': bool(lp_on.get()),
@@ -5218,7 +5331,7 @@ def main():
         st.setdefault('ranked', cfg_.get('stats_ranked', False))
         win = tk.Toplevel(root); st['stats_win'] = win
         win.title(APP_NAME + ' record'); win.configure(bg=RIM); win.attributes('-topmost', True)
-        win.geometry('600x720'); win.minsize(520, 460)
+        win.geometry('600x760'); win.minsize(560, 460)
         outer = tk.Frame(win, bg=INK, padx=18, pady=14)
         outer.pack(fill='both', expand=True, padx=2, pady=2)
 
@@ -5286,23 +5399,61 @@ def main():
             tk.Label(row, text=text, fg=BRONZE, bg=INK, font=(DISPLAY, 8, 'bold'), anchor='w').pack(side='left')
             if note: tk.Label(row, text=note, fg=FAINT, bg=INK, font=F_TINY).pack(side='right')
 
-        def table(parent, rows, limit=12):
+        def table(parent, rows, limit=10, wide=110):
             t = tk.Frame(parent, bg=INK); t.pack(fill='x')
             t.columnconfigure(0, weight=1)
             for i, (name, played, w_, l_, unk) in enumerate(rows[:limit]):
                 dec = w_ + l_
                 fr = (w_ / dec) if dec else 0.0
-                tk.Label(t, text=name, fg=TXT, bg=INK, font=F_BODY, anchor='w').grid(row=i, column=0, sticky='w', pady=2)
-                tk.Label(t, text='%d-%d' % (w_, l_), fg=MUT, bg=INK, font=F_SMALL, width=7,
-                         anchor='e').grid(row=i, column=1, sticky='e', padx=(8, 8))
-                bar(t, fr).grid(row=i, column=2, padx=(0, 10))
+                tk.Label(t, text=name, fg=TXT, bg=INK, font=('Segoe UI', 9), anchor='w').grid(row=i, column=0, sticky='w', pady=1)
+                tk.Label(t, text='%d-%d' % (w_, l_), fg=MUT, bg=INK, font=F_SMALL, width=6,
+                         anchor='e').grid(row=i, column=1, sticky='e', padx=(6, 6))
+                bar(t, fr, wide=wide).grid(row=i, column=2, padx=(0, 6))
                 tk.Label(t, text=('%d%%' % round(fr * 100)) if dec else '-', fg=GOLDC if dec else FAINT,
                          bg=INK, font=F_SMALL, width=5, anchor='e').grid(row=i, column=3, sticky='e')
-                tk.Label(t, text=('+%d' % unk) if unk else '', fg=FAINT, bg=INK, font=F_TINY,
-                         width=3).grid(row=i, column=4, sticky='e', padx=(4, 0))
             if len(rows) > limit:
                 tk.Label(parent, text='and %d more' % (len(rows) - limit), fg=FAINT, bg=INK,
                          font=F_TINY, anchor='w').pack(fill='x')
+
+        def side_by_side(parent, left, right):
+            """Two short tables next to each other instead of one long one under another:
+            (heading, rows) on the left, the same on the right."""
+            both = tk.Frame(parent, bg=INK); both.pack(fill='x')
+            both.columnconfigure(0, weight=1, uniform='half'); both.columnconfigure(1, weight=1, uniform='half')
+            for col, (head, rows) in enumerate((left, right)):
+                cell = tk.Frame(both, bg=INK)
+                cell.grid(row=0, column=col, sticky='nwe', padx=(0, 12) if col == 0 else (12, 0))
+                caption(cell, head)
+                table(cell, rows, wide=52)
+
+        def tile(parent, col, label):
+            """One of the boxes across the top. Returns the frame to put its contents in."""
+            box = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=10, pady=7)
+            box.grid(row=0, column=col, sticky='nswe', padx=(0 if col == 0 else 6, 0))
+            tk.Label(box, text=label, fg=FAINT, bg=PANEL, font=F_TINY, anchor='w').pack(fill='x')
+            return box
+
+        def sparkline(parent, pts, name):
+            """Your rating game by game: a line, its high and low, and where it stands now."""
+            row = tk.Frame(parent, bg=INK); row.pack(fill='x', pady=(8, 0))
+            c = tk.Canvas(row, bg=INK, height=46, highlightthickness=0)
+            c.pack(side='left', fill='x', expand=True)
+            side = tk.Frame(row, bg=INK); side.pack(side='right', padx=(8, 0))
+            tk.Label(side, text='high %d' % max(pts), fg=FAINT, bg=INK, font=F_TINY, anchor='e').pack(anchor='e')
+            tk.Label(side, text='low %d' % min(pts), fg=FAINT, bg=INK, font=F_TINY, anchor='e').pack(anchor='e')
+            tk.Label(side, text='%d games' % len(pts), fg=FAINT, bg=INK, font=F_TINY, anchor='e').pack(anchor='e')
+            def draw(_=None):
+                c.delete('all')
+                w, h = max(40, c.winfo_width()), 46
+                lo, hi = min(pts), max(pts)
+                span = float(max(1, hi - lo))
+                xy = []
+                for i, p in enumerate(pts):
+                    xy += [4 + (w - 10) * i / float(max(1, len(pts) - 1)), 5 + (h - 10) * (1 - (p - lo) / span)]
+                c.create_line(0, h - 1, w, h - 1, fill=EDGE)
+                c.create_line(*xy, fill=GOLDC, width=2)
+                c.create_oval(xy[-2] - 3, xy[-1] - 3, xy[-2] + 3, xy[-1] + 3, fill=GOLDD, outline=INK)
+            c.bind('<Configure>', draw)
 
         def show_rating():
             def work():
@@ -5318,50 +5469,60 @@ def main():
         def build():
             paint_chips()
             for w in list(summary.winfo_children()) + list(inner.winfo_children()): w.destroy()
-            every = load_stats()['games']
+            every = [g for g in load_stats()['games'] if online_game(g)]      # games against the computer are left out
             games = filter_games(every, st['scope'], st['days'], st['ranked'])
             wins = sum(1 for g in games if g.get('result') == 'win')
             losses = sum(1 for g in games if g.get('result') == 'loss')
             decided = wins + losses
             rate = (wins / decided) if decided else 0.0
 
-            # headline: win rate, record, streak, last 10
-            left = tk.Frame(summary, bg=INK); left.pack(side='left')
-            tk.Label(left, text='%d%%' % round(rate * 100) if decided else '-', fg=GOLDC, bg=INK,
-                     font=(DISPLAY, 28, 'bold')).pack(anchor='w')
-            tk.Label(left, text='win rate', fg=MUT, bg=INK, font=F_SMALL).pack(anchor='w')
-            right = tk.Frame(summary, bg=INK); right.pack(side='right', pady=(4, 0))
-            tk.Label(right, text='%d won   %d lost' % (wins, losses), fg=TXT, bg=INK, font=F_BODY).pack(anchor='e')
+            # across the top: win rate, the record, your form, your rating
+            tiles = tk.Frame(summary, bg=INK); tiles.pack(fill='x', pady=(4, 0))
+            for col in range(4): tiles.columnconfigure(col, weight=1, uniform='tile')
+            t1 = tile(tiles, 0, 'WIN RATE')
+            tk.Label(t1, text=('%d%%' % round(rate * 100)) if decided else '-', fg=GOLDC, bg=PANEL,
+                     font=(DISPLAY, 20, 'bold'), anchor='w').pack(fill='x')
+            if decided: bar(t1, rate, wide=104, high=6).pack(anchor='w', pady=(2, 0))
+
+            t2 = tile(tiles, 1, 'RECORD')
+            tk.Label(t2, text='%d - %d' % (wins, losses), fg=TXT, bg=PANEL, font=(DISPLAY, 20, 'bold'), anchor='w').pack(fill='x')
             extra = len(games) - decided
-            tk.Label(right, text='%d games%s' % (len(games), ('   ·   %d with no result' % extra) if extra else ''),
-                     fg=FAINT, bg=INK, font=F_TINY).pack(anchor='e', pady=(2, 0))
-            if decided:
-                bar(right, rate, wide=190, high=9).pack(anchor='e', pady=(6, 0))
+            tk.Label(t2, text='%d game%s%s' % (len(games), '' if len(games) == 1 else 's',
+                                               ('  ·  %d no result' % extra) if extra else ''),
+                     fg=FAINT, bg=PANEL, font=F_TINY, anchor='w').pack(fill='x')
+
+            t3 = tile(tiles, 2, 'FORM')
             kind, n = current_streak(games)
-            info = tk.Frame(right, bg=INK); info.pack(anchor='e', pady=(7, 0))
-            if kind:
-                tk.Label(info, text='%s streak %d' % ('Win' if kind == 'W' else 'Loss', n),
-                         fg=GREEN if kind == 'W' else REDC, bg=INK, font=F_SMALL).pack(side='left', padx=(0, 10))
+            tk.Label(t3, text=('%s%d' % (kind, n)) if kind else '-', fg=(GREEN if kind == 'W' else REDC) if kind else FAINT,
+                     bg=PANEL, font=(DISPLAY, 20, 'bold'), anchor='w').pack(fill='x')
             form = [g.get('result') for g in games if g.get('result') in ('win', 'loss')][-10:]
-            if form:
-                tk.Label(info, text='last %d' % len(form), fg=FAINT, bg=INK, font=F_TINY).pack(side='left', padx=(0, 4))
-                for r in form:
-                    tk.Frame(info, bg=GREEN if r == 'win' else REDC, width=9, height=9).pack(side='left', padx=1)
+            dots = tk.Frame(t3, bg=PANEL); dots.pack(anchor='w', pady=(3, 0))
+            for r in form:
+                tk.Frame(dots, bg=GREEN if r == 'win' else REDC, width=8, height=8).pack(side='left', padx=(0, 2))
+
+            ladder, pts, moved = rating_line(games)
+            t4 = tile(tiles, 3, 'RATING')
+            tk.Label(t4, text=str(pts[-1]) if pts else '-', fg=TXT if pts else FAINT, bg=PANEL,
+                     font=(DISPLAY, 20, 'bold'), anchor='w').pack(fill='x')
+            if pts:
+                tk.Label(t4, text='%+d  ·  %s' % (moved, ladder.replace('Random Map', 'RM').replace('Empire Wars', 'EW')),
+                         fg=GREEN if moved > 0 else REDC if moved < 0 else FAINT, bg=PANEL, font=F_TINY, anchor='w').pack(fill='x')
+
+            under = []
             lens_w = [game_length(g) for g in games if g.get('result') == 'win' and game_length(g)]
             lens_l = [game_length(g) for g in games if g.get('result') == 'loss' and game_length(g)]
             if lens_w or lens_l:
-                tk.Label(right, text='average game  ·  wins %s  ·  losses %s' % (
+                under.append('average game:  wins %s, losses %s' % (
                     fmt_len(sum(lens_w) / len(lens_w)) if lens_w else '-',
-                    fmt_len(sum(lens_l) / len(lens_l)) if lens_l else '-'),
-                    fg=MUT, bg=INK, font=F_TINY).pack(anchor='e', pady=(5, 0))
+                    fmt_len(sum(lens_l) / len(lens_l)) if lens_l else '-'))
             if st['scope'] == 'all':                                  # how the two kinds of game compare
-                split = []
                 for lab, key in (('1v1', '1v1'), ('TG', 'TG')):
                     w2 = sum(1 for g in games if g.get('mode') == key and g.get('result') == 'win')
                     l2 = sum(1 for g in games if g.get('mode') == key and g.get('result') == 'loss')
-                    if w2 + l2: split.append('%s %d-%d (%d%%)' % (lab, w2, l2, round(100 * w2 / (w2 + l2))))
-                if split:
-                    tk.Label(right, text='   ·   '.join(split), fg=MUT, bg=INK, font=F_SMALL).pack(anchor='e', pady=(5, 0))
+                    if w2 + l2: under.append('%s %d-%d (%d%%)' % (lab, w2, l2, round(100 * w2 / (w2 + l2))))
+            if under:
+                tk.Label(summary, text='   ·   '.join(under), fg=MUT, bg=INK, font=F_TINY, anchor='w').pack(fill='x', pady=(6, 0))
+            if len(pts) >= 4: sparkline(summary, pts, ladder)
 
             if not games:
                 tk.Label(inner, text='No games here yet. Try a wider filter, or play one and it will show up.',
@@ -5371,7 +5532,7 @@ def main():
             civs = tally_by(games, 'civ')
             maps = tally_by(games, 'map')
             opps = tally_by(games, 'opp')
-            # one line of takeaways: where you win and where you struggle (3+ decided games)
+            # the takeaways: where you win and where you struggle (3+ decided games)
             notes = []
             for label, rows in (('civ', civs), ('map', maps), ('vs', opps)):
                 best, worst = best_worst(rows)
@@ -5385,23 +5546,22 @@ def main():
                 caption(inner, 'AT A GLANCE', '3+ games with a result')
                 grid_ = tk.Frame(inner, bg=INK); grid_.pack(fill='x')
                 for i, (lab, val, col) in enumerate(notes):
-                    cell = tk.Frame(grid_, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=8, pady=5)
-                    cell.grid(row=i // 2, column=i % 2, sticky='we', padx=(0, 6), pady=3)
+                    cell = tk.Frame(grid_, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=8, pady=4)
+                    cell.grid(row=i // 3, column=i % 3, sticky='we', padx=(0, 6), pady=3)
                     tk.Label(cell, text=lab.upper(), fg=FAINT, bg=PANEL, font=F_TINY, anchor='w').pack(fill='x')
-                    tk.Label(cell, text=val, fg=col, bg=PANEL, font=F_BODY, anchor='w').pack(fill='x')
-                grid_.columnconfigure(0, weight=1); grid_.columnconfigure(1, weight=1)
+                    tk.Label(cell, text=val, fg=col, bg=PANEL, font=('Segoe UI', 9), anchor='w').pack(fill='x')
+                for col in range(3): grid_.columnconfigure(col, weight=1, uniform='note')
 
             bans = map_bans([g for g in games if g.get('ranked')] or games)
             if bans:
                 caption(inner, 'BAN THESE MAPS', 'your worst, 4+ decided ranked games')
                 table(inner, bans, limit=3)
 
-            caption(inner, 'YOUR CIVILISATIONS')
-            table(inner, civs)
-            caption(inner, 'MAPS')
-            table(inner, maps)
-            caption(inner, 'AGAINST', 'first opponent in team games' if st['scope'] != '1v1' else '')
-            table(inner, [r for r in opps if r[0] != 'Unknown'] or opps)
+            side_by_side(inner, ('YOUR CIVILISATIONS', civs), ('MAPS', maps))
+            faced = [r for r in opps if r[0] != 'Unknown'] or opps
+            half = (min(len(faced), 20) + 1) // 2
+            side_by_side(inner, ('AGAINST' + ('  (first opponent in team games)' if st['scope'] != '1v1' else ''), faced[:half]),
+                         ('', faced[half:half * 2]))
 
             caption(inner, 'RECENT GAMES')
             recent = tk.Frame(inner, bg=INK); recent.pack(fill='x')
@@ -5415,24 +5575,27 @@ def main():
                 tk.Label(recent, text=fmt_len(game_length(g)) if game_length(g) else '', fg=FAINT, bg=INK,
                          font=F_TINY, width=7, anchor='e').grid(row=i, column=2, sticky='e')
                 tk.Label(recent, text=(g.get('size') or g.get('mode') or '') + ('  R' if g.get('ranked') else ''),
-                         fg=MUT, bg=INK, font=F_TINY, width=9, anchor='e').grid(row=i, column=3, sticky='e', padx=(6, 0))
+                         fg=MUT, bg=INK, font=F_TINY, width=8, anchor='e').grid(row=i, column=3, sticky='e', padx=(6, 0))
                 res = g.get('result', '?')
-                fresh = time.time() - max(g.get('started', 0), g.get('ended', 0)) < 86400
-                word = {'win': 'WON', 'loss': 'LOST'}.get(res, 'waiting' if fresh else '–')
+                delta = rating_change(g)
+                tk.Label(recent, text=delta, fg=GREEN if delta.startswith('+') else REDC, bg=INK, font=F_TINY,
+                         width=4, anchor='e').grid(row=i, column=4, sticky='e', padx=(6, 0))
+                fresh = time.time() - max(g.get('started', 0), g.get('ended', 0)) < 3600
+                word = {'win': 'WON', 'loss': 'LOST'}.get(res, 'waiting' if fresh else 'no result')
                 col = {'win': GREEN, 'loss': REDC}.get(res, FAINT)
-                tk.Label(recent, text=word, fg=col, bg=PANEL, font=F_TINY, padx=7, pady=2,
-                         width=6, highlightthickness=1,
-                         highlightbackground=RIM).grid(row=i, column=4, sticky='e', padx=(8, 0))
+                tk.Label(recent, text=word, fg=col, bg=PANEL, font=F_TINY, padx=5, pady=2,
+                         width=8, highlightthickness=1,
+                         highlightbackground=RIM).grid(row=i, column=5, sticky='e', padx=(8, 0))
             show_rating()
 
         r1 = Rule(outer); r1.configure(bg=INK); r1.pack(fill='x', pady=(10, 0))
         btns = tk.Frame(outer, bg=INK); btns.pack(fill='x', pady=(10, 0))
         flat_button(btns, 'Close', close_win, accent=MUT, hot=TXT).pack(side='right')
         flat_button(btns, 'Check results now', lambda: (threading.Thread(
-            target=lambda: (fill_results(me), root.after(0, build)), daemon=True).start())).pack(side='left')
-        tk.Label(outer, text='Results come from your own online match history, so nothing is guessed. '
-                 'Games the service does not cover, like skirmishes against the computer, stay blank. '
-                 'R marks a ranked game.',
+            target=lambda: (fill_results(me, force=True), root.after(0, build)), daemon=True).start())).pack(side='left')
+        tk.Label(outer, text='Results come from your own online match history, so nothing is guessed: the game\'s '
+                 'service first, then aoe2companion.com for older games. Games against the computer are '
+                 'left out. R marks a ranked game, and the number beside it is what the game did to your rating.',
                  fg=FAINT, bg=INK, font=F_TINY,
                  anchor='w', justify='left', wraplength=540).pack(fill='x', pady=(8, 0))
         st['stats_build'] = build
