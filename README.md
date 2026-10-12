@@ -16,7 +16,7 @@ It tells you about the map, sizes up your opponent, and gives you a nudge when y
 - **Nags you, nicely.** A red flash when your Town Center stops making villagers. A blue one when you need a house. A reminder at 18 population to check your two buildings for Feudal Age, and another at 16 minutes to do the same for Castle Age. You can change both numbers in Settings.
 - **Tells you when the game looks lost.** If you fall a long way behind on score, it lets you know. It never quits for you.
 - **Keeps your record.** Wins and losses by civ and by map, and which maps you should ban.
-- **Rounds up your mates.** One button invites your friends to a ranked party, and can post the invite in Discord.
+- **Rounds up your mates.** One button invites your friends to a ranked party, and can post the invite in Discord. It works from the end-of-game screen too: it takes you back to the main menu first.
 - **Pulls you back to the game.** If you're in another window when the match starts, it switches you over.
 
 <p align="center"><img src="docs/alerts.png" alt="The Town Center idle and Build a house alerts" width="211"></p>

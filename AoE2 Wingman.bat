@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v80'
+VERSION = 'v81'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2244,7 +2244,8 @@ def wheel(x, y, notches=-3):
         _send_mouse(0x0800, data=120 if notches > 0 else -120); time.sleep(0.06)
 
 class RankedParty(threading.Thread):
-    """Main menu > Multiplayer > Ranked > Invite To Party > Invite each friend on your list who is online."""
+    """Main menu > Multiplayer > Ranked > Invite To Party > Invite each friend on your list who is online.
+    Pressed on the screen a finished game leaves you on, it goes back to the main menu first."""
     def __init__(self, strings, cfg, say, done):
         super().__init__(daemon=True)
         st = lambda k, d: clean(strings.get(str(k), d))
@@ -2256,6 +2257,8 @@ class RankedParty(threading.Thread):
         self.l_retract = st(300015, 'Retract')      # what the button says once they are invited
         self.l_find, self.l_queue = st(170102, 'Find Match'), st(170101, 'Ranked Queue')
         self.l_steaminv, self.l_ageinv = st(300580, 'Steam Invites'), st('IDS_INVITATION_POPUP_INVITE', 'Age II Invite')
+        self.l_back, self.l_menu = st(170300, 'Return to Main Menu'), st(9446, 'Main Menu')
+        self.l_quit = st(9283, 'Quit to Main Menu')             # the pause menu's one: never clicked
         self.cfg, self.say, self.done = cfg, say, done
 
     def run(self):
@@ -2359,6 +2362,36 @@ class RankedParty(threading.Thread):
         if find_phrase(lines, self.l_mp): return 'main'
         return None
 
+    def way_back(self, lines):
+        """Where to click to get from the end of a game back to the main menu: the game's own
+        'Return to Main Menu' button, or one that says just 'Main Menu'. None if neither is up.
+        Never the pause menu's 'Quit to Main Menu': with that on screen a game may still be on,
+        and clicking it would throw the game away."""
+        if find_phrase(lines, self.l_quit): return None
+        p = find_phrase(lines, self.l_back)
+        if p: return p
+        plain = _norm(self.l_menu)
+        for t, ws in lines:                                   # a button on its own, not those words inside a sentence
+            if ws and _norm(t) == plain:
+                return ((min(w[1] for w in ws) + max(w[1] + w[3] for w in ws)) / 2,
+                        (min(w[2] for w in ws) + max(w[2] + w[4] for w in ws)) / 2)
+        return None
+
+    def wait_menu(self, read, grab, h, clicked, timeout=15.0):
+        """After a click on the way back, read the screen until a menu shows. Also stops when a
+        different way back turns up (the stats screen has a button of its own), when the same
+        one is plainly still sitting there, or when time runs out."""
+        t0 = time.time()
+        time.sleep(0.25)
+        while True:
+            check_stop()
+            got = self.ocr(read, grab, h)
+            if self.state(got[1]) is not None: return got
+            p, waited = self.way_back(got[1]), time.time() - t0
+            moved = p and abs(p[0] - clicked[0]) + abs(p[1] - clicked[1]) > 40
+            if (moved and waited > 1.0) or (p and waited > 4.0) or waited > timeout: return got
+            time.sleep(0.1)
+
     def wait_change(self, read, grab, h, before, timeout=6.0):
         """Re-read the screen every moment until it shows something new (or time runs out)."""
         end = time.time() + timeout
@@ -2384,9 +2417,17 @@ class RankedParty(threading.Thread):
         time.sleep(0.15)
         # 1) get to the Invite To Party window. After each click, watch the screen and move on the moment it changes.
         (x, y, k), lines = self.ocr(read, grab, h)
-        unknown = 0
-        for step in range(12):
+        unknown, backs = 0, 0
+        for step in range(15):
             state = self.state(lines)
+            back = self.way_back(lines) if state is None and backs < 3 else None
+            if back:                                       # no menu here, but a way back to it: the end of a game
+                backs += 1
+                log('screen %d (end of game): %s' % (step, ' | '.join(t for t, _ in lines)[:300]))
+                self.say('Going back to the main menu...'); log('click at %s' % (back,))
+                click(x + back[0] / k, y + back[1] / k)
+                (x, y, k), lines = self.wait_menu(read, grab, h, back)     # the menu takes a moment to load
+                continue
             unknown = unknown + 1 if state is None else 0
             if unknown >= 2:
                 self.say("Couldn't find the game menus. Go to the main menu (not in a match) and try again."); return False
