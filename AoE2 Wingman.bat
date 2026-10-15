@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v89'
+VERSION = 'v90'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -141,152 +141,153 @@ OPENINGS = {
 # up than the old 22 pop builds. The steps are written out here in short form for reading mid
 # game. Numbers shift with your civ, the map and your start, so this is the shape, not a script.
 BUILD_SOURCE = "Hera's strategy guide, Dec 2025"
-# (group, name, what it lands on, steps). Steps are (first villager, last villager, what to do).
+# (group, name, what it lands on, steps). Steps are (first pop, last pop, what to do). Pop is
+# villagers plus the scout, plus any militia, which is how players and the in-game counter count.
 BUILDS = [
- ('Scouts', 'Scouts, one stable', '18 vils, Feudal 8:50', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 8,   '2 to wood'),
-   (9, 9,   'Lure the first boar'),
-   (10, 10, 'House, then berries with the mill'),
-   (11, 16, '6 hunt under the TC, one takes the second boar'),
-   (17, 18, '2 to wood. Lure deer with the scout'),
-   (19, 19, 'Loom, then click Feudal at 18 vils (8:50)'),
-   (20, 99, 'Barracks then stable, 3 scouts, double bit axe')]),
- ('Scouts', 'Scouts, two stables', '18 vils, Feudal 8:50', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 8,   '2 to wood'),
-   (9, 9,   'Lure the first boar'),
-   (10, 10, 'House, then berries with the mill'),
-   (11, 16, '6 hunt under the TC. Lure deer with the scout'),
-   (17, 18, '2 to wood'),
-   (19, 19, 'Loom, then click Feudal at 18 vils (8:50)'),
-   (20, 99, 'Barracks, then two stables, double bit axe')]),
- ('Scouts', 'Scouts into archers', '18 vils, Feudal 8:50', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 8,   '2 to wood'),
-   (9, 9,   'Lure the first boar'),
-   (10, 10, '1 hunts under the TC'),
-   (11, 11, 'House, then the mill'),
-   (12, 12, 'Lure the second boar'),
-   (13, 18, '6 hunt under the TC'),
-   (19, 19, 'Loom, then click Feudal at 18 vils (8:50)'),
-   (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks, double bit axe')]),
- ('Archers', 'Archers, one range', '19 vils, Feudal 9:15', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 9,   '3 to wood'),
+ ('Scouts', 'Scouts, one stable', '19 pop, Feudal 8:50', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, 'House, then berries with the mill'),
    (12, 17, '6 hunt under the TC, one takes the second boar'),
    (18, 19, '2 to wood. Lure deer with the scout'),
-   (20, 20, 'Loom, then click Feudal at 19 vils (9:15)'),
-   (21, 99, '5 hunt to a second lumber camp, 2 berries, 3 gold, range up')]),
- ('Infantry', 'Men-at-arms', '18 vils, Feudal 8:50', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 9,   '3 to wood, one builds a house in the wall'),
-   (10, 10, 'Lure the first boar. Lure 2 deer, not optional'),
-   (11, 15, '5 hunt under the TC, take the second boar'),
-   (16, 16, 'Barracks, then a house at the front. No mill yet'),
-   (17, 18, '2 more hunt'),
-   (19, 19, 'Loom, then click Feudal at 18 vils (8:50)'),
-   (20, 99, '5 hunt to wood, 2 gold camp, 1 berries, 3 militia out')]),
- ('Infantry', 'Men-at-arms into skirms', '19 vils, Feudal 9:15', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 9,   '3 to wood'),
-   (10, 10, 'Lure the first boar'),
-   (11, 11, 'House, then the mill on chickens, or berries'),
-   (12, 13, '2 more to the mill. Lure a deer or two if you can'),
-   (14, 14, 'Lure the second boar'),
-   (15, 16, '2 hunt under the TC'),
-   (17, 17, 'Barracks, then a house at the front'),
-   (18, 19, '2 more hunt'),
-   (20, 20, 'Loom, then click Feudal at 19 vils (9:15)'),
-   (21, 99, 'Militia out, skirms behind them')]),
- ('Infantry', 'Feudal drush', '18 vils, Feudal 8:50', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 9,   '3 to wood'),
-   (10, 10, 'Lure the first boar'),
-   (11, 11, 'House, then back to the hunt'),
-   (12, 15, '4 hunt under the TC, take the second boar'),
-   (16, 16, 'Barracks out front, house beside it. No mill yet'),
-   (17, 17, '1 more hunt'),
-   (18, 18, '1 to wood'),
-   (19, 19, 'Loom, then click Feudal at 18 vils (8:50)'),
-   (20, 99, 'Militia out, 1 to berries with the mill')]),
- ('Fast Castle', 'Fast Castle boom', '23 vils, Castle 14:00', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 9,   '3 to wood'),
+   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
+   (21, 99, 'Barracks then stable, 3 scouts, double bit axe')]),
+ ('Scouts', 'Scouts, two stables', '19 pop, Feudal 8:50', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, 'House, then berries with the mill'),
-   (12, 13, '2 hunt, one takes the second boar. Lure 3 deer'),
-   (14, 17, '4 to berries, seed 3 farms off the hunt'),
-   (18, 21, '4 to wood'),
-   (22, 23, '2 to gold'),
-   (24, 25, 'Click Feudal at 23 vils (10:30). 2 more to wood'),
-   (26, 99, 'Market and blacksmith, click Castle at 14:00')]),
- ('Fast Castle', 'Drush into Fast Castle', '27 vils, Castle 16:05', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 10,  '4 to wood'),
-   (11, 11, 'Lure the first boar'),
-   (12, 12, '2 houses, then a barracks'),
-   (13, 13, '1 to gold, then back to the boar. 3 militia out'),
-   (14, 14, 'Lure the second boar'),
-   (15, 19, '5 to berries, build the mill'),
-   (20, 23, '4 to wood on one camp, then loom'),
-   (24, 27, '4 to gold'),
-   (28, 29, 'Click Feudal at 27 vils (12:35). 2 more to gold'),
-   (30, 99, 'Range and blacksmith, keep the militia busy, Castle 16:05')]),
- ('Fast Castle', 'Knight rush (easier)', '25 vils, Castle 16:05', [
-   (1, 6,   '2 houses first, then 6 to sheep'),
-   (7, 9,   '3 to wood'),
+   (12, 17, '6 hunt under the TC. Lure deer with the scout'),
+   (18, 19, '2 to wood'),
+   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
+   (21, 99, 'Barracks, then two stables, double bit axe')]),
+ ('Scouts', 'Scouts into archers', '19 pop, Feudal 8:50', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '2 houses, then berries with the mill'),
-   (12, 12, '1 hunts under the TC'),
+   (11, 11, '1 hunts under the TC'),
+   (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 17, '4 to berries'),
-   (18, 22, '5 to wood'),
-   (23, 25, 'A house, then 3 to gold'),
-   (26, 26, 'Click Feudal at 25 vils (11:45). Barracks and a house'),
-   (27, 99, 'Stable and market, 4 more to gold, Castle 16:05')]),
- ('Scouts', 'Scouts into skirms', '18 vils, Feudal 8:50', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 8,   '2 to wood'),
-   (9, 9,   'Lure the first boar'),
-   (10, 10, '1 hunts under the TC'),
-   (11, 11, 'House, then berries with the mill'),
-   (12, 12, 'Lure the second boar'),
-   (13, 18, '6 hunt under the TC. Lure deer with the scout'),
-   (19, 19, 'Loom, then click Feudal at 18 vils (8:50)'),
-   (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks and house')]),
- ('Infantry', 'Double barracks eagles', '18 vils, Feudal 8:50', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 8,   '2 to wood'),
-   (9, 9,   'Lure the first boar'),
-   (10, 10, '1 hunts under the TC'),
-   (11, 11, 'House, then the mill'),
-   (12, 12, 'Lure the second boar'),
-   (13, 18, '6 hunt under the TC. Lure deer with the scout'),
-   (19, 19, 'Loom if Aztecs or Incas, then click Feudal at 18 vils (8:50)'),
-   (20, 99, '5 to wood for 7 on one camp, 2 gold, barracks and house, 3 berries')]),
- ('Other', 'Tower rush, any civ', '17 vils, Feudal 8:25', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 8,   '2 to wood'),
-   (9, 9,   'Lure the first boar'),
-   (10, 10, '1 hunts under the TC'),
-   (11, 11, 'House, then the mill'),
-   (12, 12, 'Lure the second boar'),
-   (13, 17, '5 hunt under the TC'),
-   (18, 18, 'Loom. Scout them first, then click Feudal at 17 vils (8:25)'),
-   (19, 99, '2 to stone with a camp, 5 forward, spears or skirms behind the towers')]),
- ('Other', 'Teuton tower rush', '17 vils, Feudal 8:25', [
-   (1, 6,   '6 to sheep under the TC'),
-   (7, 8,   '2 to wood'),
-   (9, 9,   'Lure the first boar'),
-   (10, 10, '1 hunts under the TC'),
-   (11, 11, 'House, then the mill'),
-   (12, 12, 'Lure the second boar'),
-   (13, 17, '5 hunt under the TC'),
-   (18, 18, 'Loom. Scout them first, then click Feudal at 17 vils (8:25)'),
-   (19, 99, '2 to stone with a camp, 10 forward, tower 8 tiles off their wood')]),
+   (14, 19, '6 hunt under the TC'),
+   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
+   (21, 99, '6 to wood until 8 on one camp, 4 berries, barracks, double bit axe')]),
+ ('Archers', 'Archers, one range', '20 pop, Feudal 9:15', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 10,  '3 to wood'),
+   (11, 11, 'Lure the first boar'),
+   (12, 12, 'House, then berries with the mill'),
+   (13, 18, '6 hunt under the TC, one takes the second boar'),
+   (19, 20, '2 to wood. Lure deer with the scout'),
+   (21, 21, 'Loom, then click Feudal at 20 pop (9:15)'),
+   (22, 99, '5 hunt to a second lumber camp, 2 berries, 3 gold, range up')]),
+ ('Infantry', 'Men-at-arms', '19 pop, Feudal 8:50', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 10,  '3 to wood, one builds a house in the wall'),
+   (11, 11, 'Lure the first boar. Lure 2 deer, not optional'),
+   (12, 16, '5 hunt under the TC, take the second boar'),
+   (17, 17, 'Barracks, then a house at the front. No mill yet'),
+   (18, 19, '2 more hunt'),
+   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
+   (21, 99, '5 hunt to wood, 2 gold camp, 1 berries, 3 militia out')]),
+ ('Infantry', 'Men-at-arms into skirms', '20 pop, Feudal 9:15', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 10,  '3 to wood'),
+   (11, 11, 'Lure the first boar'),
+   (12, 12, 'House, then the mill on chickens, or berries'),
+   (13, 14, '2 more to the mill. Lure a deer or two if you can'),
+   (15, 15, 'Lure the second boar'),
+   (16, 17, '2 hunt under the TC'),
+   (18, 18, 'Barracks, then a house at the front'),
+   (19, 20, '2 more hunt'),
+   (21, 21, 'Loom, then click Feudal at 20 pop (9:15)'),
+   (22, 99, 'Militia out, skirms behind them')]),
+ ('Infantry', 'Feudal drush', '19 pop, Feudal 8:50', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 10,  '3 to wood'),
+   (11, 11, 'Lure the first boar'),
+   (12, 12, 'House, then back to the hunt'),
+   (13, 16, '4 hunt under the TC, take the second boar'),
+   (17, 17, 'Barracks out front, house beside it. No mill yet'),
+   (18, 18, '1 more hunt'),
+   (19, 19, '1 to wood'),
+   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
+   (21, 99, 'Militia out, 1 to berries with the mill')]),
+ ('Fast Castle', 'Fast Castle boom', '24 pop, Castle 14:00', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 10,  '3 to wood'),
+   (11, 11, 'Lure the first boar'),
+   (12, 12, 'House, then berries with the mill'),
+   (13, 14, '2 hunt, one takes the second boar. Lure 3 deer'),
+   (15, 18, '4 to berries, seed 3 farms off the hunt'),
+   (19, 22, '4 to wood'),
+   (23, 24, '2 to gold'),
+   (25, 26, 'Click Feudal at 24 pop (10:30). 2 more to wood'),
+   (27, 99, 'Market and blacksmith, click Castle at 14:00')]),
+ ('Fast Castle', 'Drush into Fast Castle', '31 pop, Castle 16:05', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 11,  '4 to wood'),
+   (12, 12, 'Lure the first boar'),
+   (13, 13, '2 houses, then a barracks'),
+   (14, 17, '1 to gold, then back to the boar. 3 militia out'),
+   (18, 18, 'Lure the second boar'),
+   (19, 23, '5 to berries, build the mill'),
+   (24, 27, '4 to wood on one camp, then loom'),
+   (28, 31, '4 to gold'),
+   (32, 33, 'Click Feudal at 31 pop (12:35). 2 more to gold'),
+   (34, 99, 'Range and blacksmith, keep the militia busy, Castle 16:05')]),
+ ('Fast Castle', 'Knight rush (easier)', '26 pop, Castle 16:05', [
+   (2, 7,   '2 houses first, then 6 to sheep'),
+   (8, 10,  '3 to wood'),
+   (11, 11, 'Lure the first boar'),
+   (12, 12, '2 houses, then berries with the mill'),
+   (13, 13, '1 hunts under the TC'),
+   (14, 14, 'Lure the second boar'),
+   (15, 18, '4 to berries'),
+   (19, 23, '5 to wood'),
+   (24, 26, 'A house, then 3 to gold'),
+   (27, 27, 'Click Feudal at 26 pop (11:45). Barracks and a house'),
+   (28, 99, 'Stable and market, 4 more to gold, Castle 16:05')]),
+ ('Scouts', 'Scouts into skirms', '19 pop, Feudal 8:50', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 9,   '2 to wood'),
+   (10, 10, 'Lure the first boar'),
+   (11, 11, '1 hunts under the TC'),
+   (12, 12, 'House, then berries with the mill'),
+   (13, 13, 'Lure the second boar'),
+   (14, 19, '6 hunt under the TC. Lure deer with the scout'),
+   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
+   (21, 99, '6 to wood until 8 on one camp, 4 berries, barracks and house')]),
+ ('Infantry', 'Double barracks eagles', '19 pop, Feudal 8:50', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 9,   '2 to wood'),
+   (10, 10, 'Lure the first boar'),
+   (11, 11, '1 hunts under the TC'),
+   (12, 12, 'House, then the mill'),
+   (13, 13, 'Lure the second boar'),
+   (14, 19, '6 hunt under the TC. Lure deer with the scout'),
+   (20, 20, 'Loom if Aztecs or Incas, then click Feudal at 19 pop (8:50)'),
+   (21, 99, '5 to wood for 7 on one camp, 2 gold, barracks and house, 3 berries')]),
+ ('Other', 'Tower rush, any civ', '18 pop, Feudal 8:25', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 9,   '2 to wood'),
+   (10, 10, 'Lure the first boar'),
+   (11, 11, '1 hunts under the TC'),
+   (12, 12, 'House, then the mill'),
+   (13, 13, 'Lure the second boar'),
+   (14, 18, '5 hunt under the TC'),
+   (19, 19, 'Loom. Scout them first, then click Feudal at 18 pop (8:25)'),
+   (20, 99, '2 to stone with a camp, 5 forward, spears or skirms behind the towers')]),
+ ('Other', 'Teuton tower rush', '18 pop, Feudal 8:25', [
+   (2, 7,   '6 to sheep under the TC'),
+   (8, 9,   '2 to wood'),
+   (10, 10, 'Lure the first boar'),
+   (11, 11, '1 hunts under the TC'),
+   (12, 12, 'House, then the mill'),
+   (13, 13, 'Lure the second boar'),
+   (14, 18, '5 hunt under the TC'),
+   (19, 19, 'Loom. Scout them first, then click Feudal at 18 pop (8:25)'),
+   (20, 99, '2 to stone with a camp, 10 forward, tower 8 tiles off their wood')]),
 ]
 
 BUILD_GROUPS = ['Scouts', 'Archers', 'Infantry', 'Fast Castle', 'Other']
@@ -297,11 +298,12 @@ def build_by_name(name):
         if n == name: return n, pop, steps
     return None
 
-def build_step_at(steps, vils):
-    """Which step you are up to at this villager count, as an index."""
-    for i, (lo, hi, _t) in enumerate(steps):
-        if lo <= vils <= hi: return i
-    return 0 if vils < steps[0][0] else len(steps) - 1
+def build_step_at(steps, pop):
+    """Which step you are up to at this pop, as an index: the last one that has started."""
+    at = 0
+    for i, (lo, _hi, _t) in enumerate(steps):
+        if pop >= lo: at = i
+    return at
 
 # ---------------------------------------------------------------- replay lobby settings
 def _ds(h, p):
@@ -4383,7 +4385,7 @@ def main():
         lo, hi, text = steps[i]
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
         bo_cap.config(text='%s  \u00b7  %s' % (name.upper(), pop))
-        bo_at.config(text='vil %s%s' % (span, '' if bo['auto'] else '   (manual)'))
+        bo_at.config(text='pop %s%s' % (span, '' if bo['auto'] else '   (manual)'))
         bo_now.config(text=text)
         bo_next.config(text=('next  ' + steps[i + 1][2]) if i + 1 < len(steps) else '')
         bo_box.grid(); foot_fit()
@@ -4401,10 +4403,10 @@ def main():
                     activeforeground=GOLDD, bd=0, font=F_SMALL)
         m.add_command(label=BUILD_SOURCE, state='disabled')
         last = None
-        for g, n, vils, _st in BUILDS:
+        for g, n, pop, _st in BUILDS:
             if g != last:
                 m.add_separator(); last = g
-            m.add_command(label='%s  (%s)' % (n, vils), command=lambda n_=n: bo_pick(n_))
+            m.add_command(label='%s  (%s)' % (n, pop), command=lambda n_=n: bo_pick(n_))
         m.add_separator()
         m.add_command(label='No build order', command=lambda: bo_pick(None))
         try: m.tk_popup(bo_box.winfo_rootx(), bo_box.winfo_rooty() + bo_box.winfo_height())
@@ -4419,16 +4421,14 @@ def main():
     def bo_follow(pop):
         """Move with the pop counter the Town Center watcher already reads off your screen.
 
-        The guide counts villagers; the counter counts population, which is your villagers plus
-        your scout plus anything military you have made. Taking the scout off is right for the
-        whole Dark Age of most of these builds. The ones that make militia early will run ahead
-        near the end, which is what clicking the step to take over is for.
+        The builds are written in pop, the same number as the counter, so the scout and any
+        militia the build makes are already counted in the steps.
         """
-        vils = (pop or 0) - 1                           # the scout, or the eagle, is not a villager
-        if not (bo['name'] and bo['auto']) or vils < 1: return
+        pop = pop or 0
+        if not (bo['name'] and bo['auto']) or pop < 1: return
         found = build_by_name(bo['name'])
         if not found: return
-        i = build_step_at(found[2], vils)
+        i = build_step_at(found[2], pop)
         if i != bo['i']:
             bo['i'] = i; bo_draw()
 
@@ -5551,9 +5551,9 @@ def main():
 
         section('Build order',
                 'A reminder of the next step, on the overlay, one step at a time. It follows the '
-                'villager count the Town Center watcher already reads off your screen, and you can '
+                'pop counter the Town Center watcher already reads off your screen, and you can '
                 'click the step to move it on yourself. Pick one here or on the overlay itself.\n'
-                'Villager counts from ' + BUILD_SOURCE + '.')
+                'Steps in pop (villagers plus your scout), from ' + BUILD_SOURCE + '.')
         bo_var = tk.StringVar(value=cfg.get('build_order') or '')
         bo_row = tk.Frame(outer, bg=INK); bo_row.pack(fill='x', pady=(2, 0))
         tk.Radiobutton(bo_row, text='None', variable=bo_var, value='',
@@ -5561,12 +5561,12 @@ def main():
                        activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0,
                        command=lambda: bo_pick(bo_var.get() or None)).pack(fill='x')
         last_g = None
-        for g_, n_, vils_, _st in BUILDS:
+        for g_, n_, pop_, _st in BUILDS:
             if g_ != last_g:
                 tk.Label(bo_row, text=g_.upper(), fg=BRONZE, bg=INK, font=F_TINY,
                          anchor='w').pack(fill='x', pady=(6, 1))
                 last_g = g_
-            tk.Radiobutton(bo_row, text='%s  (%s)' % (n_, vils_), variable=bo_var, value=n_,
+            tk.Radiobutton(bo_row, text='%s  (%s)' % (n_, pop_), variable=bo_var, value=n_,
                            fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
                            activeforeground=GOLDD, font=F_SMALL, anchor='w',
                            highlightthickness=0,
