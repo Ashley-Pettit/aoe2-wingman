@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v85'
+VERSION = 'v86'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -136,54 +136,50 @@ OPENINGS = {
 }
 
 # ---------------------------------------------------------------- build orders
-# The standard opening shapes, written out as villager counts. These are the common community
-# builds you will find in any guide or coaching video, not a transcript of anyone's work, and
-# the exact numbers shift with your civ, the map and your start. Treat them as a reminder of
-# the shape, not a script to follow to the villager.
+# Villager counts and tasks taken from Hera's published strategy guide (December 2025 edition),
+# which is the current standard: food first and wood later, far fewer villagers before clicking
+# up than the old 22 pop builds. The steps are written out here in short form for reading mid
+# game. Numbers shift with your civ, the map and your start, so this is the shape, not a script.
+BUILD_SOURCE = "Hera's strategy guide, Dec 2025"
 BUILDS = [
- ('Scouts', '22 pop', [
-   (1, 6,  '6 to sheep under the TC'),
-   (7, 10, '4 to wood, drop a lumber camp'),
-   (11, 11, 'Lure the first boar'),
-   (12, 13, '2 more to food'),
-   (14, 14, 'Lure the second boar'),
-   (15, 16, '2 to berries, build the mill'),
-   (17, 18, '2 to wood'),
-   (19, 21, '3 to food, barracks with a spare vil'),
-   (22, 22, 'Click Feudal, stable on the way up'),
-   (23, 99, 'Stable, scouts, wheelbarrow')]),
- ('Archers', '23 pop', [
-   (1, 6,  '6 to sheep under the TC'),
-   (7, 10, '4 to wood, drop a lumber camp'),
-   (11, 11, 'Lure the first boar'),
-   (12, 14, '3 more to food'),
-   (15, 15, 'Lure the second boar'),
-   (16, 17, '2 to berries, build the mill'),
-   (18, 21, '4 to wood, second lumber camp'),
-   (22, 23, '2 to food, barracks'),
-   (24, 24, 'Click Feudal'),
-   (25, 99, '2 ranges, double bit axe, fletching')]),
- ('MAA into Archers', '21 pop', [
-   (1, 6,  '6 to sheep under the TC'),
-   (7, 10, '4 to wood, drop a lumber camp'),
-   (11, 11, 'Lure the first boar'),
-   (12, 13, '2 to food, barracks at 12'),
-   (14, 14, 'Second boar, 3 militia out'),
-   (15, 17, '3 to berries, build the mill'),
-   (18, 20, '3 to wood'),
-   (21, 21, 'Click Feudal, militia on the way'),
-   (22, 99, 'Men-at-arms upgrade, 2 ranges')]),
- ('Fast Castle', '28 pop', [
-   (1, 6,  '6 to sheep under the TC'),
-   (7, 10, '4 to wood, drop a lumber camp'),
-   (11, 11, 'Lure the first boar'),
-   (12, 15, '4 more to food'),
-   (16, 16, 'Lure the second boar'),
-   (17, 19, '3 to berries, build the mill'),
-   (20, 23, '4 to wood'),
-   (24, 27, '4 to gold, mining camp'),
-   (28, 28, 'Click Feudal'),
-   (29, 99, 'Market and blacksmith, click Castle, stable')]),
+ ('Scouts', '18 pop, Feudal 8:50', [
+   (1, 6,   '6 to sheep under the TC'),
+   (7, 8,   '2 to wood'),
+   (9, 9,   'Lure the first boar'),
+   (10, 10, 'House, then berries with the mill'),
+   (11, 16, '6 hunt under the TC, one takes the second boar'),
+   (17, 18, '2 to wood. Lure deer with the scout'),
+   (19, 19, 'Loom, then click Feudal at 18 pop (8:50)'),
+   (20, 99, 'Barracks then stable, 3 scouts, double bit axe')]),
+ ('Archers', '19 pop, Feudal 9:15', [
+   (1, 6,   '6 to sheep under the TC'),
+   (7, 9,   '3 to wood'),
+   (10, 10, 'Lure the first boar'),
+   (11, 11, 'House, then berries with the mill'),
+   (12, 17, '6 hunt under the TC, one takes the second boar'),
+   (18, 19, '2 to wood. Lure deer with the scout'),
+   (20, 20, 'Loom, then click Feudal at 19 pop (9:15)'),
+   (21, 99, '5 hunt to a second lumber camp, 2 berries, 3 gold, range up')]),
+ ('Men-at-arms', '18 pop, Feudal 8:50', [
+   (1, 6,   '6 to sheep under the TC'),
+   (7, 9,   '3 to wood, one builds a house in the wall'),
+   (10, 10, 'Lure the first boar. Lure 2 deer, not optional'),
+   (11, 15, '5 hunt under the TC'),
+   (16, 16, 'Barracks, then a house'),
+   (17, 18, '2 more hunt'),
+   (19, 19, 'Loom, then click Feudal at 18 pop (8:50)'),
+   (20, 99, '5 hunt to wood, 2 gold camp, 1 berries, 3 militia out')]),
+ ('Fast Castle', '23 pop, Castle 14:00', [
+   (1, 6,   '6 to sheep under the TC'),
+   (7, 9,   '3 to wood'),
+   (10, 10, 'Lure the first boar'),
+   (11, 11, 'House, then berries with the mill'),
+   (12, 13, '2 hunt, one takes the second boar. Lure 3 deer'),
+   (14, 17, '4 to berries, seed 3 farms off the hunt'),
+   (18, 21, '4 to wood'),
+   (22, 23, '2 to gold'),
+   (24, 25, 'Click Feudal at 23 pop (10:30). 2 more to wood'),
+   (26, 99, 'Market and blacksmith, click Castle at 14:00')]),
 ]
 
 def build_by_name(name):
@@ -4276,6 +4272,8 @@ def main():
         """A small list of the builds, right under the strip."""
         m = tk.Menu(root, tearoff=0, bg=INK, fg=TXT, activebackground=PANEL,
                     activeforeground=GOLDD, bd=0, font=F_SMALL)
+        m.add_command(label=BUILD_SOURCE, state='disabled')
+        m.add_separator()
         for n, pop, _st in BUILDS:
             m.add_command(label='%s  (%s)' % (n, pop), command=lambda n_=n: bo_pick(n_))
         m.add_separator()
