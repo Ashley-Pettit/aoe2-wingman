@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v90'
+VERSION = 'v91'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -4349,19 +4349,32 @@ def main():
             except NameError: pass         # the very first call, before it exists
 
     # the build order strip: one step at a time, because mid game you have no time for a list
-    bo = {'name': None, 'i': 0, 'auto': True}
+    bo = {'name': None, 'i': 0, 'pop': 0}
+    BO_WRAP = 260                               # the narrowest the strip wraps to
     bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=5)
     bo_box.grid(row=3, column=0, columnspan=4, sticky='we', pady=(6, 0)); bo_box.grid_remove()
     bo_box.columnconfigure(0, weight=1)
-    bo_cap = tk.Label(bo_box, text='', fg=BRONZE, bg=PANEL, font=F_TINY, anchor='w', cursor='hand2')
+    bo_cap = tk.Label(bo_box, text='', fg=BRONZE, bg=PANEL, font=F_TINY, anchor='w', cursor='hand2',
+                      justify='left', wraplength=BO_WRAP - 60)
     bo_cap.grid(row=0, column=0, sticky='w')
     bo_at = tk.Label(bo_box, text='', fg=MUT, bg=PANEL, font=F_TINY, anchor='e')
     bo_at.grid(row=0, column=1, sticky='e')
     bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
-                      anchor='w', justify='left', cursor='hand2')
+                      anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP)
     bo_now.grid(row=1, column=0, columnspan=2, sticky='w', pady=(2, 0))
-    bo_next = tk.Label(bo_box, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left')
+    bo_next = tk.Label(bo_box, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
+                       wraplength=BO_WRAP)
     bo_next.grid(row=2, column=0, columnspan=2, sticky='w')
+
+    def bo_wrap(e=None):
+        # Long steps wrap to whatever width the overlay already is, never wider. The margin is
+        # bigger than the box's own padding so the wrap can never push the box out a pixel and
+        # set off another resize.
+        w = max(BO_WRAP, bo_box.winfo_width() - 34)
+        if bo_now.cget('wraplength') != w:
+            bo_now.config(wraplength=w); bo_next.config(wraplength=w)
+            bo_cap.config(wraplength=max(BO_WRAP - 60, w - 60))
+    bo_box.bind('<Configure>', bo_wrap, add='+')
 
     def bo_draw():
         found = build_by_name(bo['name'])
@@ -4385,14 +4398,14 @@ def main():
         lo, hi, text = steps[i]
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
         bo_cap.config(text='%s  \u00b7  %s' % (name.upper(), pop))
-        bo_at.config(text='pop %s%s' % (span, '' if bo['auto'] else '   (manual)'))
+        bo_at.config(text='pop %s' % span)
         bo_now.config(text=text)
         bo_next.config(text=('next  ' + steps[i + 1][2]) if i + 1 < len(steps) else '')
         bo_box.grid(); foot_fit()
 
     def bo_pick(name):
         bo['name'] = name or None
-        bo['i'] = 0; bo['auto'] = True
+        bo['i'] = 0; bo['pop'] = 0
         cfg_ = load_settings(); cfg_['build_order'] = bo['name'] or ''
         save_settings(cfg_)
         bo_draw()
@@ -4414,8 +4427,7 @@ def main():
 
     def bo_step(by=1):
         if not bo['name']: return
-        bo['auto'] = False                      # you have taken over, so stop following the pop count
-        bo['i'] += by
+        bo['i'] = max(0, bo['i'] + by)          # following still carries on from here
         bo_draw()
 
     def bo_follow(pop):
@@ -4425,11 +4437,15 @@ def main():
         militia the build makes are already counted in the steps.
         """
         pop = pop or 0
-        if not (bo['name'] and bo['auto']) or pop < 1: return
+        if not bo['name'] or pop < 1: return
         found = build_by_name(bo['name'])
         if not found: return
         i = build_step_at(found[2], pop)
-        if i != bo['i']:
+        # Only ever forwards, so a click ahead holds until the pop catches up. A pop that falls
+        # well back is a new game, and that starts the build again from wherever the pop is.
+        new_game = pop < bo['pop'] - 3
+        bo['pop'] = pop
+        if new_game or i > bo['i']:
             bo['i'] = i; bo_draw()
 
     rec_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w')
