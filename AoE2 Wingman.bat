@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v86'
+VERSION = 'v87'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -4217,6 +4217,7 @@ def main():
     waiting_now = [True]                 # st does not exist yet when this first runs
 
     def idle_size(waiting):
+        was = waiting_now[0]
         waiting_now[0] = waiting
         pin.config(width=0 if waiting else 400)
         if waiting:                                   # pull everything in: there is nothing to show
@@ -4231,6 +4232,10 @@ def main():
                 sep.grid()
                 if st.get('footer', True): footsep.grid()
             frame.configure(padx=12, pady=8)
+        if was != waiting:
+            try: bo_draw()                 # the strip says something different in and out of a game
+            except NameError: pass         # the very first call, before it exists
+
     # the build order strip: one step at a time, because mid game you have no time for a list
     bo = {'name': None, 'i': 0, 'auto': True}
     bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=5)
@@ -4249,7 +4254,19 @@ def main():
     def bo_draw():
         found = build_by_name(bo['name'])
         if not found:
-            bo_box.grid_remove(); foot_fit(); return
+            # Nothing picked yet. At the menu that gets an invitation, because otherwise there is
+            # nothing on screen to click and no way to find the feature at all. In a game it stays
+            # hidden: if you have not picked one by then you do not want a prompt mid match.
+            if waiting_now[0]:
+                bo_cap.config(text='BUILD ORDER')
+                bo_at.config(text='')
+                bo_now.config(text='Pick one', font=(DISPLAY, 10, 'bold'))
+                bo_next.config(text=BUILD_SOURCE)
+                bo_box.grid()
+            else:
+                bo_box.grid_remove()
+            foot_fit(); return
+        bo_now.config(font=(DISPLAY, 12, 'bold'))
         name, pop, steps = found
         i = max(0, min(bo['i'], len(steps) - 1))
         bo['i'] = i
@@ -5152,7 +5169,8 @@ def main():
               card, card_word, card_line, card_elo,
               bo_box, bo_cap, bo_at, bo_now, bo_next): bind_all(w)
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
-    st['actions'][bo_now] = lambda: bo_step(1)       # the step itself moves you on
+    st['actions'][bo_now] = lambda: bo_menu() if not bo['name'] else bo_step(1)
+    st['actions'][bo_next] = bo_menu
     hover(bo_cap, BRONZE, GOLDD)
     hover(bo_now, GOLDD, 'white')
 
@@ -5411,6 +5429,21 @@ def main():
         for var, txt in ((tc_on, 'Show the alert'),):
             tk.Checkbutton(outer, text=txt, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
                            activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
+        section('Build order',
+                'A reminder of the next step, on the overlay, one step at a time. It follows the '
+                'villager count the Town Center watcher already reads off your screen, and you can '
+                'click the step to move it on yourself. Pick one here or on the overlay itself.\n'
+                'Villager counts from ' + BUILD_SOURCE + '.')
+        bo_var = tk.StringVar(value=cfg.get('build_order') or '')
+        bo_row = tk.Frame(outer, bg=INK); bo_row.pack(fill='x', pady=(2, 0))
+        for n_, pop_, _st in [(None, None, None)] + list(BUILDS):
+            label = 'None' if n_ is None else '%s  (%s)' % (n_, pop_)
+            tk.Radiobutton(bo_row, text=label, variable=bo_var, value=n_ or '',
+                           fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
+                           activeforeground=GOLDD, font=F_SMALL, anchor='w',
+                           highlightthickness=0,
+                           command=lambda: bo_pick(bo_var.get() or None)).pack(fill='x')
 
         section('Build a house warning',
                 'How much spare population is left when the warning starts. Lower means it waits '
