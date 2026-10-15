@@ -98,6 +98,7 @@ Your settings and your record are saved separately, so you won't lose them.
 
 - **Nothing happens when I double-click it.** Python is missing, or the "Add python.exe to PATH" box was not ticked. Install Python again and tick the box.
 - **No Town Center alert.** The God Mode mod is not switched on. Check the game's **Mods** menu.
+- **The party invite says the game runs as administrator.** Windows won't let a normal program click a game that runs as admin. Click **Fix it** to stop the game (or Steam) needing admin, then close Steam fully and open it again. In a hurry? Click **Restart Wingman as admin** and it carries on with the invite. **Always** does that without asking next time (you can switch it off in Settings).
 - **No "Red found" voice or animal count.** Give it a minute on your first game. It sets itself up the first time.
 
 ## Extras

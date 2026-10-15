@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v83'
+VERSION = 'v85'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -134,6 +134,68 @@ OPENINGS = {
  'Varangians': 'Scouts into Knights and Varangian Guards. Jarls vs infantry.',
  'Danes': 'Infantry and siege: Varangian Guards, cheap Jomsvikings.',
 }
+
+# ---------------------------------------------------------------- build orders
+# The standard opening shapes, written out as villager counts. These are the common community
+# builds you will find in any guide or coaching video, not a transcript of anyone's work, and
+# the exact numbers shift with your civ, the map and your start. Treat them as a reminder of
+# the shape, not a script to follow to the villager.
+BUILDS = [
+ ('Scouts', '22 pop', [
+   (1, 6,  '6 to sheep under the TC'),
+   (7, 10, '4 to wood, drop a lumber camp'),
+   (11, 11, 'Lure the first boar'),
+   (12, 13, '2 more to food'),
+   (14, 14, 'Lure the second boar'),
+   (15, 16, '2 to berries, build the mill'),
+   (17, 18, '2 to wood'),
+   (19, 21, '3 to food, barracks with a spare vil'),
+   (22, 22, 'Click Feudal, stable on the way up'),
+   (23, 99, 'Stable, scouts, wheelbarrow')]),
+ ('Archers', '23 pop', [
+   (1, 6,  '6 to sheep under the TC'),
+   (7, 10, '4 to wood, drop a lumber camp'),
+   (11, 11, 'Lure the first boar'),
+   (12, 14, '3 more to food'),
+   (15, 15, 'Lure the second boar'),
+   (16, 17, '2 to berries, build the mill'),
+   (18, 21, '4 to wood, second lumber camp'),
+   (22, 23, '2 to food, barracks'),
+   (24, 24, 'Click Feudal'),
+   (25, 99, '2 ranges, double bit axe, fletching')]),
+ ('MAA into Archers', '21 pop', [
+   (1, 6,  '6 to sheep under the TC'),
+   (7, 10, '4 to wood, drop a lumber camp'),
+   (11, 11, 'Lure the first boar'),
+   (12, 13, '2 to food, barracks at 12'),
+   (14, 14, 'Second boar, 3 militia out'),
+   (15, 17, '3 to berries, build the mill'),
+   (18, 20, '3 to wood'),
+   (21, 21, 'Click Feudal, militia on the way'),
+   (22, 99, 'Men-at-arms upgrade, 2 ranges')]),
+ ('Fast Castle', '28 pop', [
+   (1, 6,  '6 to sheep under the TC'),
+   (7, 10, '4 to wood, drop a lumber camp'),
+   (11, 11, 'Lure the first boar'),
+   (12, 15, '4 more to food'),
+   (16, 16, 'Lure the second boar'),
+   (17, 19, '3 to berries, build the mill'),
+   (20, 23, '4 to wood'),
+   (24, 27, '4 to gold, mining camp'),
+   (28, 28, 'Click Feudal'),
+   (29, 99, 'Market and blacksmith, click Castle, stable')]),
+]
+
+def build_by_name(name):
+    for n, pop, steps in BUILDS:
+        if n == name: return n, pop, steps
+    return None
+
+def build_step_at(steps, vils):
+    """Which step you are up to at this villager count, as an index."""
+    for i, (lo, hi, _t) in enumerate(steps):
+        if lo <= vils <= hi: return i
+    return 0 if vils < steps[0][0] else len(steps) - 1
 
 # ---------------------------------------------------------------- replay lobby settings
 def _ds(h, p):
@@ -2025,15 +2087,14 @@ def find_game_window():
     u.EnumWindows(proto(cb), 0)
     return (by_exe or by_title or [None])[0]
 
-def window_elevated(h):
-    """True if the game runs as administrator. Windows then blocks clicks from normal programs."""
+def pid_elevated(pid):
+    """True if that process runs as administrator. A process we cannot even look at counts as elevated."""
     ctypes, wintypes, u, k = _win()
     a = ctypes.windll.advapi32
-    pid = wintypes.DWORD(); u.GetWindowThreadProcessId(h, ctypes.byref(pid))
     k.OpenProcess.restype = ctypes.c_void_p; k.CloseHandle.argtypes = [ctypes.c_void_p]
     a.OpenProcessToken.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)]
     a.GetTokenInformation.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
-    hp = k.OpenProcess(0x1000, False, pid.value)
+    hp = k.OpenProcess(0x1000, False, pid)
     if not hp: return True
     tok = ctypes.c_void_p()
     try:
@@ -2045,6 +2106,12 @@ def window_elevated(h):
     finally:
         k.CloseHandle(hp)
 
+def window_elevated(h):
+    """True if the game runs as administrator. Windows then blocks clicks from normal programs."""
+    ctypes, wintypes, u, k = _win()
+    pid = wintypes.DWORD(); u.GetWindowThreadProcessId(h, ctypes.byref(pid))
+    return pid_elevated(pid.value)
+
 def overlay_is_admin():
     try:
         import ctypes
@@ -2052,9 +2119,100 @@ def overlay_is_admin():
     except Exception:
         return False
 
-ADMIN_MSG = ("The game runs as administrator, and Windows will not let a normal program click an "
-             "administrator window. Close this app, right click it and choose Run as administrator, "
-             "then try the invite again. Leave Steam as it is.")
+def game_needs_admin():
+    """The game's window if it runs as administrator and this app does not, so our clicks would be
+    thrown away. None when the clicks will get through (or there is no game to click)."""
+    if overlay_is_admin(): return None
+    h = find_game_window()
+    return h if h and window_elevated(h) else None
+
+# ---- why the game runs as administrator, and undoing it
+# The game only needs admin because something asked for it: a "Run this program as an administrator"
+# tick on the game or on Steam (the game inherits Steam's), or Steam having been started that way.
+# The ticks live in the registry. Your own ones (HKCU) can be cleared without admin. Ticked
+# "for all users" ones (HKLM) need admin, so for those the app says where to untick them.
+LAYERS = r'Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers'
+ADMIN_EXES = ('aoe2de_s.exe', 'aoe2de.exe', 'steam.exe')
+
+def admin_flags():
+    """[(hive, program path, flags)] for each run-as-admin tick on the game or Steam."""
+    import winreg
+    out = []
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try: key = winreg.OpenKey(hive, LAYERS, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+        except OSError: continue
+        with key:
+            i = 0
+            while True:
+                try: name, data, _ = winreg.EnumValue(key, i)
+                except OSError: break
+                i += 1
+                if os.path.basename(name).lower() in ADMIN_EXES and 'RUNASADMIN' in str(data).upper().split():
+                    out.append((hive, name, str(data)))
+    return out
+
+def clear_admin_flags():
+    """Untick run-as-admin on the game and Steam for this Windows user. Leaves any other
+    compatibility settings on those programs alone. Returns (cleared, left) program paths;
+    'left' are the all-users ticks that need admin to change."""
+    import winreg
+    cleared, left = [], []
+    for hive, name, data in admin_flags():
+        if hive != winreg.HKEY_CURRENT_USER and not overlay_is_admin():
+            left.append(name); continue
+        rest = [t for t in data.split() if t.upper() != 'RUNASADMIN']
+        try:
+            with winreg.OpenKey(hive, LAYERS, 0, winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as key:
+                if [t for t in rest if t not in ('~', '$')]: winreg.SetValueEx(key, name, 0, winreg.REG_SZ, ' '.join(rest))
+                else: winreg.DeleteValue(key, name)
+            cleared.append(name); log('cleared run-as-admin on %s' % name)
+        except OSError as e:
+            log('could not clear run-as-admin on %s: %r' % (name, e)); left.append(name)
+    return cleared, left
+
+def _pids_named(exe):
+    ctypes, wintypes, u, k = _win()
+    arr = (wintypes.DWORD * 4096)(); got = wintypes.DWORD()
+    if not ctypes.windll.psapi.EnumProcesses(arr, ctypes.sizeof(arr), ctypes.byref(got)): return []
+    return [p for p in arr[:got.value // 4] if p and _proc_name(p) == exe]
+
+def why_game_is_admin():
+    """(one line on why, whether 'Fix it' can clear it without admin)."""
+    import winreg
+    try: flags = admin_flags()
+    except Exception as e: log('admin flag check: %r' % (e,)); flags = []
+    mine = [n for h, n, _ in flags if h == winreg.HKEY_CURRENT_USER]
+    whose = lambda names: 'Steam' if any(os.path.basename(n).lower() == 'steam.exe' for n in names) else 'the game'
+    if mine:
+        return ('Windows is set to always run %s as administrator.' % whose(mine), True)
+    if flags:
+        return ('Windows is set to always run %s as administrator, for every user on this PC. To stop that, right '
+                'click it, choose Properties > Compatibility > Change settings for all users, and untick '
+                '"Run this program as an administrator".' % whose([n for _, n, _ in flags]), False)
+    try: steam_up = any(pid_elevated(p) for p in _pids_named('steam.exe'))
+    except Exception: steam_up = False
+    if steam_up:
+        return ('Steam was started as administrator, so the game was too. Close Steam fully and open it '
+                'normally next time.', False)
+    return ('The game is running as administrator.', False)
+
+def relaunch_as_admin(resume=''):
+    """Start this copy again as administrator (Windows asks you first), then carry on with 'resume'.
+    True once you said yes; the caller closes this copy straight after."""
+    import ctypes
+    exe = sys.executable
+    w = os.path.join(os.path.dirname(exe), 'pythonw.exe')
+    if os.path.isfile(w): exe = w
+    args = '-x "%s" --wait-turn' % self_path() + (' --resume %s' % resume if resume else '')
+    se = ctypes.windll.shell32.ShellExecuteW
+    se.restype = ctypes.c_void_p
+    se.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_int]
+    r = se(None, 'runas', exe, args, os.path.dirname(self_path()), 1) or 0
+    log('restart as admin: %s' % ('ok' if r > 32 else 'declined or failed (%d)' % r))
+    return r > 32
+
+ADMIN_MSG = ("The game runs as administrator, so Windows won't let Wingman click it. "
+             "Press the button again and Wingman will offer to restart as admin.")
 
 def focus_window(h):
     """Bring the game to the front. Windows blocks this unless we look like the user, so tap Alt first."""
@@ -3900,9 +4058,16 @@ def single_instance():
     Also leaves its process id where the watchdog can find it to close it later."""
     try:
         import ctypes
-        h = ctypes.windll.kernel32.CreateMutexW(None, False, 'AoE2MapOverlay.SingleInstance')
-        if not h or ctypes.windll.kernel32.GetLastError() == 183:      # ERROR_ALREADY_EXISTS
-            return False
+        k32 = ctypes.windll.kernel32
+        # Restarted as admin: the old copy is still closing, so wait for it rather than bow out.
+        tries = 50 if '--wait-turn' in sys.argv else 1
+        for i in range(tries):
+            h = k32.CreateMutexW(None, False, 'AoE2MapOverlay.SingleInstance')
+            taken = k32.GetLastError() == 183                          # ERROR_ALREADY_EXISTS
+            if h and not taken: break
+            if h: k32.CloseHandle(h)
+            if i == tries - 1: return False
+            time.sleep(0.2)
         globals()['_INSTANCE_MUTEX'] = h                               # held for the life of the app
     except Exception as e:
         log('single instance check failed, carrying on: %r' % (e,))
@@ -4051,7 +4216,7 @@ def main():
     # Out of a game there is nothing to hold, so the pin comes off and the card shrinks to
     # its header, which is all there is to show while you are waiting.
     pin = tk.Frame(frame, bg=BG, width=0, height=0)
-    pin.grid(row=8, column=0, columnspan=4)
+    pin.grid(row=9, column=0, columnspan=4)
 
     waiting_now = [True]                 # st does not exist yet when this first runs
 
@@ -4070,12 +4235,75 @@ def main():
                 sep.grid()
                 if st.get('footer', True): footsep.grid()
             frame.configure(padx=12, pady=8)
+    # the build order strip: one step at a time, because mid game you have no time for a list
+    bo = {'name': None, 'i': 0, 'auto': True}
+    bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=5)
+    bo_box.grid(row=3, column=0, columnspan=4, sticky='we', pady=(6, 0)); bo_box.grid_remove()
+    bo_box.columnconfigure(0, weight=1)
+    bo_cap = tk.Label(bo_box, text='', fg=BRONZE, bg=PANEL, font=F_TINY, anchor='w', cursor='hand2')
+    bo_cap.grid(row=0, column=0, sticky='w')
+    bo_at = tk.Label(bo_box, text='', fg=MUT, bg=PANEL, font=F_TINY, anchor='e')
+    bo_at.grid(row=0, column=1, sticky='e')
+    bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
+                      anchor='w', justify='left', cursor='hand2')
+    bo_now.grid(row=1, column=0, columnspan=2, sticky='w', pady=(2, 0))
+    bo_next = tk.Label(bo_box, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left')
+    bo_next.grid(row=2, column=0, columnspan=2, sticky='w')
+
+    def bo_draw():
+        found = build_by_name(bo['name'])
+        if not found:
+            bo_box.grid_remove(); foot_fit(); return
+        name, pop, steps = found
+        i = max(0, min(bo['i'], len(steps) - 1))
+        bo['i'] = i
+        lo, hi, text = steps[i]
+        span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
+        bo_cap.config(text='%s  \u00b7  %s' % (name.upper(), pop))
+        bo_at.config(text='vil %s%s' % (span, '' if bo['auto'] else '   (manual)'))
+        bo_now.config(text=text)
+        bo_next.config(text=('next  ' + steps[i + 1][2]) if i + 1 < len(steps) else '')
+        bo_box.grid(); foot_fit()
+
+    def bo_pick(name):
+        bo['name'] = name or None
+        bo['i'] = 0; bo['auto'] = True
+        cfg_ = load_settings(); cfg_['build_order'] = bo['name'] or ''
+        save_settings(cfg_)
+        bo_draw()
+
+    def bo_menu():
+        """A small list of the builds, right under the strip."""
+        m = tk.Menu(root, tearoff=0, bg=INK, fg=TXT, activebackground=PANEL,
+                    activeforeground=GOLDD, bd=0, font=F_SMALL)
+        for n, pop, _st in BUILDS:
+            m.add_command(label='%s  (%s)' % (n, pop), command=lambda n_=n: bo_pick(n_))
+        m.add_separator()
+        m.add_command(label='No build order', command=lambda: bo_pick(None))
+        try: m.tk_popup(bo_box.winfo_rootx(), bo_box.winfo_rooty() + bo_box.winfo_height())
+        finally: m.grab_release()
+
+    def bo_step(by=1):
+        if not bo['name']: return
+        bo['auto'] = False                      # you have taken over, so stop following the pop count
+        bo['i'] += by
+        bo_draw()
+
+    def bo_follow(vils):
+        """Move with the villager count the Town Center watcher is already reading off screen."""
+        if not (bo['name'] and bo['auto']) or not vils: return
+        found = build_by_name(bo['name'])
+        if not found: return
+        i = build_step_at(found[2], vils)
+        if i != bo['i']:
+            bo['i'] = i; bo_draw()
+
     rec_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w')
-    rec_line.grid(row=3, column=0, columnspan=4, sticky='w', pady=(3, 0)); rec_line.grid_remove()
+    rec_line.grid(row=4, column=0, columnspan=4, sticky='w', pady=(3, 0)); rec_line.grid_remove()
 
     # the card that goes up once the service confirms how the last game went
     card = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=RIM, padx=10, pady=7)
-    card.grid(row=3, column=0, columnspan=4, sticky='we', pady=(8, 0)); card.grid_remove()
+    card.grid(row=4, column=0, columnspan=4, sticky='we', pady=(8, 0)); card.grid_remove()
     card.columnconfigure(1, weight=1)
     card_word = tk.Label(card, text='', fg=GREEN, bg=PANEL, font=(DISPLAY, 11, 'bold'), anchor='w')
     card_word.grid(row=0, column=0, sticky='w')
@@ -4085,15 +4313,15 @@ def main():
     card_line.grid(row=1, column=0, columnspan=2, sticky='w', pady=(3, 0))
     # the score line: how your side's total compares, and the flag when the game looks gone
     score_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w', pady=1)
-    score_line.grid(row=4, column=0, columnspan=4, sticky='we', pady=(3, 0)); score_line.grid_remove()
+    score_line.grid(row=5, column=0, columnspan=4, sticky='we', pady=(3, 0)); score_line.grid_remove()
     opp_area = tk.Frame(frame, bg=BG)
-    opp_area.grid(row=5, column=0, columnspan=4, sticky='we')
+    opp_area.grid(row=6, column=0, columnspan=4, sticky='we')
 
     # footer: the one action, with the hint that only appears while the mouse is over the overlay
     footsep = Rule(frame)
-    footsep.grid(row=6, column=0, columnspan=4, sticky='we', pady=(9, 0))
+    footsep.grid(row=7, column=0, columnspan=4, sticky='we', pady=(9, 0))
     host_row = tk.Frame(frame, bg=BG)
-    host_row.grid(row=7, column=0, columnspan=4, sticky='we', pady=(7, 0))
+    host_row.grid(row=8, column=0, columnspan=4, sticky='we', pady=(7, 0))
     host_row.columnconfigure(1, weight=1)
     # The party invite button sits up in the header, where the state tag goes while a game is on,
     # so with no game on the whole panel is one row. The row below it only appears when the
@@ -4112,6 +4340,8 @@ def main():
     host_msg = tk.Label(host_row, text='', fg='#b8b19f', bg=BG, font=F_SMALL, anchor='w',
                         justify='left', wraplength=430)
     host_msg.grid(row=1, column=0, columnspan=2, sticky='w')
+    admin_box = tk.Frame(host_row, bg=BG)                        # the admin buttons, only when they're needed
+    admin_box.grid(row=2, column=0, columnspan=2, sticky='w', pady=(6, 0)); admin_box.grid_remove()
     host_row.grid_remove()                                       # nothing to say yet
     idle_size(True)                 # the app opens with no game on, so start small
     try:
@@ -4224,6 +4454,9 @@ def main():
             tc['note'].config(bg=TC_GOLD[tc['flash']])
         if tc.get('note_until') and time.time() >= tc['note_until']:
             tc['note_until'] = 0; tc_draw()         # the reminder has had its few seconds
+        try:
+            if tcw.pop: bo_follow(tcw.pop[0])
+        except Exception: pass
         root.after(450, tc_pulse)
 
     def tc_note(text, seconds=8):
@@ -4801,7 +5034,7 @@ def main():
         if not t:
             rec_line.config(text=''); rec_line.grid_remove(); return
         rec_line.config(text='%s  \u00b7  %s' % (civ, t.replace('Your record: ', '')))
-        rec_line.grid(row=3, column=0, columnspan=4, sticky='w', pady=(3, 0))
+        rec_line.grid(row=4, column=0, columnspan=4, sticky='w', pady=(3, 0))
 
     def hide_card():
         st['card'] = None
@@ -4918,7 +5151,12 @@ def main():
         w.bind('<ButtonRelease-1>', release)
     for w in (root, frame, head, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
-              card, card_word, card_line, card_elo): bind_all(w)
+              card, card_word, card_line, card_elo,
+              bo_box, bo_cap, bo_at, bo_now, bo_next): bind_all(w)
+    st['actions'][bo_cap] = bo_menu                  # the caption picks the build
+    st['actions'][bo_now] = lambda: bo_step(1)       # the step itself moves you on
+    hover(bo_cap, BRONZE, GOLDD)
+    hover(bo_now, GOLDD, 'white')
 
     for cx, cy, ax, ay in ((0, 0, 1, 1), (1, 0, -1, 1), (0, 1, 1, -1), (1, 1, -1, -1)):
         for w_, h_ in ((10, 2), (2, 10)):      # the little L pieces in each corner of the panel
@@ -4949,8 +5187,10 @@ def main():
     def toggle_roll():
         """Click the name to roll the overlay up to just its header, and again to open it."""
         up = not st.get('rolled')
-        for w in (sep, body, rec_line, card, score_line, opp_area, footsep):
+        for w in (sep, body, bo_box, rec_line, card, score_line, opp_area, footsep):
             if up: w.grid_remove()
+            elif w is bo_box:
+                if bo['name']: w.grid()
             elif w is score_line:
                 if score_line.cget('text'): w.grid()
             elif w is footsep and not st.get('footer', True): continue
@@ -5304,6 +5544,40 @@ def main():
             threading.Thread(target=work, daemon=True).start()
         flat_button(voice_row, 'Record and test the voice', test_voice).pack(side='left')
 
+        section('Running as administrator',
+                'Only matters for the party invite. If the game runs as admin, Windows ignores clicks from '
+                'programs that don\'t, so Wingman has to restart as admin to click it. Better still, stop the '
+                'game needing admin and neither of them will.')
+        ad_on = tk.BooleanVar(value=cfg.get('admin_auto', False))
+        tk.Checkbutton(outer, text='When the game needs it, restart Wingman as admin without asking first',
+                       variable=ad_on, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
+                       activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        ad_row = tk.Frame(outer, bg=INK); ad_row.pack(fill='x', pady=(6, 0))
+        ad_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
+                          justify='left', wraplength=400)
+        ad_msg.pack(fill='x', pady=(6, 0))
+        def admin_state():
+            me_ = 'Wingman is running as admin.' if overlay_is_admin() else 'Wingman is running normally.'
+            try: flags = admin_flags()
+            except Exception: flags = []
+            if not flags: return me_ + ' Nothing is set to make the game or Steam run as admin.', GREEN
+            names = sorted({os.path.basename(n) for _, n, _ in flags})
+            return me_ + ' Set to always run as admin: %s.' % ', '.join(names), GOLDC
+        def ad_refresh():
+            t_, c_ = admin_state(); ad_msg.config(text=t_, fg=c_)
+        def ad_fix():
+            try: cleared, left = clear_admin_flags()
+            except Exception as e: cleared, left = [], ['?']; log('fix admin: %r' % (e,))
+            ad_refresh()
+            if left:
+                ad_msg.config(text=ad_msg.cget('text') + ' Some are set for every user on this PC: untick '
+                              '"Run this program as an administrator" under Properties > Compatibility > '
+                              'Change settings for all users.', fg=GOLDC)
+            elif cleared:
+                ad_msg.config(text='Done. Close Steam fully and open it again, then start the game.', fg=GREEN)
+        flat_button(ad_row, 'Stop the game needing admin', ad_fix).pack(side='left')
+        ad_refresh()
+
         sr3_ = Rule(outer); sr3_.configure(bg=INK); sr3_.pack(fill='x', pady=(14, 0))
         section('God Mode mod',
                 'The UI mod this app is built around. It pins the resource bar and the Global Queue in place, '
@@ -5360,7 +5634,7 @@ def main():
                     'feudal_note': bool(fn_on.get()), 'companion_results': bool(cr_on.get()),
                     'castle_min': typed_number(cm_e.get(), cfg.get('castle_min', CASTLE_NOTE_MIN), 5, 60),
                     'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
-                    'loading_panels': bool(lp_on.get()),
+                    'loading_panels': bool(lp_on.get()), 'admin_auto': bool(ad_on.get()),
                     'friends': list(friends),
                     'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
         def save():
@@ -5700,9 +5974,59 @@ def main():
         except Exception:
             pass
 
+    # ---- the game runs as administrator, so Windows bins our clicks. Say why, offer to fix the cause
+    # (so it never needs admin again), or restart Wingman as admin and carry on with the invite.
+    def hide_admin():
+        for w in admin_box.winfo_children(): w.destroy()
+        admin_box.grid_remove()
+
+    def go_admin(resume):
+        hide_admin()
+        host_msg.config(text='Windows will ask if Wingman can make changes. Click Yes and it carries on by itself.')
+        def work():
+            try: ok = relaunch_as_admin(resume)
+            except Exception as e: log('restart as admin failed: %r' % (e,)); ok = False
+            def after():
+                if ok:
+                    try: root.destroy()
+                    finally: os._exit(0)
+                host_msg.config(text='Wingman did not restart as admin, so nothing was clicked.')
+            root.after(0, after)
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_admin(resume):
+        hide_admin()
+        why, fixable = why_game_is_admin()
+        host_msg.config(text=why + ' Windows won\'t let Wingman click the game unless Wingman runs as admin too.'
+                        + (' "Fix it" stops that for good (then restart Steam and the game).' if fixable else ''))
+        if fixable:
+            def fix():
+                try: cleared, left = clear_admin_flags()
+                except Exception as e: log('fix admin: %r' % (e,)); cleared, left = [], ['?']
+                hide_admin()
+                host_msg.config(text=('Done. Close Steam fully (right click its tray icon > Exit), open it again and '
+                                      'start the game. Wingman won\'t need admin after that.') if cleared and not left
+                                 else 'Could not change that setting. Restart Wingman as admin for now.')
+            flat_button(admin_box, 'Fix it', fix, fill=True).pack(side='left', padx=(0, 8))
+        flat_button(admin_box, 'Restart Wingman as admin', lambda: go_admin(resume),
+                    fill=not fixable).pack(side='left')
+        def always():
+            c = load_settings(); c['admin_auto'] = True; save_settings(c); go_admin(resume)
+        flat_button(admin_box, 'Always', always).pack(side='left', padx=(8, 0))
+        bind_all(admin_box); admin_box.grid()
+
     def host(send_only=False):
         if st.get('hosting'):                              # the button reads Stop while running
             STOP.set(); host_msg.config(text='Stopping...'); return
+        hide_admin()
+        resume = 'send' if send_only else 'party'
+        try: blocked = game_needs_admin()
+        except Exception as e: log('admin check: %r' % (e,)); blocked = None
+        if blocked:
+            log('game is elevated, clicks would be blocked')
+            if load_settings().get('admin_auto'): go_admin(resume)
+            else: show_admin(resume)
+            return
         cfg = load_settings()
         STOP.clear()
         st['hosting'] = True; watcher.pause = True; loadw.pause = True
@@ -5718,6 +6042,11 @@ def main():
         job = HostInvite(strings, cfg, say, done, True) if send_only else RankedParty(strings, cfg, say, done)
         root.after(150, job.start)
     st['actions'][host_btn] = host
+    if '--resume' in sys.argv:                             # restarted as admin part way through: carry on
+        try: what = sys.argv[sys.argv.index('--resume') + 1]
+        except IndexError: what = 'party'
+        log('restarted as admin, resuming the %s invite' % what)
+        root.after(2500, lambda: host(what == 'send'))
 
     def show_opponents(players):
         for w in opp_area.winfo_children(): w.destroy()
@@ -5959,6 +6288,9 @@ def main():
         except Exception as e:
             body.config(text='Could not read the game settings: %s' % e)
         root.after(POLL_MS, tick)
+    bo['name'] = load_settings().get('build_order') or None
+    bo_draw()                                     # after foot_fit exists, so the card can resize
+
     tick(); fast(); root.mainloop()
 
 if __name__ == '__main__':
