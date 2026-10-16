@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v120'
+VERSION = 'v121'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -351,11 +351,12 @@ def draw_step_icon(kind, S, bg):
         for x, y in ((10, 14), (17, 12), (22, 18), (13, 21), (19, 24), (25, 23), (8, 22)):
             E(x - 2.6, y - 2.6, x + 2.6, y + 2.6, fill='#c0485a')
     elif kind == 'wood':
-        bark, end = '#7a5236', '#d9b07a'
-        for x, y in ((4, 17), (16, 17), (10, 7)):
-            R(x, y, x + 13, y + 11, 5, fill=bark)
-            E(x + 6, y + 1.5, x + 13, y + 9.5, fill=end)
-            E(x + 8.5, y + 4, x + 10.5, y + 7, fill=bark)
+        bark, end, ring = '#8a5c38', '#e2bb82', '#a8784a'
+        for x, y in ((0, 16), (16, 16), (8, 2)):              # three big logs, ends towards you
+            R(x, y, x + 16, y + 14, 6, fill=bark)
+            E(x + 3, y + 0.5, x + 16, y + 13.5, fill=end)
+            E(x + 6.5, y + 4, x + 12.5, y + 10, fill=ring)
+            E(x + 8.5, y + 6, x + 10.5, y + 8, fill=bark)
     elif kind == 'gold':
         for pts, c in ((((3, 27), (9, 15), (17, 20), (14, 28)), '#c99a2e'),
                        (((12, 28), (17, 13), (27, 17), (29, 28)), '#e2b84a'),
@@ -5552,7 +5553,7 @@ def main():
     bo_x.config(padx=4, pady=0)
     bo_x.grid(row=0, column=2, sticky='ne', padx=(6, 0))
     bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
-                      anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP - 26)
+                      anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP - 30)
     bo_now.grid(row=2, column=0, columnspan=3, sticky='w', pady=(1, 0))
     # how far through the build you are: one short bar per step, gold for the one you are on
     bo_prog = tk.Canvas(bo_box, height=3, bg=PANEL, highlightthickness=0, bd=0)
@@ -5568,17 +5569,21 @@ def main():
             col = GOLDC if k == bo['i'] else (BRONZE if k < bo['i'] else EDGE)
             bo_prog.create_rectangle(x0, 0, x0 + seg, 3, fill=col, outline='')
     bo_prog.bind('<Configure>', bo_prog_draw, add='+')
-    bo_next = tk.Label(bo_box, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
-                       wraplength=BO_WRAP - 18)
-    bo_next.grid(row=3, column=0, columnspan=3, sticky='w')
+    bo_nrow = tk.Frame(bo_box, bg=PANEL)
+    bo_nrow.grid(row=3, column=0, columnspan=3, sticky='w', pady=(1, 0))
+    bo_ntag = tk.Label(bo_nrow, text='NEXT', fg=BRONZE, bg=PANEL, font=(F_TINY[0], F_TINY[1], 'bold'), anchor='nw')
+    bo_ntag.pack(side='left', anchor='n', padx=(0, 6), pady=(1, 0))
+    bo_next = tk.Label(bo_nrow, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
+                       wraplength=BO_WRAP - 36)
+    bo_next.pack(side='left', anchor='n')
 
     def bo_wrap(e=None):
         # Long steps wrap to whatever width the overlay already is, never wider. The margin is
         # bigger than the box's own padding so the wrap can never push the box out a pixel and
         # set off another resize.
         w = max(BO_WRAP, bo_box.winfo_width() - 34)
-        if bo_now.cget('wraplength') != w - 26:                     # room for the step pictures too
-            bo_now.config(wraplength=w - 26); bo_next.config(wraplength=w - 18)
+        if bo_now.cget('wraplength') != w - 30:                     # room for the step pictures too
+            bo_now.config(wraplength=w - 30); bo_next.config(wraplength=w - 36)
             bo_cap.config(wraplength=max(BO_WRAP - 60, w - 60))
     bo_box.bind('<Configure>', bo_wrap, add='+')
 
@@ -5593,7 +5598,8 @@ def main():
                 bo_at.config(text='')
                 bo_now.config(text='Pick one', font=(DISPLAY, 10, 'bold'), image='')
                 bo_next.config(image='')
-                bo_next.config(text=BUILD_SOURCE)
+                bo_next.config(text=BUILD_SOURCE); bo_ntag.pack_forget()
+                bo_box.config(highlightbackground=EDGE)
                 bo_prog.grid_remove()
                 bo_box.grid()
             else:
@@ -5607,13 +5613,18 @@ def main():
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
         bo_cap.config(text='%s  \u00b7  %s' % (name.upper(), pop))
         bo_at.config(text='pop %s' % span)
-        img_ = step_icon(text, 18, PANEL, 7)
+        img_ = step_icon(text, 22, PANEL, 8)
         bo_now.config(text=text, image=img_ or '', compound='left')
         bo_now.image = img_
         nxt = steps[i + 1][2] if i + 1 < len(steps) else None
-        img2 = step_icon(nxt, 12, PANEL, 5) if nxt else None
-        bo_next.config(text=('next  ' + nxt) if nxt else 'last step', image=img2 or '', compound='left')
-        bo_next.image = img2
+        bo_next.config(text=nxt or 'Last step. Over to you.', image='')
+        if nxt and not bo_ntag.winfo_manager():
+            bo_ntag.pack(side='left', anchor='n', padx=(0, 6), pady=(1, 0), before=bo_next)
+        elif not nxt:
+            bo_ntag.pack_forget()
+        # the moment to click up gets a gold edge, so it stands out from the villager steps
+        up_ = any(k in text.lower() for k in ('click feudal', 'click castle'))
+        bo_box.config(highlightbackground=GOLDC if up_ else EDGE)
         bo_prog.grid(); bo_prog_draw()
         bo_box.grid(); bo_open_sync(); foot_fit()
 
@@ -5669,6 +5680,9 @@ def main():
         def chose(n_):
             close(); bo_pick(n_)
         build_list(inner, [bo['name']], chose, bg=INK).pack(fill='x', pady=(4, 0))
+        tk.Label(inner, text="Hera hasn't endorsed Wingman yet. I reckon he's great and I hope he does!",
+                 fg=FAINT, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=320
+                 ).pack(fill='x', pady=(6, 0), padx=(4, 0))
         at = anchor if anchor is not None or not bo_box.winfo_ismapped() else bo_box
         at = at if at is not None else bo_open
         pop_.update_idletasks()
@@ -6585,11 +6599,13 @@ def main():
     for w in (root, frame, head, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_cap, bo_at, bo_x, bo_now, bo_next, bo_prog, live_btn, bo_open): bind_all(w)
+              bo_box, bo_cap, bo_at, bo_x, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, live_btn, bo_open): bind_all(w)
     st['actions'][bo_prog] = bo_menu
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
     st['actions'][bo_now] = lambda: bo_menu() if not bo['name'] else bo_step(1)
     st['actions'][bo_next] = bo_menu
+    st['actions'][bo_nrow] = bo_menu
+    st['actions'][bo_ntag] = bo_menu
     st['actions'][bo_x] = bo_close
     st['actions'][bo_open] = bo_reopen
 
