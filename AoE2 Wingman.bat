@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v126'
+VERSION = 'v127'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -6961,9 +6961,7 @@ def main():
             tk.Label(outer, text=label, fg=GOLD, bg=INK, font=F_HEAD, anchor='w').pack(fill='x', pady=(gap, 4))
 
         section('Update', 'Wingman.exe updates itself from the public Releases page. The .bat '
-                          'updates from GitHub: Prod is the settled version, dev gets changes first. '
-                          + ('Run dev puts the dev .bat beside this exe and switches to it (needs Python).'
-                             if FROZEN else ''), gap=10)
+                          'updates from GitHub: Prod is the settled version, dev gets changes first.', gap=10)
         card_ = tk.Frame(outer, bg=PANEL, highlightthickness=1, highlightbackground=RIM, padx=12, pady=9)
         card_.pack(fill='x', pady=(2, 0))
         row1 = tk.Frame(card_, bg=PANEL); row1.pack(fill='x')
@@ -7021,47 +7019,12 @@ def main():
                 root.after(0, done)
             threading.Thread(target=work, daemon=True).start()
         st['run_update'] = run_update
-        def run_dev_bat():
-            # The exe can't become dev itself (dev changes before any exe is built), so dev runs
-            # as the .bat: fetch dev's AoE2 Wingman.bat beside the exe and hand over to it.
-            if st.get('updating'): return
-            import shutil
-            if not (shutil.which('pythonw') or shutil.which('python')):
-                up_msg.config(text='Dev runs as the .bat, which needs Python. Get it from python.org/downloads '
-                                   '(tick "Add python.exe to PATH"), then press this again.', fg=REDC)
-                return
-            st['updating'] = True
-            up_msg.config(text='Getting the newest dev .bat...', fg=MUT)
-            target = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), BAT_NAME)
-            def work():
-                try: ok_, text_, path_ = update_by_download('dev', target)
-                except Exception as e: ok_, text_, path_ = False, 'Could not get dev: %s' % e, None
-                if ok_ and not path_ and os.path.isfile(target): path_ = target     # already had the newest
-                log('dev .bat from the exe: %s' % text_)
-                def done():
-                    st['updating'] = False
-                    try: up_msg.config(text=text_ + ('  Switching to it...' if ok_ and path_ else ''),
-                                       fg=GREEN if ok_ else REDC)
-                    except tk.TclError: pass
-                    if ok_ and path_:
-                        def swap():
-                            try: restart_app(path_)
-                            except Exception as e:
-                                log('could not start the dev .bat: %r' % (e,))
-                                try: up_msg.config(text='Could not start it: %s' % e, fg=REDC)
-                                except tk.TclError: pass
-                                return
-                            try: root.destroy()
-                            finally: os._exit(0)
-                        root.after(1200, swap)
-                root.after(0, done)
-            threading.Thread(target=work, daemon=True).start()
-        if FROZEN:
-            flat_button(up_row, 'Get the newest Wingman.exe', lambda: run_update('exe'), fill=True).pack(side='left')
-            flat_button(up_row, 'Run dev (.bat)', run_dev_bat).pack(side='left', padx=(8, 0))
-        else:
-            flat_button(up_row, 'Update from Prod', lambda: run_update('Prod'), fill=True).pack(side='left')
-            flat_button(up_row, 'Update from dev', lambda: run_update('dev')).pack(side='left', padx=(8, 0))
+        # Same two buttons whichever way you run it. Every published version gets an exe build
+        # too, so for the exe both come from the newest release; the .bat takes the branch.
+        flat_button(up_row, 'Update from Prod', lambda: run_update('exe' if FROZEN else 'Prod'),
+                    fill=True).pack(side='left')
+        flat_button(up_row, 'Update from dev', lambda: run_update('exe' if FROZEN else 'dev')
+                    ).pack(side='left', padx=(8, 0))
         up_msg.pack(fill='x', pady=(6, 0))
         def look_newest():
             rel = latest_release()
@@ -7941,7 +7904,7 @@ def main():
     def auto_publish():
         top = find_publish()
         if not top: return
-        if os.path.normcase(home_copy()) != os.path.normcase(self_path()):
+        if not FROZEN and os.path.normcase(home_copy()) != os.path.normcase(self_path()):
             log('auto publish: this copy is outside the repo, handing over to %s at the menu' % home_copy())
             st['restart_into'] = 'the Prod copy'
         pub = os.path.join(top, 'Publish-Wingman.cmd')
@@ -7973,7 +7936,9 @@ def main():
                         text='Could not publish %s by itself. Run Publish-Wingman.cmd to see why.' % v))
                     continue
                 log('auto publish: %s is on dev and Prod' % ver)
-                if _sha(home_copy()) != SELF_SHA:
+                if FROZEN:
+                    log('auto publish: the exe for %s builds on GitHub, the bar will offer it' % ver)
+                elif _sha(home_copy()) != SELF_SHA:
                     st['restart_into'] = ver
                 else:
                     log('auto publish: this copy (%s) is not the one that changed, no restart' % self_path())
