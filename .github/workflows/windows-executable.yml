@@ -29,7 +29,7 @@ jobs:
         run: python packaging/prepare_build.py
       - name: Build executable
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name Wingman --collect-all winrt --collect-all uiautomation --hidden-import=PIL.ImageTk --hidden-import=winrt.windows.media.ocr --hidden-import=winrt.windows.graphics.imaging --hidden-import=winrt.windows.storage.streams --hidden-import=winrt.windows.foundation --hidden-import=winrt.windows.foundation.collections --hidden-import=winrt.windows.globalization --paths . --hidden-import=opponent_intelligence build/wingman_frozen.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name Wingman --icon packaging/wingman.ico --collect-all winrt --collect-all uiautomation --hidden-import=PIL.ImageTk --hidden-import=winrt.windows.media.ocr --hidden-import=winrt.windows.graphics.imaging --hidden-import=winrt.windows.storage.streams --hidden-import=winrt.windows.foundation --hidden-import=winrt.windows.foundation.collections --hidden-import=winrt.windows.globalization --paths . --hidden-import=opponent_intelligence build/wingman_frozen.py
       - name: Check output
         shell: pwsh
         run: |
