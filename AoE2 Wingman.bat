@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v106'
+VERSION = 'v107'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -1128,7 +1128,7 @@ class TCWatcher(threading.Thread):
                         if self.clock and now > self.clock[1] + 1 and g > self.clock[0]:
                             sp = (g - self.clock[0]) / (now - self.clock[1])
                             if 0.5 < sp < 3: self.speed = sp
-                        self.clock = (g, now)
+                        self.clock_prev, self.clock = self.clock, (g, now)
                 if now - self.age_t > 4:
                     self.age_t = now
                     ag = self.read_age(read, grab, x, y, w, s)
@@ -1144,6 +1144,14 @@ class TCWatcher(threading.Thread):
             m = re.search(r'(\d{1,2})\s*[:.]\s*(\d{2})\s*[:.]\s*(\d{2})', t)
             if m: return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
         return None
+
+    def timer_stopped(self):
+        """True if the game timer read the same on its last two readings (paused), False if it
+        moved, None if there are no fresh readings to go by."""
+        a, b = getattr(self, 'clock_prev', None), self.clock
+        if not a or not b: return None
+        if time.time() - b[1] > 6 or b[1] - a[1] > 8: return None
+        return a[0] == b[0]
 
     def game_minutes(self, now):
         if self.clock: return (self.clock[0] + (now - self.clock[1]) * self.speed) / 60.0
@@ -2888,29 +2896,25 @@ def discord_stop():
     if d: focus_window(d); time.sleep(0.3)
     return _uia_click(stop) or _uia_press(stop)
 
-def game_paused(g):
+def game_paused(timer=None):
     """True if the game is paused, False if it is running, None if that could not be told.
-    The game timer under the resource bar stops while paused, so read it twice a moment apart.
-    If the timer will not read, the recording is the back-up: it stops growing while paused."""
+    timer() is the Town Center watcher's own say (the game timer it already reads every few
+    seconds stops while paused). If it has nothing fresh, the recording is the back-up."""
     try:
-        read = _load_ocr(); grab = _grabber()
-        x, y, w, hh = client_rect(g); s = hh / 2160.0
-        t1 = TCWatcher.read_clock(None, read, grab, x, y, w, s)
-        time.sleep(1.0)                    # the timer runs at 1.7 game seconds a second, so it moves
-        t2 = TCWatcher.read_clock(None, read, grab, x, y, w, s)
-        if t1 is not None and t2 is not None:
-            log('go live: game timer %d then %d' % (t1, t2))
-            return t1 == t2
+        t = timer() if timer else None
+        if t is not None:
+            log('go live: the game timer is %s' % ('stopped' if t else 'running'))
+            return t
     except Exception as e:
-        log('go live, reading the timer: %r' % (e,))
+        log('go live, timer: %r' % (e,))
     f = LIVE.get('path')
     if f and os.path.isfile(f):
-        growing = recording_growing(f, wait=2.0)
-        log('go live: timer unreadable, the recording is %s' % ('growing' if growing else 'still'))
+        growing = recording_growing(f, wait=1.5)
+        log('go live: no fresh timer reading, the recording is %s' % ('growing' if growing else 'still'))
         return not growing
     return None
 
-def go_live(cfg, in_game=True, status=lambda t: None):
+def go_live(cfg, in_game=True, status=lambda t: None, timer=None):
     """The whole thing, start to finish. in_game False is the Settings test: Discord only."""
     c = dict(LIVE_DEFAULTS); c.update({k: v for k, v in cfg.items() if k in LIVE_DEFAULTS and v is not None})
     if not combo_ok(c['live_pause_key']):                   # a bad saved value: put the default back for good
@@ -2924,14 +2928,22 @@ def go_live(cfg, in_game=True, status=lambda t: None):
         if game_needs_admin(): raise LiveFail(ADMIN_MSG)
         status('pausing'); focus_window(g); time.sleep(0.3)
         # the pause key toggles, so pressing it on a paused game would set it going again
-        if game_paused(g):
+        if game_paused(timer):
             log('go live: the game is already paused, so pause was not pressed')
         else:
             tap_combo(c['live_pause_key']); time.sleep(0.35)
         game_chat(c['live_before'])
     status('Discord')
     try:
-        discord_share_game()
+        # in a thread of its own: Windows' accessibility helper wants a thread nothing else
+        # has set up, and the screen reader can leave this one set the other way
+        box = {}
+        def run_():
+            try: discord_share_game()
+            except BaseException as e: box['e'] = e
+        th = threading.Thread(target=run_, daemon=True); th.start(); th.join(90)
+        if th.is_alive(): raise LiveFail('Discord took too long to answer')
+        if 'e' in box: raise box['e']
     finally:
         if g and _win()[2].GetForegroundWindow() != g:
             status('back'); time.sleep(0.2); focus_window(g); time.sleep(0.5)
@@ -5961,7 +5973,7 @@ def main():
         def work():
             ok, why = False, ''
             try:
-                go_live(load_settings(), in_game=in_game,
+                go_live(load_settings(), in_game=in_game, timer=tcw.timer_stopped,
                         status=lambda t: show('\u25cf ' + t.capitalize() + '...', GOLDD))
                 ok = True
             except LiveFail as e:
