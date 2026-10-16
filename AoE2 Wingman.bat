@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v130'
+VERSION = 'v131'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -5674,10 +5674,11 @@ def main():
 
     body = Facts(frame)
     body.grid(row=2, column=0, columnspan=4, sticky='we')
-    # holds the card to one width in a game, so it does not jump about as the facts change.
-    # Out of a game there is nothing to hold, so the pin comes off and the card shrinks to
-    # its header, which is all there is to show while you are waiting.
-    pin = tk.Frame(frame, bg=BG, width=0, height=0)
+    # holds the card to one width, so it does not jump about as the facts change. The same
+    # width at the menu and in a game, so it stays where you put it.
+    # CARD_W grows past 400 only if the menu's header needs more (worked out in lock_width).
+    CARD_W = [400]
+    pin = tk.Frame(frame, bg=BG, width=CARD_W[0], height=0)
     pin.grid(row=9, column=0, columnspan=4)
 
     waiting_now = [True]                 # st does not exist yet when this first runs
@@ -5685,7 +5686,7 @@ def main():
     def idle_size(waiting):
         was = waiting_now[0]
         waiting_now[0] = waiting
-        pin.config(width=0 if waiting else 400)
+        pin.config(width=CARD_W[0])           # the same width in and out of a game
         if waiting:                                   # pull everything in: there is nothing to show
             body.config(text=''); body.grid_remove()
             sep.grid_remove(); footsep.grid_remove()   # no dividers, nothing to divide
@@ -5704,8 +5705,9 @@ def main():
 
     # the build order strip: one step at a time, because mid game you have no time for a list
     bo = {'name': None, 'i': 0, 'pop': 0, 'hidden': False}
-    BO_WRAP = 260                               # the narrowest the strip wraps to
-    bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=5)
+    BO_WRAP = 240                               # the narrowest the strip wraps to
+    BO_FONT = (DISPLAY, 11, 'bold')             # the step you are on
+    bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=8, pady=4)
     bo_box.grid(row=3, column=0, columnspan=4, sticky='we', pady=(6, 0)); bo_box.grid_remove()
     bo_box.columnconfigure(0, weight=1)
     bo_cap = tk.Label(bo_box, text='', fg=BRONZE, bg=PANEL, font=F_TINY, anchor='w', cursor='hand2',
@@ -5716,7 +5718,7 @@ def main():
     bo_x = icon_button(bo_box, '\u2715', PANEL, hot=REDC, size=9)     # closes the build order
     bo_x.config(padx=4, pady=0)
     bo_x.grid(row=0, column=2, sticky='ne', padx=(6, 0))
-    bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
+    bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=BO_FONT,
                       anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP - 30)
     bo_now.grid(row=2, column=0, columnspan=3, sticky='w', pady=(1, 0))
     # how far through the build you are: one short bar per step, gold for the one you are on
@@ -5758,18 +5760,20 @@ def main():
             # nothing on screen to click and no way to find the feature at all. In a game it stays
             # hidden: if you have not picked one by then you do not want a prompt mid match.
             if waiting_now[0] and not bo['hidden']:
+                # one small line: the source shows in the list itself, so it is not repeated here
                 bo_cap.config(text='BUILD ORDER')
                 bo_at.config(text='')
-                bo_now.config(text='Pick one', font=(DISPLAY, 10, 'bold'), image='')
-                bo_next.config(image='')
-                bo_next.config(text=BUILD_SOURCE); bo_ntag.pack_forget()
+                bo_now.config(text='Pick one  \u203a', font=(DISPLAY, 9, 'bold'), image='')
+                bo_next.config(image='', text=''); bo_ntag.pack_forget()
+                bo_nrow.grid_remove()
                 bo_box.config(highlightbackground=EDGE)
                 bo_prog.grid_remove()
                 bo_box.grid()
             else:
                 bo_box.grid_remove()
             bo_open_sync(); foot_fit(); return
-        bo_now.config(font=(DISPLAY, 12, 'bold'))
+        bo_now.config(font=BO_FONT)
+        bo_nrow.grid()
         name, pop, steps = found
         i = max(0, min(bo['i'], len(steps) - 1))
         bo['i'] = i
@@ -5777,7 +5781,7 @@ def main():
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
         bo_cap.config(text='%s  \u00b7  %s' % (name.upper(), pop))
         bo_at.config(text='pop %s' % span)
-        img_ = step_icon(text, 22, PANEL, 8)
+        img_ = step_icon(text, 20, PANEL, 8)
         bo_now.config(text=text, image=img_ or '', compound='left')
         bo_now.image = img_
         nxt = steps[i + 1][2] if i + 1 < len(steps) else None
@@ -5942,23 +5946,44 @@ def main():
     # so with no game on the whole panel is one row. The row below it only appears when the
     # button has something to say.
     btn_plate = tk.Frame(head, bg=RIM, padx=1, pady=1)           # dark edge around the bronze face
-    host_btn = tk.Label(btn_plate, text='Ranked party invite', fg='#2a2113', bg=GOLD, font=(DISPLAY, 9, 'bold'),
-                        padx=8, pady=3, cursor='hand2')
+    host_btn = tk.Label(btn_plate, text='Party invite', fg='#2a2113', bg=GOLD, font=(DISPLAY, 9, 'bold'),
+                        padx=7, pady=3, cursor='hand2')
     host_btn.pack()
     host_btn.bind('<Enter>', lambda e: host_btn.cget('bg') == GOLD and host_btn.config(bg=GOLDD), add='+')
     host_btn.bind('<Leave>', lambda e: host_btn.cget('bg') == GOLDD and host_btn.config(bg=GOLD), add='+')
-    btn_plate.grid(row=0, column=2, sticky='e', padx=(10, 2))
+    btn_plate.grid(row=0, column=2, sticky='e', padx=(8, 2))
     state.grid_remove()                                          # the app opens with no game on
     hint = tk.Label(host_row, text='drag to move  \u00b7  click the name to roll up  \u00b7  W/L for your record', fg=FAINT, bg=BG,
                     font=F_TINY, anchor='e')
     hint.grid(row=0, column=1, sticky='e', padx=(12, 2)); hint.grid_remove()
     host_msg = tk.Label(host_row, text='', fg='#b8b19f', bg=BG, font=F_SMALL, anchor='w',
-                        justify='left', wraplength=430)
+                        justify='left', wraplength=CARD_W[0])
     host_msg.grid(row=1, column=0, columnspan=2, sticky='w')
     admin_box = tk.Frame(host_row, bg=BG)                        # the admin buttons, only when they're needed
     admin_box.grid(row=2, column=0, columnspan=2, sticky='w', pady=(6, 0)); admin_box.grid_remove()
     host_row.grid_remove()                                       # nothing to say yet
-    idle_size(True)                 # the app opens with no game on, so start small
+    idle_size(True)                 # the app opens with no game on
+
+    def lock_width():
+        """Fix the overlay's width for good. It used to be wider at the menu (the party invite
+        button) than in a game, so a spot picked in a game pushed it off the screen at the menu.
+        Now it is the menu header's width or 400, whichever is more, in and out of a game, and
+        anything wider later (a long map name, say) is cut off at the edge rather than growing it."""
+        root.update_idletasks()
+        shown = bool(bo_open.winfo_manager())
+        bo_open.grid(); root.update_idletasks()        # leave room for the build button too
+        need = head.winfo_reqwidth()
+        if not shown: bo_open.grid_remove()
+        CARD_W[0] = max(400, need)
+        pin.config(width=CARD_W[0]); host_msg.config(wraplength=CARD_W[0])
+        root.update_idletasks()
+        edge = 2 * (int(frame.cget('padx')) + int(frame.cget('highlightthickness')) + 2)
+        w = CARD_W[0] + edge
+        root.minsize(w, 1); root.maxsize(w, max(2000, root.winfo_screenheight() * 2))
+        return w
+    try: card_w = lock_width()
+    except Exception as e:
+        log('lock width: %r' % (e,)); card_w = 440
     try:
         if god_mode_status()[0] != 'on':
             host_msg.config(text='Idle TC alert needs the God Mode mod (%s). Get it in Settings.'
@@ -5973,6 +5998,8 @@ def main():
             raise ValueError
     except Exception:
         px, py = 20, 120
+    sw0 = root.winfo_screenwidth()
+    if px < sw0 < px + card_w: px = max(0, sw0 - card_w)    # hanging off the right edge: pull it back on
     root.geometry('+%d+%d' % (px, py))
     st = {'drag': None, 'last': None, 'actions': {}, 'shift': False,
           'first': None, 'herd': None, 'extra': 0}
