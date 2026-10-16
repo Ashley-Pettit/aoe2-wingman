@@ -11,7 +11,8 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v112'
+VERSION = 'v113'
+FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -689,6 +690,7 @@ def _load_ocr():
         log('installing the Windows text reader (winrt) with pip')
         exe = sys.executable
         if exe.lower().endswith('pythonw.exe'): exe = exe[:-11] + 'python.exe'
+        if FROZEN: raise RuntimeError('the exe has this built in already')
         subprocess.run([exe, '-m', 'pip', 'install', '--user', '--disable-pip-version-check', '-q'] + OCR_PKGS,
                        creationflags=0x08000000, timeout=600, capture_output=True)
         usp = site.getusersitepackages()
@@ -885,6 +887,7 @@ def ensure_numpy():
         exe = sys.executable
         if exe.lower().endswith('pythonw.exe'): exe = exe[:-11] + 'python.exe'
         log('installing numpy for the idle TC alert')
+        if FROZEN: raise RuntimeError('the exe has this built in already')
         subprocess.run([exe, '-m', 'pip', 'install', '--user', '--disable-pip-version-check', '-q', 'numpy'],
                        creationflags=0x08000000, timeout=600, capture_output=True)
         usp = site.getusersitepackages()
@@ -2317,9 +2320,12 @@ def relaunch_as_admin(resume=''):
     True once you said yes; the caller closes this copy straight after."""
     import ctypes
     exe = sys.executable
-    w = os.path.join(os.path.dirname(exe), 'pythonw.exe')
-    if os.path.isfile(w): exe = w
-    args = '-x "%s" --wait-turn' % self_path() + (' --resume %s' % resume if resume else '')
+    if FROZEN:                                   # Wingman.exe starts itself, no Python in front of it
+        args = '--wait-turn' + (' --resume %s' % resume if resume else '')
+    else:
+        w = os.path.join(os.path.dirname(exe), 'pythonw.exe')
+        if os.path.isfile(w): exe = w
+        args = '-x "%s" --wait-turn' % self_path() + (' --resume %s' % resume if resume else '')
     se = ctypes.windll.shell32.ShellExecuteW
     se.restype = ctypes.c_void_p
     se.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_int]
@@ -2479,6 +2485,7 @@ def ensure_pkg(mod, pip_name=None, why=''):
         exe = sys.executable
         if exe.lower().endswith('pythonw.exe'): exe = exe[:-11] + 'python.exe'
         log('installing %s%s' % (pip_name or mod, (' for ' + why) if why else ''))
+        if FROZEN: raise RuntimeError('the exe has this built in already')
         subprocess.run([exe, '-m', 'pip', 'install', '--user', '--disable-pip-version-check', '-q',
                         pip_name or mod], creationflags=0x08000000, timeout=600, capture_output=True)
         usp = site.getusersitepackages()
@@ -4017,6 +4024,7 @@ def ensure_pillow():
         exe = sys.executable
         if exe.lower().endswith('pythonw.exe'): exe = exe[:-11] + 'python.exe'
         log('installing Pillow so the civ crests can be shown')
+        if FROZEN: raise RuntimeError('the exe has this built in already')
         subprocess.run([exe, '-m', 'pip', 'install', '--user', '--disable-pip-version-check', '-q', 'Pillow'],
                        creationflags=0x08000000, timeout=300, capture_output=True)
         usp = site.getusersitepackages()
@@ -4460,6 +4468,12 @@ def _intel():
     It lives on dev for now, so a Prod copy without it just goes without the extra line."""
     if 'mod' in _INTEL: return _INTEL['mod']
     mod = None
+    if FROZEN:
+        try:
+            import opponent_intelligence as mod                  # built into the exe
+            _INTEL['mod'] = mod; return mod
+        except Exception:
+            mod = None
     try:
         here = os.path.dirname(os.path.abspath(self_path()))
         if os.path.isfile(os.path.join(here, 'opponent_intelligence.py')):
@@ -4486,6 +4500,35 @@ def intel_line(rows, civ=None):
     except Exception as e:
         log('opponent intelligence: %r' % (e,))
         return None
+
+def intel_predict(rows, civ=None):
+    """The scouting report on one opponent from their public games: their usual opening move, how
+    many of their games it was, every opening move with its count, and their median Feudal and
+    Castle times. Uses the opponent intelligence module when it is beside this copy; otherwise
+    the same sums done here. History only, never anything about the game in progress."""
+    recs = [{'opening': short_opening(r['o'], parts=1), 'civ': str(r.get('civ')),
+             'feudal_seconds': r.get('f') or None, 'castle_seconds': r.get('c') or None}
+            for r in rows or [] if r.get('o')]
+    if len(recs) < 2: return None
+    dist = collections.Counter(x['opening'] for x in recs).most_common()
+    oi = _intel()
+    if oi:
+        try:
+            pr = oi.predict_opening(recs, civ=str(civ) if civ is not None else None, min_samples=2)
+            if pr:
+                return dict(opening=pr.opening, observed=pr.observed, matches=pr.matches,
+                            feudal=pr.feudal_seconds, castle=pr.castle_seconds, dist=dist,
+                            on_civ=bool(civ is not None and pr.matches < len(recs)))
+        except Exception as e:
+            log('opponent intelligence: %r' % (e,))
+    def med(k):
+        v = sorted(x[k] for x in recs if x[k])
+        return v[len(v) // 2] if v else None
+    return dict(opening=dist[0][0], observed=dist[0][1], matches=len(recs),
+                feudal=med('feudal_seconds'), castle=med('castle_seconds'), dist=dist, on_civ=False)
+
+def mmss(sec):
+    return '%d:%02d' % (int(sec) // 60, int(sec) % 60)
 
 def openings_lines(rows, civ=None, strings=None):
     """Two short lines: what they open with most, then how those games went."""
@@ -6269,7 +6312,8 @@ def main():
         section('Update', 'Gets the newest version from GitHub, then closes and restarts the app. '
                           'Prod is the settled version. dev gets new changes first.', gap=10)
         up_row = tk.Frame(outer, bg=INK); up_row.pack(fill='x', pady=(2, 0))
-        up_msg = tk.Label(outer, text='This copy is %s.' % VERSION, fg='#b8b19f', bg=INK, font=F_SMALL,
+        up_msg = tk.Label(outer, text='This copy is %s%s.' % (VERSION, ' (Wingman.exe: update by downloading the newest one)' if FROZEN else ''),
+                          fg='#b8b19f', bg=INK, font=F_SMALL,
                           anchor='w', justify='left', wraplength=400)
         def run_update(branch):
             if st.get('updating'): return
@@ -7259,6 +7303,49 @@ def main():
             cap = tk.Label(opp_area, text='OPPONENTS', fg=BRONZE, bg=BG,
                            font=(DISPLAY, 8, 'bold'), anchor='w')
             cap.grid(row=0, column=0, sticky='w'); bind_all(cap)
+        def scouting_report(box, pr, col):
+            """One line: a bar split by how often they open each way, the usual one named with
+            its count, then their usual Feudal and Castle times. As your own game clock comes up
+            to one of those times it turns amber with a countdown, then red while it is due."""
+            for w in box.winfo_children(): w.destroy()
+            ic = tk.Canvas(box, width=13, height=13, bg=BG, highlightthickness=0)
+            draw_icon(ic, 'clock', 13, BRONZE); ic.pack(side='left', padx=(0, 5))
+            W, H = 54, 7
+            bar = tk.Canvas(box, width=W, height=H, bg=PANEL, highlightthickness=1, highlightbackground=RIM)
+            x, total = 0.0, float(sum(n for _, n in pr['dist'])) or 1.0
+            for k, (lab, n) in enumerate(pr['dist']):
+                w_ = W * n / total
+                bar.create_rectangle(x, 0, x + w_, H, width=0,
+                                     fill=col if k == 0 else (MUT if k == 1 else RIM))
+                x += w_
+            bar.pack(side='left', padx=(0, 6))
+            lead = tk.Label(box, text='%s %d/%d' % (pr['opening'], pr['observed'], pr['matches']),
+                            fg=GOLDD, bg=BG, font=(DISPLAY, 9, 'bold'))
+            lead.pack(side='left')
+            when = tk.Label(box, text='', fg=MUT, bg=BG, font=F_SMALL)
+            when.pack(side='left', padx=(8, 0))
+            for w in (box, ic, bar, lead, when): bind_all(w)
+            marks = [(nm_, sec) for nm_, sec in (('Feudal', pr.get('feudal')), ('Castle', pr.get('castle'))) if sec]
+            def tick_():
+                try:
+                    if not when.winfo_exists(): return
+                except Exception:
+                    return
+                now_s = tcw.game_minutes(time.time()) * 60 if tcw.active else None
+                bits, colour = [], MUT
+                for nm_, sec in marks:
+                    left = sec - now_s if now_s is not None else None
+                    if left is not None and 0 < left <= 90:
+                        bits.append('%s ~%s (in %s)' % (nm_, mmss(sec), mmss(left))); colour = GOLDD
+                    elif left is not None and -150 < left <= 0:
+                        bits.append('%s due ~%s' % (nm_, mmss(sec))); colour = REDC
+                    elif left is None or left > 0:
+                        bits.append('%s ~%s' % (nm_, mmss(sec)))
+                when.config(text='  \u00b7  '.join(bits[:2]), fg=colour)
+                root.after(3000, tick_)
+            tick_()
+            box.grid()
+
         folded = bool(load_settings().get('opp_folded', False))    # how you left it last time
         opp_area.columnconfigure(0, weight=1)                      # the rating stays hard right, folded or not
         for i, p in enumerate(opps):
@@ -7295,9 +7382,13 @@ def main():
             more.grid(row=1, column=0, sticky='we', padx=(18, 0))
             beat = tk.Frame(more, bg=BG)
             beat.grid(row=0, column=0, sticky='w', pady=(2, 0))
+            # The scouting report: their usual opening as a bar of how often, and when they
+            # usually reach Feudal and Castle, counting down against your own game clock.
+            intel = tk.Frame(more, bg=BG)
+            intel.grid(row=1, column=0, sticky='w', pady=(3, 0)); intel.grid_remove()
             det = tk.Label(more, text=text, fg='#cfc8b6', bg=BG, font=F_SMALL, anchor='w',
                            justify='left', wraplength=380)
-            det.grid(row=1, column=0, sticky='w', pady=(2, 0)); det.grid_remove()
+            det.grid(row=2, column=0, sticky='w', pady=(2, 0)); det.grid_remove()
             if folded: more.grid_remove()
 
             def mark(parent, kind, col):
@@ -7389,7 +7480,7 @@ def main():
                 threading.Thread(target=look, daemon=True).start()
 
                 def habits(pp=p, box=opn, dt=det, base=text, tone_=tone, civ_=name, fold_=fold, fit_=fit,
-                           chips_=chips, note_=note):
+                           chips_=chips, note_=note, report_=lambda pr, col, f=intel: scouting_report(f, pr, col)):
                     def post(fn):
                         for _ in range(40):
                             try: root.after(0, fn); return
@@ -7400,8 +7491,10 @@ def main():
                                                  5 if team_game else OPEN_GAMES)
                         tops = top_openings(rows)
                         detail = '\n'.join(openings_lines(rows, pp['civ'], strings))
+                        pred = intel_predict(rows, pp['civ'])
                         def done():
                             try:
+                                if pred: report_(pred, tone_)
                                 if tops: chips_(box, tops, tone_, fold_, fit_)
                                 else:
                                     back = [(x, 0) for x in civ_typical(civ_)]

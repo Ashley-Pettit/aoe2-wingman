@@ -29,7 +29,25 @@ No. It only uses things you can already see: the lobby, your own screen, and the
 
 ## How to install
 
-You need a Windows PC with Age of Empires II: Definitive Edition. It takes about five minutes.
+You need a Windows PC with Age of Empires II: Definitive Edition. Pick one of two ways. Both are the same Wingman.
+
+| | **Wingman.exe** | **AoE2 Wingman.bat** |
+|---|---|---|
+| Setup | Download one file, run it | Install Python first (five minutes) |
+| Updates | Download the new exe | Updates itself from Settings |
+| Best for | Mates who just want it working | You, or anyone who likes the newest bits |
+
+### Option A: Wingman.exe (easiest)
+
+- Go to this repo's **Releases** page (right-hand side of the main page) and open the newest one.
+- Download **Wingman.exe** and put it somewhere you'll find it, like your Desktop.
+- Double-click it. The small Wingman bar shows up in the corner of your screen.
+
+Windows will probably show a blue "Windows protected your PC" box the first time, because the exe isn't signed. Click **More info**, then **Run anyway**. Some antivirus programs get nervous about it too: it reads your screen and presses keys for the party invite and Go Live, which is the kind of thing they watch for.
+
+To update the exe, download the newest **Wingman.exe** from Releases and replace the old one. Your settings and record are kept.
+
+### Option B: AoE2 Wingman.bat (updates itself)
 
 **1. Get Python**
 
@@ -42,12 +60,11 @@ Python is the free program Wingman runs on.
 
 **2. Download Wingman**
 
-- At the top of this page, click the green **Code** button, then **Download ZIP**.
-- Open the ZIP and drag the folder inside it onto your Desktop.
+- On the **Releases** page, download **AoE2 Wingman.bat**. Or click the green **Code** button, then **Download ZIP**, and drag the folder inside onto your Desktop.
 
 **3. Start it**
 
-- Open the folder and double-click **AoE2 Wingman.bat**.
+- Double-click **AoE2 Wingman.bat**.
 - A small bar shows up in the corner of your screen. That's it running.
 
 <p align="center"><img src="docs/waiting.png" alt="The small Wingman bar you see before a game" width="450"></p>
@@ -84,7 +101,9 @@ Start a ranked game. The bar opens up into the full panel by itself when the mat
 
 ## How to update
 
-Click the cog, then **Update from Prod**. It gets the newest version and restarts.
+**The .bat:** click the cog, then **Update from Prod**. It gets the newest version and restarts.
+
+**The exe:** download the newest **Wingman.exe** from Releases and swap it for the old one.
 
 <p align="center"><img src="docs/settings-update.png" alt="The Update buttons in Settings" width="490"></p>
 
