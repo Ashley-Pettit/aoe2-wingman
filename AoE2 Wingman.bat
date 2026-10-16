@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v127'
+VERSION = 'v128'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -5278,7 +5278,7 @@ def flat_button(parent, text, command, accent=GOLDC, fill=False, hot=None):
     outline for the rest. Built from a Label so it styles the same on every box."""
     import tkinter as tk
     hot = hot or GOLDD
-    b = tk.Label(parent, text=text, font=F_HEAD, cursor='hand2', padx=14, pady=5)
+    b = tk.Label(parent, text=text, font=(F_SMALL[0], 9, 'bold'), cursor='hand2', padx=14, pady=6)
     if fill:
         b.configure(bg=accent, fg=INK)
         b.bind('<Enter>', lambda e: b.config(bg=GOLDD))
@@ -5314,7 +5314,7 @@ def Check(parent, text='', variable=None, bg=INK, **_ignored):
     f = tk.Frame(parent, bg=bg, cursor='hand2')
     sw = tk.Canvas(f, width=W, height=H, bg=bg, highlightthickness=0, bd=0, cursor='hand2')
     sw.pack(side='left', padx=(0, 7), pady=3)
-    lab = tk.Label(f, text=text, fg=TXT, bg=bg, font=F_SMALL, anchor='w', cursor='hand2', justify='left')
+    lab = tk.Label(f, text=text, fg=TXT, bg=bg, font=(F_SMALL[0], 9), anchor='w', cursor='hand2', justify='left')
     lab.pack(side='left', fill='x')
     st_ = {'hot': False, 'img': None}
     def draw(*_):
@@ -5811,6 +5811,10 @@ def main():
         cfg_['build_order_hidden'] = bo['hidden']
         save_settings(cfg_)
         bo_draw()
+        cb = st.get('bo_on_change')
+        if cb:
+            try: cb()
+            except Exception: pass
 
     def bo_close():
         """The cross: no build order, and no 'Pick one' at the menu either. Picking one in
@@ -5877,7 +5881,7 @@ def main():
                 return False
         def watch():
             if st.get('bo_pop') is not pop_: return
-            if over(pop_) or over(root):              # on the list, or still on the overlay
+            if over(pop_) or over(root) or (anchor is not None and over(anchor)):   # on the list, the overlay or what opened it
                 live['away'] = None
             else:
                 if down() and not over(root): close(); return           # clicked somewhere else
@@ -6929,36 +6933,51 @@ def main():
 
         # The sections scroll (mouse wheel or the bar) so the window always fits the screen,
         # and the Save row is pinned underneath where it can always be reached.
-        shell_ = tk.Frame(win, bg=INK); shell_.pack(fill='both', expand=True, padx=1, pady=1)
-        foot = tk.Frame(shell_, bg=INK, padx=18); foot.pack(side='bottom', fill='x', pady=(0, 14))
-        bar_ = slim_scrollbar(shell_)
-        board_ = tk.Canvas(shell_, bg=INK, highlightthickness=0, bd=0, yscrollcommand=bar_.set)
+        # The page is a shade darker than the cards on it, so each part of Settings sits in its
+        # own panel. Everything after a section() call lands in that section's card.
+        DEEP = '#0f0c07'
+        shell_ = tk.Frame(win, bg=DEEP); shell_.pack(fill='both', expand=True, padx=1, pady=1)
+        foot = tk.Frame(shell_, bg=DEEP, padx=18); foot.pack(side='bottom', fill='x', pady=(10, 14))
+        bar_ = slim_scrollbar(shell_, bg=DEEP)
+        board_ = tk.Canvas(shell_, bg=DEEP, highlightthickness=0, bd=0, yscrollcommand=bar_.set)
         bar_.config(command=board_.yview)
         board_.pack(side='left', fill='both', expand=True)
-        outer = tk.Frame(board_, bg=INK, padx=18, pady=14)
-        board_.create_window((0, 0), window=outer, anchor='nw')
+        page = tk.Frame(board_, bg=DEEP, padx=16, pady=14)
+        board_.create_window((0, 0), window=page, anchor='nw')
+        outer = page
         def fit_(_=None):
             room = win.winfo_screenheight() - 230               # leave space for the Save row and the taskbar
-            board_.configure(scrollregion=board_.bbox('all'), width=outer.winfo_reqwidth(),
-                             height=min(outer.winfo_reqheight(), room))
-            if outer.winfo_reqheight() > room: bar_.pack(side='right', fill='y')
+            board_.configure(scrollregion=board_.bbox('all'), width=page.winfo_reqwidth(),
+                             height=min(page.winfo_reqheight(), room))
+            if page.winfo_reqheight() > room: bar_.pack(side='right', fill='y')
             else: bar_.pack_forget()
-        outer.bind('<Configure>', fit_)
+        page.bind('<Configure>', fit_)
         def wheel_(e):
-            if outer.winfo_reqheight() > board_.winfo_height():
+            if page.winfo_reqheight() > board_.winfo_height():
                 board_.yview_scroll(-1 if e.delta > 0 else 1, 'units')
         win.bind('<MouseWheel>', wheel_)
 
-        hd = tk.Frame(outer, bg=INK); hd.pack(fill='x')
-        tk.Frame(hd, bg=GOLD, width=3, height=18).pack(side='left', padx=(0, 9))
-        tk.Label(hd, text='Settings', fg=GOLD, bg=INK, font=F_TITLE).pack(side='left')
-        tk.Label(hd, text=VERSION, fg=MUT, bg=PANEL, font=F_TINY, padx=5, pady=1).pack(side='right')
-        sr_ = Rule(outer); sr_.configure(bg=INK); sr_.pack(fill='x', pady=(8, 0))
+        hd = tk.Frame(page, bg=DEEP); hd.pack(fill='x', pady=(0, 4))
+        try:
+            hd_img = tk.PhotoImage(data=APP_ICON_PNG[1])
+            hl = tk.Label(hd, image=hd_img, bg=DEEP); hl.image = hd_img; hl.pack(side='left', padx=(0, 10))
+        except Exception:
+            pass
+        tk.Label(hd, text='Settings', fg=GOLD, bg=DEEP, font=F_HEADLINE).pack(side='left')
+        tk.Label(hd, text=VERSION, fg=MUT, bg=PANEL, font=F_TINY, padx=7, pady=2).pack(side='right')
 
         def section(label, note=None, gap=14):
-            """A gold heading. The notes stay in the code as a record of how each part works, but
-            are not shown: Settings reads cleaner as headings and switches."""
-            tk.Label(outer, text=label, fg=GOLD, bg=INK, font=F_HEAD, anchor='w').pack(fill='x', pady=(gap, 4))
+            """A card with a gold heading; what follows goes in it. The notes stay in the code as a
+            record of how each part works, but are not shown: Settings reads cleaner without them."""
+            nonlocal outer
+            card = tk.Frame(page, bg=INK, highlightthickness=1, highlightbackground=EDGE, padx=14, pady=11)
+            card.pack(fill='x', pady=(10, 0))
+            tk.Label(card, text=label, fg=GOLD, bg=INK, font=F_HEAD, anchor='w').pack(fill='x', pady=(0, 7))
+            outer = card
+
+        def field(label):
+            """A small label for one part of a card."""
+            tk.Label(outer, text=label, fg=MUT, bg=INK, font=F_SMALL, anchor='w').pack(fill='x', pady=(8, 3))
 
         section('Update', 'Wingman.exe updates itself from the public Releases page. The .bat '
                           'updates from GitHub: Prod is the settled version, dev gets changes first.', gap=10)
@@ -7063,7 +7082,8 @@ def main():
             except Exception: pass
         threading.Thread(target=where_am_i, daemon=True).start()
 
-        # Ash's position on the one question everyone asks. First thing in Settings on purpose.
+        # Ash's position on the one question everyone asks. Near the top of Settings on purpose.
+        outer = page
         fair = tk.Frame(outer, bg=PANEL, highlightthickness=1, highlightbackground=RIM,
                         padx=12, pady=10)
         fair.pack(fill='x', pady=(14, 0))
@@ -7085,18 +7105,18 @@ def main():
             tk.Label(fair, text=body_, fg=col_, bg=PANEL, font=F_SMALL, anchor='w',
                      justify='left', wraplength=404).pack(fill='x', pady=(7, 0))
 
-        section('Discord channel name')
+        section('Discord')
+        field('Channel name')
         ch = tk.Entry(outer, width=46); style_entry(ch)
         ch.insert(0, cfg.get('channel', 'wesley')); ch.pack(fill='x', ipady=3)
 
-        section('Discord webhook link for that channel',
-                'In Discord: channel settings > Integrations > Webhooks > New Webhook > Copy Webhook URL')
+        field('Webhook link for that channel')
         wh = tk.Entry(outer, width=46, show='\u2022'); style_entry(wh)
         wh.insert(0, cfg.get('webhook', '')); wh.pack(fill='x', ipady=3)
+        wh_btns = tk.Frame(outer, bg=INK); wh_btns.pack(fill='x', pady=(8, 0))   # its test button goes here
 
-        section('Friends to invite to your ranked party',
-                "Exactly as their name shows in the game's Invite To Party list. "
-                'Saved the moment you add or remove one, no need to press Save.')
+        section('Ranked party')
+        field('Friends to invite')
         friends = [f for f in cfg.get('friends', []) if f.strip()]
         fr_list = tk.Frame(outer, bg=INK); fr_list.pack(fill='x')
         fr_add = tk.Frame(outer, bg=INK); fr_add.pack(fill='x', pady=(6, 0))
@@ -7142,38 +7162,46 @@ def main():
         flat_button(fr_add, 'Add', add_friend).pack(side='left', padx=(8, 0))
         draw_friends()
 
-        section('Discord people to tag (optional, one per line)',
-                'A plain name shows as @name, which does not notify anyone. A user ID does, and looks '
-                'like 1153617537565728808.\n'
-                'To get one: Discord > User Settings > Advanced > turn on Developer Mode, then right '
-                'click the person (in a chat or the member list) and choose Copy User ID.\n'
-                'Leave this blank to use the friends list above.')
+        field('People to tag in Discord (optional, one per line)')
         pg = tk.Text(outer, width=46, height=4); style_entry(pg)
         pg.insert('1.0', '\n'.join(cfg.get('pings', []))); pg.pack(fill='x')
 
-        section('Idle Town Center alert',
-                'A red badge under the Global Queue when nothing is queued at your Town Center. '
-                'Clicks go straight through the badge to the game.')
-        tc_on = tk.BooleanVar(value=cfg.get('tc_alert', True))
-        for var, txt in ((tc_on, 'Show the alert'),):
-            Check(outer, text=txt, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
-                           activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        section('Build order')
+        # one tidy selector: the build you have, what it lands on, and Change, which opens the
+        # same list as the overlay right under it
+        sel = tk.Frame(outer, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, cursor='hand2',
+                       padx=12, pady=8)
+        sel.pack(fill='x')
+        sel.columnconfigure(0, weight=1)
+        sel_name = tk.Label(sel, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 11, 'bold'), anchor='w', cursor='hand2')
+        sel_name.grid(row=0, column=0, sticky='w')
+        sel_sub = tk.Label(sel, text='', fg=MUT, bg=PANEL, font=F_SMALL, anchor='w', cursor='hand2')
+        sel_sub.grid(row=1, column=0, sticky='w')
+        sel_go = tk.Label(sel, text='Change', fg=GOLDC, bg=PANEL, font=(F_SMALL[0], F_SMALL[1], 'bold'),
+                          padx=10, pady=3, cursor='hand2', highlightthickness=1, highlightbackground=RIM)
+        sel_go.grid(row=0, column=1, rowspan=2, sticky='e')
+        def sel_show():
+            try:
+                found = build_by_name(bo['name'])
+                if found:
+                    g_ = next((g for g, n, _p, _s in BUILDS if n == found[0]), '')
+                    sel_name.config(text=found[0], fg=GOLDD)
+                    sel_sub.config(text='%s  \u00b7  %s' % (g_, found[1]))
+                else:
+                    sel_name.config(text='No build order', fg=TXT)
+                    sel_sub.config(text='Pick one to have the overlay walk you through it')
+            except tk.TclError:
+                pass
+        sel_show(); st['bo_on_change'] = sel_show
+        def sel_hover(on):
+            sel.config(highlightbackground=RIM if on else EDGE)
+            sel_go.config(fg=GOLDD if on else GOLDC, highlightbackground=BRONZE if on else RIM)
+        for w_ in (sel, sel_name, sel_sub, sel_go):
+            w_.bind('<Enter>', lambda e: sel_hover(True), add='+')
+            w_.bind('<Leave>', lambda e: sel_hover(False), add='+')
+            w_.bind('<Button-1>', lambda e: bo_menu(sel), add='+')
 
-        section('Build order',
-                'A reminder of the next step, on the overlay, one step at a time. It follows the '
-                'pop counter the Town Center watcher already reads off your screen, and you can '
-                'click the step to move it on yourself. Pick one here or on the overlay itself. '
-                'The cross on it closes it; the small Build button at the top brings it back.\n'
-                'Steps in pop (villagers plus your scout), from ' + BUILD_SOURCE + '.')
-        bo_cur = [cfg.get('build_order') or None]
-        bo_list = build_list(outer, bo_cur, lambda n_: bo_pick(n_), bg=INK)
-        bo_list.pack(fill='x', pady=(2, 0))
-        st['bo_settings'] = (bo_cur, bo_list)
-
-        section('Go Live',
-                'The \u25cf Go Live button at the top: pauses the game, says the first line in chat, '
-                'shares Age of Empires II in the Discord call you are in, comes back and says the '
-                'second line. Join the voice channel or call in Discord first.')
+        section('Go Live')
         lv_row = tk.Frame(outer, bg=INK); lv_row.pack(fill='x', pady=(2, 0))
         lv = {}
         for key_, label_ in (('live_pause_key', 'Pause keys'), ('live_before', 'Say first'),
@@ -7197,34 +7225,13 @@ def main():
         flat_button(lv_b, 'Test the Discord part', lv_test).pack(side='left')
         lv_msg.pack(fill='x', pady=(4, 0))
 
-        section('Godmode', 'Type the password to unlock the cheat codes panel.')
-        gm_row = tk.Frame(outer, bg=INK); gm_row.pack(fill='x', pady=(2, 0))
-        gm_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w')
-        def gm_open_btn():
-            for w_ in gm_row.winfo_children(): w_.destroy()
-            flat_button(gm_row, 'Open Godmode', open_cheats, fill=True).pack(side='left')
-            def lock():
-                c_ = load_settings(); c_['godmode'] = False; save_settings(c_); gm_lock_box()
-            flat_button(gm_row, 'Lock it again', lock).pack(side='left', padx=(8, 0))
-        def gm_lock_box():
-            for w_ in gm_row.winfo_children(): w_.destroy()
-            e_ = tk.Entry(gm_row, width=18, show='\u2022'); style_entry(e_); e_.pack(side='left', ipady=2)
-            def unlock(_=None):
-                if e_.get().strip() == GODMODE_WORD:
-                    c_ = load_settings(); c_['godmode'] = True; save_settings(c_)
-                    gm_msg.config(text='Unlocked.', fg=GREEN); gm_open_btn()
-                else:
-                    gm_msg.config(text='Not the password.', fg=REDC); e_.delete(0, 'end')
-            e_.bind('<Return>', unlock)
-            flat_button(gm_row, 'Unlock', unlock).pack(side='left', padx=(8, 0))
-        if cfg.get('godmode'): gm_open_btn()
-        else: gm_lock_box()
-        gm_msg.pack(fill='x', pady=(4, 0))
+        section('Alerts')
+        tc_on = tk.BooleanVar(value=cfg.get('tc_alert', True))
+        for var, txt in ((tc_on, 'Show the idle Town Center alert'),):
+            Check(outer, text=txt, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
+                           activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
-        section('Build a house warning: spare pop when it starts',
-                'How much spare population is left when the warning starts. Lower means it waits '
-                'until you are closer to being housed. Early on you want a small number, late on a '
-                'big one, because you build pop much faster.')
+        field('House warning: spare pop when it starts')
         bands = cfg.get('house_bands') or HOUSE_BANDS
         band_grid = tk.Frame(outer, bg=INK); band_grid.pack(fill='x', pady=(2, 0))
         band_e = []
@@ -7258,39 +7265,7 @@ def main():
             return out, grace, cap20
 
         lp_on = tk.BooleanVar(value=cfg.get('loading_panels', False))
-        section('Loading screen panels',
-                'Two panels over the loading screen with a cheat sheet for your civ and your opponent\'s. '
-                'Off by default. Your opponent\'s details are on the main overlay either way.')
-        Check(outer, text='Show the two panels while the game loads', variable=lp_on, fg=TXT, bg=INK,
-                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
-                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
-
-        section('Screenshots and streams',
-                'Wingman hides itself from screenshots, recordings and streams, so its own screen reading '
-                'never sees it. Switch this on to show the main panel, say to grab a screenshot. While it is '
-                'on, keep the panel clear of the minimap, the resource bar and the score list, or Wingman '
-                'may read itself there. The alert badges and minimap rings stay hidden either way.')
-        ss_on = tk.BooleanVar(value=bool(cfg.get('show_in_shots', False)))
-        def ss_apply(*_):
-            on = bool(ss_on.get())
-            try:
-                import ctypes
-                ctypes.windll.user32.SetWindowDisplayAffinity(ctypes.c_void_p(OVERLAY_TOP[0]), 0 if on else 0x11)
-            except Exception as e:
-                log('show in screenshots: %r' % (e,))
-            c_ = load_settings(); c_['show_in_shots'] = on; save_settings(c_)      # takes effect straight away
-        ss_on.trace_add('write', ss_apply)
-        Check(outer, text='Show Wingman in screenshots and streams', variable=ss_on).pack(fill='x')
-
-        section('When the game starts',
-                'If you are in another window when a match finishes loading, the overlay switches you to the '
-                'game. If Windows will not allow that, it puts up a banner and plays a sound instead.')
-        fg_on = tk.BooleanVar(value=cfg.get('focus_game', True))
-        Check(outer, text='Bring the game to the front when it starts', variable=fg_on, fg=TXT, bg=INK,
-                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
-                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
-        section('Reminders', 'A gold flash on the alert badge for a few seconds, once a game. '
-                             'Change the numbers to suit how you play.')
+        field('Reminders')
         cn_on = tk.BooleanVar(value=cfg.get('castle_note', True))
         fn_on = tk.BooleanVar(value=cfg.get('feudal_note', True))
         def reminder_row(var, before, value, after):
@@ -7307,39 +7282,18 @@ def main():
         cm_e = reminder_row(cn_on, 'Remind me about my two Castle Age buildings at',
                             '%g' % typed_number(cfg.get('castle_min'), CASTLE_NOTE_MIN, 5, 60), 'game minutes')
 
-        section('Your record', 'The game\'s own service only keeps your last ten games of each kind. For results '
-                               'older than that the app asks aoe2companion.com, a community site that keeps '
-                               'the same public match history. Only your ladder profile number is sent.')
-        cr_on = tk.BooleanVar(value=cfg.get('companion_results', True))
-        Check(outer, text='Fill in older results from aoe2companion.com', variable=cr_on, fg=TXT, bg=INK,
-                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
-                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
-
-        section('Score check',
-                'Reads the score list in the corner of your own screen and compares your side\'s total with '
-                'the other side\'s. Once you have been more than %d%% behind for %d seconds (and not in the '
-                'first %d minutes) the overlay shows CONCEDE AVAILABLE. It only tells you: it never resigns '
-                'or clicks for you.' % (round(CONCEDE_BEHIND * 100), CONCEDE_HOLD_S, CONCEDE_FROM_MIN))
+        field('Score and scouting')
         cf_on = tk.BooleanVar(value=cfg.get('concede_flag', True))
-        Check(outer, text='Flag when a game looks gone', variable=cf_on, fg=TXT, bg=INK,
+        Check(outer, text='Flag when a game looks gone (score check)', variable=cf_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
-        section('Opponent\'s own openings',
-                'Looks up your opponent\'s last few public games and reads how they opened in each '
-                '(scouts, archers, fast castle and so on), from the recorded games the official site '
-                'hands out. Past games only: nothing is read from the game you are in.')
         oo_on = tk.BooleanVar(value=cfg.get('opp_openings', True))
-        Check(outer, text='Show how they have been opening', variable=oo_on, fg=TXT, bg=INK,
+        Check(outer, text='Show how opponents usually open', variable=oo_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
-        section('Opponent spotted alert',
-                'Says the colour out loud the first time an opponent shows up on your own minimap, '
-                'puts a line on the overlay, and rings the spot. It reads the minimap only, which '
-                'paints explored ground and nothing else, so it never tells you anything you are '
-                'not already being shown. The ring is drawn on your screen, it is not the game\'s '
-                'flare: nothing is sent to the game and your team sees none of it.')
+        field('Opponent spotted')
         sc_on = tk.BooleanVar(value=cfg.get('scout_alert', True))
         sp_on = tk.BooleanVar(value=cfg.get('scout_ping', True))
         for var, txt in ((sc_on, 'Call out opponents'),
@@ -7365,6 +7319,56 @@ def main():
                 except Exception: pass
             threading.Thread(target=work, daemon=True).start()
         flat_button(voice_row, 'Record and test the voice', test_voice).pack(side='left')
+
+        section('Display')
+        ss_on = tk.BooleanVar(value=bool(cfg.get('show_in_shots', False)))
+        def ss_apply(*_):
+            on = bool(ss_on.get())
+            try:
+                import ctypes
+                ctypes.windll.user32.SetWindowDisplayAffinity(ctypes.c_void_p(OVERLAY_TOP[0]), 0 if on else 0x11)
+            except Exception as e:
+                log('show in screenshots: %r' % (e,))
+            c_ = load_settings(); c_['show_in_shots'] = on; save_settings(c_)      # takes effect straight away
+        ss_on.trace_add('write', ss_apply)
+        Check(outer, text='Show Wingman in screenshots and streams', variable=ss_on).pack(fill='x')
+
+        Check(outer, text='Show the two panels while the game loads', variable=lp_on, fg=TXT, bg=INK,
+                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
+        fg_on = tk.BooleanVar(value=cfg.get('focus_game', True))
+        Check(outer, text='Bring the game to the front when it starts', variable=fg_on, fg=TXT, bg=INK,
+                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        cr_on = tk.BooleanVar(value=cfg.get('companion_results', True))
+        Check(outer, text='Fill in older results from aoe2companion.com', variable=cr_on, fg=TXT, bg=INK,
+                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
+        section('Godmode')
+        gm_row = tk.Frame(outer, bg=INK); gm_row.pack(fill='x', pady=(2, 0))
+        gm_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w')
+        def gm_open_btn():
+            for w_ in gm_row.winfo_children(): w_.destroy()
+            flat_button(gm_row, 'Open Godmode', open_cheats, fill=True).pack(side='left')
+            def lock():
+                c_ = load_settings(); c_['godmode'] = False; save_settings(c_); gm_lock_box()
+            flat_button(gm_row, 'Lock it again', lock).pack(side='left', padx=(8, 0))
+        def gm_lock_box():
+            for w_ in gm_row.winfo_children(): w_.destroy()
+            e_ = tk.Entry(gm_row, width=18, show='\u2022'); style_entry(e_); e_.pack(side='left', ipady=2)
+            def unlock(_=None):
+                if e_.get().strip() == GODMODE_WORD:
+                    c_ = load_settings(); c_['godmode'] = True; save_settings(c_)
+                    gm_msg.config(text='Unlocked.', fg=GREEN); gm_open_btn()
+                else:
+                    gm_msg.config(text='Not the password.', fg=REDC); e_.delete(0, 'end')
+            e_.bind('<Return>', unlock)
+            flat_button(gm_row, 'Unlock', unlock).pack(side='left', padx=(8, 0))
+        if cfg.get('godmode'): gm_open_btn()
+        else: gm_lock_box()
+        gm_msg.pack(fill='x', pady=(4, 0))
 
         section('Running as administrator',
                 'Only matters for the party invite. If the game runs as admin, Windows ignores clicks from '
@@ -7400,11 +7404,9 @@ def main():
         flat_button(ad_row, 'Stop the game needing admin', ad_fix).pack(side='left')
         ad_refresh()
 
-        sr3_ = Rule(outer); sr3_.configure(bg=INK); sr3_.pack(fill='x', pady=(14, 0))
-        section('God Mode mod',
-                'The UI mod this app is built around. It pins the resource bar and the Global Queue in place, '
-                'which is what the idle Town Center alert reads. The button opens its page on the official mod '
-                'site: sign in and press Subscribe, and the game downloads it the next time it starts.')
+        # God Mode: the UI mod this app is built around (it pins the resource bar and the Global
+        # Queue, which the idle Town Center alert reads). The button opens its official mod page.
+        section('Mods'); field('God Mode mod')
         gm_row = tk.Frame(outer, bg=INK); gm_row.pack(fill='x', pady=(2, 0))
         gm_state, gm_text = god_mode_status()
         flat_button(gm_row, 'Install God Mode' if gm_state == 'missing' else 'Open its mod page',
@@ -7412,11 +7414,9 @@ def main():
         tk.Label(gm_row, text=gm_text, fg=GREEN if gm_state == 'on' else GOLDC if gm_state == 'off' else REDC,
                  bg=INK, font=F_SMALL, anchor='w').pack(side='left', padx=(10, 0))
 
-        section('Mod clashes',
-                'Two enabled mods shipping the same file means only one of them is doing anything. '
-                'This reads your enabled mod list in the order the game layers it and tells you which '
-                'one wins. GodMode merges other mods in on purpose, so it is expected to win over its '
-                'own sources.')
+        # Mod clashes: two enabled mods shipping the same file means only one does anything; this
+        # says which one wins. GodMode merges others in on purpose, so it is expected to win.
+        field('Mod clashes')
         clash_row = tk.Frame(outer, bg=INK); clash_row.pack(fill='x', pady=(2, 0))
         clash_out = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_TINY, anchor='w',
                              justify='left', wraplength=400)
@@ -7444,7 +7444,6 @@ def main():
             threading.Thread(target=work, daemon=True).start()
         flat_button(clash_row, 'Check my mods', run_clash_check).pack(side='left')
 
-        sr2_ = Rule(foot); sr2_.configure(bg=INK); sr2_.pack(fill='x', pady=(6, 0))
         def collect():
             hb, hg, h20 = house_cfg()
             return {'house_bands': hb, 'house_grace': hg, 'house_cap20': h20,
@@ -7482,11 +7481,11 @@ def main():
         def close_win():
             st['settings_win'] = None; win.destroy()
 
-        btns = tk.Frame(foot, bg=INK); btns.pack(fill='x', pady=(12, 0))
+        flat_button(wh_btns, 'Send a test message', test).pack(side='left')
+        btns = tk.Frame(foot, bg=DEEP); btns.pack(fill='x', pady=(0, 0))
         flat_button(btns, 'Save', save, fill=True).pack(side='left')
-        flat_button(btns, 'Send test', test).pack(side='left', padx=(8, 0))
-        flat_button(btns, 'Cancel', close_win, accent=MUT, hot='#cfc8b6').pack(side='right')
-        msg = tk.Label(foot, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
+        flat_button(btns, 'Close', close_win, accent=MUT, hot='#cfc8b6').pack(side='right')
+        msg = tk.Label(foot, text='', fg='#b8b19f', bg=DEEP, font=F_SMALL, anchor='w',
                        justify='left', wraplength=400)
         msg.pack(fill='x', pady=(10, 0))
         win.update_idletasks(); fit_()
