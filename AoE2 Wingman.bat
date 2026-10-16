@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v113'
+VERSION = 'v114'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -4832,18 +4832,24 @@ def style_entry(widget):
 
 LIVE_RED, LIVE_HOT, LIVE_BUSY, LIVE_OFF = '#d8343a', '#f04a50', '#c9962b', '#5a5246'
 
+def _mix(a, b, t):
+    """Colour a, t of the way to colour b ('#rrggbb')."""
+    a = [int(a[i:i + 2], 16) for i in (1, 3, 5)]; b = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    return '#%02x%02x%02x' % tuple(int(x + (y - x) * t) for x, y in zip(a, b))
+
 def live_pill(parent, bg):
-    """The Go Live button: a small rounded LIVE badge. Outlined in red while it is waiting to be
-    pressed, solid red once you are live, the way a stream's LIVE badge lights up.
-    .set(text, colour, solid) changes it."""
+    """The Go Live button: a small rounded LIVE badge, drawn smooth (Tk's own shapes come out
+    jagged at this size, so the shape is drawn large with Pillow and shrunk). A dark red pill
+    with a red dot while it waits, solid red once you are live. .set(text, colour, solid, ink)."""
     import tkinter as tk
     import tkinter.font as tkfont
     class Pill(tk.Canvas):
-        H, DOT = 15, 5
+        H, DOT, PAD = 16, 5, 7
         def __init__(self):
             tk.Canvas.__init__(self, parent, bg=bg, highlightthickness=0, bd=0, cursor='hand2', height=self.H)
-            self.font = tkfont.Font(family=DISPLAY, size=7, weight='bold')
+            self.font = tkfont.Font(family='Segoe UI', size=7, weight='bold')
             self.text, self.col, self.solid, self.ink, self.hot = 'LIVE', LIVE_RED, False, 'white', False
+            self.img = None
             self.bind('<Enter>', lambda e: self._hover(True), add='+')
             self.bind('<Leave>', lambda e: self._hover(False), add='+')
             self.draw()
@@ -4851,24 +4857,41 @@ def live_pill(parent, bg):
             self.hot = on; self.draw()
         def set(self, text, col=LIVE_RED, solid=True, ink='white'):
             self.text, self.col, self.solid, self.ink = text, col, solid, ink; self.draw()
+        def colours(self):
+            if self.solid:
+                fill = LIVE_HOT if (self.hot and self.col == LIVE_RED) else self.col
+                return fill, self.ink, self.ink
+            fill = _mix(bg, self.col, 0.55 if self.hot else 0.32)       # a dark red that sits in the panel
+            return fill, self.col, '#f6dcd8'
+        def smooth(self, w, h, fill, dot):
+            try:
+                from PIL import Image, ImageDraw, ImageTk
+            except Exception:
+                return None
+            k = 4
+            im = Image.new('RGB', (w * k, h * k), bg)
+            d = ImageDraw.Draw(im)
+            d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=h * k // 2, fill=fill)
+            cx, cy, r = (self.PAD + self.DOT / 2.0) * k, h * k / 2.0, self.DOT * k / 2.0
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=dot)
+            return ImageTk.PhotoImage(im.resize((w, h), Image.LANCZOS))
         def draw(self):
-            h, dot = self.H, self.DOT
-            w = self.font.measure(self.text) + dot + 14
+            h = self.H
+            w = self.PAD + self.DOT + 4 + self.font.measure(self.text) + self.PAD
             self.configure(width=w)
             self.delete('all')
-            solid = self.solid or self.hot                       # lights up under the mouse
-            col = LIVE_HOT if (self.hot and self.col == LIVE_RED) else self.col
-            fill = col if solid else bg
-            ink = (self.ink if self.solid else 'white') if solid else col
-            r = h / 2.0
-            # the rounded ends and the middle, then the outline round the lot
-            self.create_oval(0, 0, h - 1, h - 1, fill=fill, outline=col)
-            self.create_oval(w - h, 0, w - 1, h - 1, fill=fill, outline=col)
-            self.create_rectangle(r, 0, w - r, h - 1, fill=fill, outline='')
-            self.create_line(r, 0, w - r, 0, fill=col); self.create_line(r, h - 1, w - r, h - 1, fill=col)
-            x = 6
-            self.create_oval(x, r - dot / 2.0, x + dot, r + dot / 2.0, fill=ink, outline=ink)
-            self.create_text(x + dot + 3, r, text=self.text, anchor='w', fill=ink, font=self.font)
+            fill, dot, ink = self.colours()
+            self.img = self.smooth(w, h, fill, dot)
+            if self.img is not None:
+                self.create_image(0, 0, image=self.img, anchor='nw')
+            else:                                                    # no Pillow: Tk's own shapes
+                r = h / 2.0
+                self.create_oval(0, 0, h - 1, h - 1, fill=fill, outline=fill)
+                self.create_oval(w - h, 0, w - 1, h - 1, fill=fill, outline=fill)
+                self.create_rectangle(r, 0, w - r, h - 1, fill=fill, outline=fill)
+                x = self.PAD
+                self.create_oval(x, r - self.DOT / 2.0, x + self.DOT, r + self.DOT / 2.0, fill=dot, outline=dot)
+            self.create_text(self.PAD + self.DOT + 4, h / 2.0, text=self.text, anchor='w', fill=ink, font=self.font)
     return Pill()
 
 def icon_button(parent, glyph, bg, hot=GOLDD, size=11):
