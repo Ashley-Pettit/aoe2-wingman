@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v103'
+VERSION = 'v104'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2683,7 +2683,7 @@ def discord_share_game():
         return l.startswith('stream') and 'age of empires' in l and c.ControlTypeName in BUTTONS
     gs = [c for c, n in everything if game_stream(c, n)]
     live_now = lambda c, n: n.strip().lower() == 'stop streaming'
-    go_live_btn = named('Go Live', 'Go live')
+    go_live_btn = named('Go Live', 'Go live', 'Stream')   # Discord labels it either way
 
     def front():
         """Discord did not take it from behind (it can stop drawing while the game covers it):
@@ -2795,7 +2795,7 @@ def discord_share_game():
     log('go live: picking "%s" (%s)' % (tile.Name, tile.ControlTypeName))
     if not click(tile): _uia_press(tile)
     time.sleep(1.0)
-    go = _uia_wait(auto, named('Go Live', 'Go live'), wait=6)
+    go = _uia_wait(auto, go_live_btn, wait=6)
     if not go:
         log('go live: no Go Live button. New in Discord after Share: %s' % ' | '.join(fresh()[:300]))
         raise LiveFail('no Go Live button after picking the game.')
@@ -6855,9 +6855,21 @@ def main():
         log('auto publish: off, no Publish-Wingman.cmd near %s' % here)
         return None
 
+    def home_copy():
+        """The copy to run: this one if it sits in the repo, else the repo's Prod copy. A copy
+        left in Downloads never gets the updates, so it hands over to Prod."""
+        top = find_publish()
+        me = os.path.normcase(os.path.abspath(self_path()))
+        if not top or me.startswith(os.path.normcase(os.path.abspath(top)) + os.sep): return self_path()
+        prod = os.path.join(top, 'Prod', BAT_NAME)
+        return prod if os.path.isfile(prod) else self_path()
+
     def auto_publish():
         top = find_publish()
         if not top: return
+        if os.path.normcase(home_copy()) != os.path.normcase(self_path()):
+            log('auto publish: this copy is outside the repo, handing over to %s at the menu' % home_copy())
+            st['restart_into'] = 'the Prod copy'
         pub = os.path.join(top, 'Publish-Wingman.cmd')
         inc = os.path.join(top, 'incoming', BAT_NAME)
         import subprocess
@@ -6887,7 +6899,7 @@ def main():
                         text='Could not publish %s by itself. Run Publish-Wingman.cmd to see why.' % v))
                     continue
                 log('auto publish: %s is on dev and Prod' % ver)
-                if _sha(self_path()) != SELF_SHA:
+                if _sha(home_copy()) != SELF_SHA:
                     st['restart_into'] = ver
                 else:
                     log('auto publish: this copy (%s) is not the one that changed, no restart' % self_path())
@@ -6906,7 +6918,7 @@ def main():
         if ver and waiting_now[0] and not st.get('live_busy') and not st.get('hosting') \
                 and not st.get('updating') and not settings_open():
             log('auto publish: restarting into %s' % ver)
-            try: restart_app(self_path())
+            try: restart_app(home_copy())
             except Exception as e:
                 log('restart failed: %r' % (e,)); st['restart_into'] = None
             else:
