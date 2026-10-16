@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v124'
+VERSION = 'v125'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -2280,6 +2280,113 @@ def clear_old_exe():
         if os.path.exists(old): os.remove(old)
     except OSError:
         pass
+
+APP_ICON_PNG = (  # the Wingman crest (64 and 32 px PNG), for the title bars and the taskbar
+    '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')
 
 SHORTCUT_PS = r"""
 $s = New-Object -ComObject WScript.Shell
@@ -5424,6 +5531,11 @@ def main():
     maps, strings, icons = load_data()
     me = my_profile()
     root = tk.Tk()
+    try:                                  # the crest on every Wingman window, not Tk's feather
+        st_icons = [tk.PhotoImage(data=d) for d in APP_ICON_PNG]
+        root.iconphoto(True, *st_icons); root._wm_icons = st_icons
+    except Exception as e:
+        log('window icon: %r' % (e,))
     pick_fonts()
     root.overrideredirect(True); root.attributes('-topmost', True)
     try: root.attributes('-alpha', 0.88)
@@ -6837,14 +6949,14 @@ def main():
         sr_ = Rule(outer); sr_.configure(bg=INK); sr_.pack(fill='x', pady=(8, 0))
 
         def section(label, note=None, gap=14):
-            """A gold field label with its grey one-liner under it."""
-            tk.Label(outer, text=label, fg=GOLD, bg=INK, font=F_HEAD, anchor='w').pack(fill='x', pady=(gap, 2))
-            if note:
-                tk.Label(outer, text=note, fg=MUT, bg=INK, font=F_SMALL, anchor='w',
-                         justify='left', wraplength=400).pack(fill='x', pady=(0, 4))
+            """A gold heading. The notes stay in the code as a record of how each part works, but
+            are not shown: Settings reads cleaner as headings and switches."""
+            tk.Label(outer, text=label, fg=GOLD, bg=INK, font=F_HEAD, anchor='w').pack(fill='x', pady=(gap, 4))
 
         section('Update', 'Wingman.exe updates itself from the public Releases page. The .bat '
-                          'updates from GitHub: Prod is the settled version, dev gets changes first.', gap=10)
+                          'updates from GitHub: Prod is the settled version, dev gets changes first. '
+                          + ('Run dev puts the dev .bat beside this exe and switches to it (needs Python).'
+                             if FROZEN else ''), gap=10)
         card_ = tk.Frame(outer, bg=PANEL, highlightthickness=1, highlightbackground=RIM, padx=12, pady=9)
         card_.pack(fill='x', pady=(2, 0))
         row1 = tk.Frame(card_, bg=PANEL); row1.pack(fill='x')
@@ -6902,8 +7014,44 @@ def main():
                 root.after(0, done)
             threading.Thread(target=work, daemon=True).start()
         st['run_update'] = run_update
+        def run_dev_bat():
+            # The exe can't become dev itself (dev changes before any exe is built), so dev runs
+            # as the .bat: fetch dev's AoE2 Wingman.bat beside the exe and hand over to it.
+            if st.get('updating'): return
+            import shutil
+            if not (shutil.which('pythonw') or shutil.which('python')):
+                up_msg.config(text='Dev runs as the .bat, which needs Python. Get it from python.org/downloads '
+                                   '(tick "Add python.exe to PATH"), then press this again.', fg=REDC)
+                return
+            st['updating'] = True
+            up_msg.config(text='Getting the newest dev .bat...', fg=MUT)
+            target = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), BAT_NAME)
+            def work():
+                try: ok_, text_, path_ = update_by_download('dev', target)
+                except Exception as e: ok_, text_, path_ = False, 'Could not get dev: %s' % e, None
+                if ok_ and not path_ and os.path.isfile(target): path_ = target     # already had the newest
+                log('dev .bat from the exe: %s' % text_)
+                def done():
+                    st['updating'] = False
+                    try: up_msg.config(text=text_ + ('  Switching to it...' if ok_ and path_ else ''),
+                                       fg=GREEN if ok_ else REDC)
+                    except tk.TclError: pass
+                    if ok_ and path_:
+                        def swap():
+                            try: restart_app(path_)
+                            except Exception as e:
+                                log('could not start the dev .bat: %r' % (e,))
+                                try: up_msg.config(text='Could not start it: %s' % e, fg=REDC)
+                                except tk.TclError: pass
+                                return
+                            try: root.destroy()
+                            finally: os._exit(0)
+                        root.after(1200, swap)
+                root.after(0, done)
+            threading.Thread(target=work, daemon=True).start()
         if FROZEN:
             flat_button(up_row, 'Get the newest Wingman.exe', lambda: run_update('exe'), fill=True).pack(side='left')
+            flat_button(up_row, 'Run dev (.bat)', run_dev_bat).pack(side='left', padx=(8, 0))
         else:
             flat_button(up_row, 'Update from Prod', lambda: run_update('Prod'), fill=True).pack(side='left')
             flat_button(up_row, 'Update from dev', lambda: run_update('dev')).pack(side='left', padx=(8, 0))
@@ -6922,7 +7070,7 @@ def main():
 
         # share it: one link that lets your mates pick the exe or the .bat
         share_ = tk.Frame(outer, bg=INK); share_.pack(fill='x', pady=(8, 0))
-        share_msg = tk.Label(share_, text='Sends them to the download page, where they pick the exe or the .bat.',
+        share_msg = tk.Label(share_, text='',
                              fg=MUT, bg=INK, font=F_SMALL, anchor='w', justify='left', wraplength=250)
         def copy_link():
             try:
@@ -7103,7 +7251,7 @@ def main():
         else: gm_lock_box()
         gm_msg.pack(fill='x', pady=(4, 0))
 
-        section('Build a house warning',
+        section('Build a house warning: spare pop when it starts',
                 'How much spare population is left when the warning starts. Lower means it waits '
                 'until you are closer to being housed. Early on you want a small number, late on a '
                 'big one, because you build pop much faster.')
@@ -7126,8 +7274,6 @@ def main():
         h20_e = tk.Entry(extra_grid, width=4, justify='center'); style_entry(h20_e)
         h20_e.insert(0, str(cfg.get('house_cap20', HOUSE_CAP20))); h20_e.pack(side='left', padx=6, ipady=2)
         tk.Label(extra_grid, text='spare', fg=MUT, bg=INK, font=F_SMALL).pack(side='left')
-        tk.Label(outer, text='With 1 there, 18/20 stays quiet but 13/15 still warns.',
-                 fg=FAINT, bg=INK, font=F_TINY, anchor='w').pack(fill='x', pady=(4, 0))
 
         def house_cfg():
             """The warning rules as typed, falling back to what they were if a box is not a number."""
