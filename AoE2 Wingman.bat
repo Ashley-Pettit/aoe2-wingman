@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v104'
+VERSION = 'v105'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2836,6 +2836,28 @@ def discord_stop():
     if d: focus_window(d); time.sleep(0.3)
     return _uia_click(stop) or _uia_press(stop)
 
+def game_paused(g):
+    """True if the game is paused, False if it is running, None if that could not be told.
+    The game timer under the resource bar stops while paused, so read it twice a moment apart.
+    If the timer will not read, the recording is the back-up: it stops growing while paused."""
+    try:
+        read = _load_ocr(); grab = _grabber()
+        x, y, w, hh = client_rect(g); s = hh / 2160.0
+        t1 = TCWatcher.read_clock(None, read, grab, x, y, w, s)
+        time.sleep(1.6)
+        t2 = TCWatcher.read_clock(None, read, grab, x, y, w, s)
+        if t1 is not None and t2 is not None:
+            log('go live: game timer %d then %d' % (t1, t2))
+            return t1 == t2
+    except Exception as e:
+        log('go live, reading the timer: %r' % (e,))
+    f = LIVE.get('path')
+    if f and os.path.isfile(f):
+        growing = recording_growing(f, wait=2.0)
+        log('go live: timer unreadable, the recording is %s' % ('growing' if growing else 'still'))
+        return not growing
+    return None
+
 def go_live(cfg, in_game=True, status=lambda t: None):
     """The whole thing, start to finish. in_game False is the Settings test: Discord only."""
     c = dict(LIVE_DEFAULTS); c.update({k: v for k, v in cfg.items() if k in LIVE_DEFAULTS and v is not None})
@@ -2848,8 +2870,12 @@ def go_live(cfg, in_game=True, status=lambda t: None):
     if in_game:
         if not g: raise LiveFail('the game is not running')
         if game_needs_admin(): raise LiveFail(ADMIN_MSG)
-        status('pausing'); focus_window(g)
-        tap_combo(c['live_pause_key']); time.sleep(0.35)
+        status('pausing'); focus_window(g); time.sleep(0.3)
+        # the pause key toggles, so pressing it on a paused game would set it going again
+        if game_paused(g):
+            log('go live: the game is already paused, so pause was not pressed')
+        else:
+            tap_combo(c['live_pause_key']); time.sleep(0.35)
         game_chat(c['live_before'])
     status('Discord')
     try:
@@ -4751,7 +4777,7 @@ def main():
     state = tk.Label(head, text='WAITING', fg=MUT, bg=PANEL, font=F_TINY, padx=7, pady=3,
                      highlightthickness=1, highlightbackground=RIM)
     state.grid(row=0, column=2, sticky='e', padx=(10, 2))
-    live_btn = icon_button(head, '\u25cf LIVE', BG, hot=REDC, size=8)    # pause, chat, stream on Discord
+    live_btn = icon_button(head, '\u25cf Go Live', BG, hot=REDC, size=8)    # pause, chat, stream on Discord
     live_btn.configure(font=(DISPLAY, 8, 'bold'))
     live_btn.grid(row=0, column=3, sticky='e', padx=(6, 0))
     stats_btn = icon_button(head, 'W/L', BG, size=8)
@@ -5848,7 +5874,7 @@ def main():
     st['actions'][bo_x] = bo_close
 
     def live_start(in_game=True, report=None):
-        """The LIVE button. Runs off the main thread so the overlay keeps drawing while it works."""
+        """The Go Live button. Runs off the main thread so the overlay keeps drawing while it works."""
         if st.get('live_busy'): return
         if in_game:
             # pause and chat are key presses into the game, and Windows throws those away when the
@@ -5867,7 +5893,7 @@ def main():
             ok, why = False, ''
             try:
                 go_live(load_settings(), in_game=in_game,
-                        status=lambda t: show('\u25cf ' + t.upper(), GOLDD))
+                        status=lambda t: show('\u25cf ' + t.capitalize() + '...', GOLDD))
                 ok = True
             except LiveFail as e:
                 why = str(e)
@@ -5876,12 +5902,12 @@ def main():
             finally:
                 st['live_busy'] = False
             log('go live: %s' % ('done' if ok else 'stopped, ' + why))
-            show('\u25cf LIVE', REDC if ok else MUT)
+            show('\u25cf Go Live', REDC if ok else MUT)
             if not ok:
-                show('\u2715 LIVE', REDC)
+                show('\u2715 Go Live', REDC)
                 try: root.after(0, lambda: host_msg.config(text='Go Live: ' + why))
                 except Exception: pass
-            try: root.after(8000, lambda: live_btn.config(text='\u25cf LIVE', fg=MUT))
+            try: root.after(8000, lambda: live_btn.config(text='\u25cf Go Live', fg=MUT))
             except Exception: pass
             if report:
                 try: root.after(0, lambda: report(ok, why))
@@ -6173,7 +6199,7 @@ def main():
                            command=lambda: bo_pick(bo_var.get() or None)).pack(fill='x')
 
         section('Go Live',
-                'The \u25cf LIVE button at the top: pauses the game, says the first line in chat, '
+                'The \u25cf Go Live button at the top: pauses the game, says the first line in chat, '
                 'shares Age of Empires II in the Discord call you are in, comes back and says the '
                 'second line. Join the voice channel or call in Discord first.')
         lv_row = tk.Frame(outer, bg=INK); lv_row.pack(fill='x', pady=(2, 0))
