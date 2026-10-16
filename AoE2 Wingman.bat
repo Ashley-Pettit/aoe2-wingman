@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v109'
+VERSION = 'v110'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -4728,35 +4728,42 @@ def style_entry(widget):
 LIVE_RED, LIVE_HOT, LIVE_BUSY, LIVE_OFF = '#d8343a', '#f04a50', '#c9962b', '#5a5246'
 
 def live_pill(parent, bg):
-    """The Go Live button: a small rounded red pill with a white dot, the way a stream's LIVE
-    badge looks, instead of plain text among the header icons. .set(text, fill) changes it."""
+    """The Go Live button: a small rounded LIVE badge. Outlined in red while it is waiting to be
+    pressed, solid red once you are live, the way a stream's LIVE badge lights up.
+    .set(text, colour, solid) changes it."""
     import tkinter as tk
     import tkinter.font as tkfont
     class Pill(tk.Canvas):
+        H, DOT = 15, 5
         def __init__(self):
-            tk.Canvas.__init__(self, parent, bg=bg, highlightthickness=0, bd=0, cursor='hand2', height=18)
-            self.font = tkfont.Font(family=DISPLAY, size=8, weight='bold')
-            self.text, self.fill, self.ink, self.hot = 'GO LIVE', LIVE_RED, 'white', False
+            tk.Canvas.__init__(self, parent, bg=bg, highlightthickness=0, bd=0, cursor='hand2', height=self.H)
+            self.font = tkfont.Font(family=DISPLAY, size=7, weight='bold')
+            self.text, self.col, self.solid, self.ink, self.hot = 'LIVE', LIVE_RED, False, 'white', False
             self.bind('<Enter>', lambda e: self._hover(True), add='+')
             self.bind('<Leave>', lambda e: self._hover(False), add='+')
             self.draw()
         def _hover(self, on):
             self.hot = on; self.draw()
-        def set(self, text, fill=LIVE_RED, ink='white'):
-            self.text, self.fill, self.ink = text, fill, ink; self.draw()
+        def set(self, text, col=LIVE_RED, solid=True, ink='white'):
+            self.text, self.col, self.solid, self.ink = text, col, solid, ink; self.draw()
         def draw(self):
-            h, dot = 18, 6
-            w = self.font.measure(self.text) + dot + 20
+            h, dot = self.H, self.DOT
+            w = self.font.measure(self.text) + dot + 14
             self.configure(width=w)
             self.delete('all')
-            f = LIVE_HOT if (self.hot and self.fill == LIVE_RED) else self.fill
+            solid = self.solid or self.hot                       # lights up under the mouse
+            col = LIVE_HOT if (self.hot and self.col == LIVE_RED) else self.col
+            fill = col if solid else bg
+            ink = (self.ink if self.solid else 'white') if solid else col
             r = h / 2.0
-            self.create_oval(0, 0, h, h - 1, fill=f, outline=f)
-            self.create_oval(w - h, 0, w - 1, h - 1, fill=f, outline=f)
-            self.create_rectangle(r, 0, w - r, h - 1, fill=f, outline=f)
-            x = 8
-            self.create_oval(x, r - dot / 2.0, x + dot, r + dot / 2.0, fill=self.ink, outline=self.ink)
-            self.create_text(x + dot + 5, r, text=self.text, anchor='w', fill=self.ink, font=self.font)
+            # the rounded ends and the middle, then the outline round the lot
+            self.create_oval(0, 0, h - 1, h - 1, fill=fill, outline=col)
+            self.create_oval(w - h, 0, w - 1, h - 1, fill=fill, outline=col)
+            self.create_rectangle(r, 0, w - r, h - 1, fill=fill, outline='')
+            self.create_line(r, 0, w - r, 0, fill=col); self.create_line(r, h - 1, w - r, h - 1, fill=col)
+            x = 6
+            self.create_oval(x, r - dot / 2.0, x + dot, r + dot / 2.0, fill=ink, outline=ink)
+            self.create_text(x + dot + 3, r, text=self.text, anchor='w', fill=ink, font=self.font)
     return Pill()
 
 def icon_button(parent, glyph, bg, hot=GOLDD, size=11):
@@ -6021,14 +6028,14 @@ def main():
                 go_admin('live')       # Windows asks; say yes and it starts again and carries on
                 return
         st['live_busy'] = True
-        def show(text, fill=LIVE_RED, ink='white'):
-            try: root.after(0, lambda: live_btn.set(text, fill, ink))
+        def show(text, col=LIVE_RED, solid=True, ink='white'):
+            try: root.after(0, lambda: live_btn.set(text, col, solid, ink))
             except Exception: pass
         def work():
             ok, why = False, ''
             try:
                 go_live(load_settings(), in_game=in_game, timer=tcw.timer_stopped,
-                        status=lambda t: show(t.upper() + '\u2026', LIVE_BUSY, INK))
+                        status=lambda t: show('\u2026', LIVE_BUSY, True, INK))
                 ok = True
             except LiveFail as e:
                 why = str(e)
@@ -6037,12 +6044,12 @@ def main():
             finally:
                 st['live_busy'] = False
             log('go live: %s' % ('done' if ok else 'stopped, ' + why))
-            if ok: show('LIVE')
+            if ok: show('LIVE')                                 # solid: you are live
             else:
-                show('FAILED', LIVE_OFF)
+                show('FAIL', LIVE_OFF)
                 try: root.after(0, lambda: host_msg.config(text='Go Live: ' + why))
                 except Exception: pass
-            try: root.after(8000, lambda: live_btn.set('GO LIVE'))
+            try: root.after(8000, lambda: live_btn.set('LIVE', LIVE_RED, False))
             except Exception: pass
             if report:
                 try: root.after(0, lambda: report(ok, why))
