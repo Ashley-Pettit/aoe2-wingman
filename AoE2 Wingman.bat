@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v132'
+VERSION = 'v133'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -2311,12 +2311,21 @@ def update_exe(rel, progress=lambda t: None):
     return me
 
 def clear_old_exe():
+    """Tidy away the exe this one replaced. The old copy is usually still closing when the new one
+    starts (and Windows won't delete a running exe), so keep trying for a minute in the background."""
     if not FROZEN: return
-    try:
-        old = os.path.join(os.path.dirname(sys.executable), 'Wingman.old.exe')
-        if os.path.exists(old): os.remove(old)
-    except OSError:
-        pass
+    old = os.path.join(os.path.dirname(sys.executable), 'Wingman.old.exe')
+    if not os.path.exists(old): return
+    def work():
+        for _ in range(40):
+            try:
+                os.remove(old); log('removed Wingman.old.exe'); return
+            except FileNotFoundError:
+                return
+            except OSError:
+                time.sleep(2)
+        log('could not remove Wingman.old.exe yet, will try next start')
+    threading.Thread(target=work, daemon=True).start()
 
 APP_ICON_PNG = (  # the Wingman crest (64 and 32 px PNG), for the title bars and the taskbar
     'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAVYklEQVR42u2ae4zc13Xfv/f+3jOzM/vgPkkul6RI8SWSelJv'
