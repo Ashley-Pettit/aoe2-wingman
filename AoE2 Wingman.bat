@@ -11,8 +11,27 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v133'
+VERSION = 'v134'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
+
+def clean_env():
+    """A copy of the environment fit to start another Wingman.exe with. The exe unpacks itself into
+    a temp folder and points some variables at it (the certificate file, PyInstaller's own); a new
+    exe started from this one must not inherit those, because that folder goes when this one exits."""
+    env = dict(os.environ)
+    tmp = getattr(sys, '_MEIPASS', None)
+    for k in list(env):
+        v = env[k]
+        if k.startswith('_PYI') or k.startswith('_MEIPASS') or (tmp and tmp.lower() in str(v).lower()):
+            env.pop(k, None)
+    return env
+
+if FROZEN:
+    # A certificate path that points nowhere (left over from another exe's temp folder, say) makes
+    # every web lookup fail with 'No such file or directory'. Drop it and use Windows' own.
+    for _k in ('SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE'):
+        _v = os.environ.get(_k)
+        if _v and not os.path.exists(_v): os.environ.pop(_k, None)
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2277,6 +2296,13 @@ def latest_release(fresh=False):
                'page': d.get('html_url')}
     except Exception as e:
         log('release check: %r' % (e,))
+        if FROZEN and not _REL.get('traced'):           # once: where it broke, to fix the exe build by
+            _REL['traced'] = True
+            try:
+                import traceback
+                log('release check trace: %s | SSL_CERT_FILE=%r' % (
+                    traceback.format_exc().strip().replace('\n', ' | ')[-700:], os.environ.get('SSL_CERT_FILE')))
+            except Exception: pass
     _REL.update(t=time.time(), rel=rel)
     return rel
 
@@ -7092,7 +7118,7 @@ def main():
                 try:
                     if FROZEN:
                         import subprocess
-                        subprocess.Popen([path_, '--wait-turn'], close_fds=True)
+                        subprocess.Popen([path_, '--wait-turn'], close_fds=True, env=clean_env())
                     else:
                         restart_app(path_)
                 except Exception as e:
@@ -7261,73 +7287,9 @@ def main():
         flat_button(fr_add, 'Add', add_friend).pack(side='left', padx=(8, 0))
         draw_friends()
 
-        field('Tag in Discord when the lobby is posted')
-        tags = [t for t in cfg.get('pings', []) if t.strip()]
-        tg_list = tk.Frame(outer, bg=INK); tg_list.pack(fill='x')
-        tg_add = tk.Frame(outer, bg=INK); tg_add.pack(fill='x', pady=(6, 0))
-        tg_add.columnconfigure(0, weight=3); tg_add.columnconfigure(1, weight=4)
-        tk.Label(tg_add, text='Name', fg=FAINT, bg=INK, font=F_TINY, anchor='w').grid(row=0, column=0, sticky='w')
-        tk.Label(tg_add, text='Discord user ID (optional, so they get a ping)', fg=FAINT, bg=INK,
-                 font=F_TINY, anchor='w').grid(row=0, column=1, sticky='w', padx=(8, 0))
-        tg_name = tk.Entry(tg_add, width=14); style_entry(tg_name)
-        tg_name.grid(row=1, column=0, sticky='we', ipady=3)
-        tg_id = tk.Entry(tg_add, width=20); style_entry(tg_id)
-        tg_id.grid(row=1, column=1, sticky='we', padx=(8, 0), ipady=3)
-        tg_btns = tk.Frame(outer, bg=INK); tg_btns.pack(fill='x', pady=(8, 0))
-        tg_msg = tk.Label(outer, text='', fg=GREEN, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=400)
-        tg_msg.pack(fill='x', pady=(4, 0))
-        tk.Label(outer, text='For an ID: Discord, Settings, Advanced, turn on Developer Mode, then '
-                             'right-click the person and Copy User ID.', fg=FAINT, bg=INK, font=F_TINY,
-                 anchor='w', justify='left', wraplength=400).pack(fill='x', pady=(2, 0))
-
-        def tags_saved(note, col=GREEN):
-            merged = load_settings(); merged['pings'] = list(tags); save_settings(merged)
-            tg_msg.config(text=note, fg=col)
-            win.after(2500, lambda: tg_msg.cget('text') == note and tg_msg.config(text=''))
-
-        def draw_tags():
-            for w in tg_list.winfo_children(): w.destroy()
-            if not tags:
-                tk.Label(tg_list, text='Nobody yet. Until you add someone, your friends get a plain @name.',
-                         fg=FAINT, bg=INK, font=F_SMALL, anchor='w').pack(fill='x', pady=(2, 0))
-                return
-            for t in list(tags):
-                nm, uid = tag_parts(t)
-                row = tk.Frame(tg_list, bg=PANEL, highlightthickness=1, highlightbackground=EDGE)
-                row.pack(fill='x', pady=2)
-                tk.Label(row, text=nm, fg=TXT, bg=PANEL, font=F_BODY, anchor='w', padx=9, pady=4).pack(side='left')
-                x = tk.Label(row, text='\u2715', fg=MUT, bg=PANEL, font=F_SMALL, padx=10, pady=4, cursor='hand2')
-                x.pack(side='right')
-                hover(x, MUT, REDC)
-                tk.Label(row, text='gets a ping' if uid else 'name only', fg=GREEN if uid else FAINT,
-                         bg=INK, font=F_TINY, padx=6, pady=1).pack(side='right', padx=(0, 4))
-                def drop(_e=None, who=t, nm_=nm):
-                    if who in tags: tags.remove(who)
-                    draw_tags(); tags_saved('Removed %s.' % nm_)
-                x.bind('<Button-1>', drop)
-
-        def add_tag(_e=None):
-            nm = tg_name.get().strip().lstrip('@'); raw = tg_id.get().strip()
-            uid = re.sub(r'\D', '', raw)
-            if raw and not re.fullmatch(r'\d{15,21}', uid):
-                tags_saved("That ID doesn't look right: it's a long number, 17 to 19 digits.", REDC); return
-            if not nm and not uid: return
-            if not nm: nm = 'Discord user \u2026' + uid[-4:]
-            if any(tag_parts(t)[0].lower() == nm.lower() for t in tags):
-                tags_saved('%s is already on the list.' % nm, GOLDC); return
-            tags.append('%s|%s' % (nm, uid))
-            tg_name.delete(0, 'end'); tg_id.delete(0, 'end')
-            draw_tags(); tags_saved('Added %s%s.' % (nm, '' if uid else ' (name only)'))
-        def add_friends():
-            have = set(tag_parts(t)[0].lower() for t in tags)
-            new_ = [f for f in friends if f.lower() not in have]
-            for f in new_: tags.append('%s|' % f)
-            draw_tags(); tags_saved('Added %d friend%s. Give them an ID to ping them.' % (len(new_), '' if len(new_) == 1 else 's')
-                                    if new_ else 'Your friends are all on the list already.')
-        tg_name.bind('<Return>', add_tag); tg_id.bind('<Return>', add_tag)
-        flat_button(tg_btns, 'Add', add_tag).pack(side='left')
-        flat_button(tg_btns, 'Add my friends', add_friends).pack(side='left', padx=(8, 0))
-        draw_tags()
+        field('People to tag in Discord (optional, one per line)')
+        pg = tk.Text(outer, width=46, height=4); style_entry(pg)
+        pg.insert('1.0', '\n'.join(cfg.get('pings', []))); pg.pack(fill='x')
 
         section('Go Live')
         lv_row = tk.Frame(outer, bg=INK); lv_row.pack(fill='x', pady=(2, 0))
@@ -7589,7 +7551,7 @@ def main():
                     'live_pause_key': (lv['live_pause_key'].get().strip().upper()
                                        if combo_ok(lv['live_pause_key'].get()) else 'CTRL+F3'),
                     'live_before': lv['live_before'].get(), 'live_after': lv['live_after'].get(),
-                    'pings': list(tags)}
+                    'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
         def save():
             c = collect()
             if c['webhook'] and not re.match(r'https://(\w+\.)?discord(app)?\.com/api/webhooks/', c['webhook']):
@@ -8150,7 +8112,7 @@ def main():
                     if FROZEN:
                         path_ = update_exe(rel)
                         import subprocess
-                        subprocess.Popen([path_, '--wait-turn'], close_fds=True)
+                        subprocess.Popen([path_, '--wait-turn'], close_fds=True, env=clean_env())
                     else:
                         ok_, text_, path_ = update_from_github('Prod')
                         if not path_:
