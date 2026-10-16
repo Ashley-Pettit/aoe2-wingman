@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v121'
+VERSION = 'v124'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -2281,11 +2281,55 @@ def clear_old_exe():
     except OSError:
         pass
 
+SHORTCUT_PS = r"""
+$s = New-Object -ComObject WScript.Shell
+$made = @()
+foreach ($d in @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop'))) {
+  if (-not $d) { continue }
+  $p = Join-Path $d 'AoE2 Wingman.lnk'
+  if ($env:WM_ONLY_FIX -eq '1') {
+    if (-not (Test-Path $p)) { continue }
+    if ($s.CreateShortcut($p).TargetPath -eq $env:WM_EXE) { continue }
+  }
+  $l = $s.CreateShortcut($p)
+  $l.TargetPath = $env:WM_EXE
+  $l.WorkingDirectory = Split-Path $env:WM_EXE
+  $l.IconLocation = $env:WM_EXE + ',0'
+  $l.Description = 'AoE2 Wingman: build orders and scouting on top of Age of Empires II'
+  $l.Save()
+  $made += $p
+}
+$made -join '|'
+"""
+
+def make_shortcuts(only_fix=False):
+    """Start menu and Desktop shortcuts to the exe, so it is easy to find again and can be pinned
+    (Windows does not let a program pin itself to the taskbar; the Start menu entry is what you
+    right-click to pin it). only_fix just repoints shortcuts that already exist at this exe, for
+    when it has been moved. Returns the shortcuts written."""
+    if not FROZEN or os.name != 'nt': return []
+    import subprocess
+    env = dict(os.environ, WM_EXE=os.path.abspath(sys.executable), WM_ONLY_FIX='1' if only_fix else '0')
+    try:
+        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                            '-Command', SHORTCUT_PS], env=env, capture_output=True, text=True,
+                           timeout=30, creationflags=0x08000000)
+        made = [x for x in (r.stdout or '').strip().split('|') if x]
+        if made: log('shortcuts: %s' % ', '.join(made))
+        if r.returncode: log('shortcuts: %s' % (r.stderr or '').strip()[-300:])
+        return made
+    except Exception as e:
+        log('shortcuts: %r' % (e,))
+        return []
+
 def restart_app(bat):
     """Start the given copy. The caller closes this one straight after."""
     import subprocess
     log('restarting from %s' % bat)
-    subprocess.Popen(['cmd', '/c', bat], cwd=os.path.dirname(bat), creationflags=0x08000000, close_fds=True)
+    # --wait-turn: the new copy waits for this one to close instead of seeing it still running and
+    # bowing out (which is what left 'Update from dev' closed with nothing coming back)
+    subprocess.Popen(['cmd', '/c', bat, '--wait-turn'], cwd=os.path.dirname(bat),
+                     creationflags=0x08000000, close_fds=True)
 
 GOD_MODE_ID = 517794                       # God Mode [CORE] on the official mod site
 GOD_MODE_URL = 'https://www.ageofempires.com/mods/details/%d/' % GOD_MODE_ID
@@ -5817,7 +5861,8 @@ def main():
         u32.GetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int]
         u32.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_long]
         top = u32.GetAncestor(root.winfo_id(), 2)
-        u32.SetWindowDisplayAffinity(ctypes.c_void_p(top), 0x11)
+        # hidden from captures by default (so the screen reads never see it); Settings can show it
+        u32.SetWindowDisplayAffinity(ctypes.c_void_p(top), 0 if load_settings().get('show_in_shots') else 0x11)
         OVERLAY_TOP[0] = top
         # Clicking the overlay must not pull Windows' focus off the game: the game mutes itself
         # the moment it stops being the window in front. NOACTIVATE means a click lands on the
@@ -7104,6 +7149,23 @@ def main():
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
+        section('Screenshots and streams',
+                'Wingman hides itself from screenshots, recordings and streams, so its own screen reading '
+                'never sees it. Switch this on to show the main panel, say to grab a screenshot. While it is '
+                'on, keep the panel clear of the minimap, the resource bar and the score list, or Wingman '
+                'may read itself there. The alert badges and minimap rings stay hidden either way.')
+        ss_on = tk.BooleanVar(value=bool(cfg.get('show_in_shots', False)))
+        def ss_apply(*_):
+            on = bool(ss_on.get())
+            try:
+                import ctypes
+                ctypes.windll.user32.SetWindowDisplayAffinity(ctypes.c_void_p(OVERLAY_TOP[0]), 0 if on else 0x11)
+            except Exception as e:
+                log('show in screenshots: %r' % (e,))
+            c_ = load_settings(); c_['show_in_shots'] = on; save_settings(c_)      # takes effect straight away
+        ss_on.trace_add('write', ss_apply)
+        Check(outer, text='Show Wingman in screenshots and streams', variable=ss_on).pack(fill='x')
+
         section('When the game starts',
                 'If you are in another window when a match finishes loading, the overlay switches you to the '
                 'game. If Windows will not allow that, it puts up a banner and plays a sound instead.')
@@ -7821,6 +7883,24 @@ def main():
     # A newer public release: say so on the bar at the menu, one click to take it. The exe swaps
     # itself; a .bat takes Prod. Ash's own setup publishes and restarts by itself, so not there.
     clear_old_exe()
+    # The exe: put it in the Start menu and on the Desktop the first time it runs, then keep those
+    # pointing at it if it moves. Pinning to the taskbar is the player's call (Windows only allows
+    # that by hand), so the first run says how.
+    def shortcuts_once():
+        cfg_ = load_settings()
+        if cfg_.get('shortcuts_made'):
+            make_shortcuts(only_fix=True); return
+        made = make_shortcuts()
+        if not made: return
+        cfg_ = load_settings(); cfg_['shortcuts_made'] = True; save_settings(cfg_)
+        def say():
+            if host_msg.cget('text').strip(): return
+            host_msg.config(text='Wingman is in your Start menu and on your Desktop now. To pin it to the '
+                                 'taskbar: Start, find AoE2 Wingman, right-click it, Pin to taskbar.', fg=MUT)
+            foot_fit()
+        try: root.after(0, say)
+        except Exception: pass
+    if FROZEN: threading.Thread(target=shortcuts_once, daemon=True).start()
     def nudge_update():
         time.sleep(NUDGE_AFTER)
         rel = newer_release()
