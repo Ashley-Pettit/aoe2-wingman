@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v117'
+VERSION = 'v118'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -4716,6 +4716,34 @@ def intel_predict(rows, civ=None):
     return dict(opening=dist[0][0], observed=dist[0][1], matches=len(recs),
                 feudal=med('feudal_seconds'), castle=med('castle_seconds'), dist=dist, on_civ=False)
 
+# What to do about the way they usually open. Stock ranked advice, keyed off the first move of
+# their most common opening from their public games. It answers a habit, not this game: it
+# never knows what they are doing right now.
+OPENING_ANSWERS = [
+ ('fc boom', 'Answer: punish the greed. Scouts or MAA early, then towers on their wood or gold.'),
+ ('fast castle', 'Answer: hit them in Feudal. Scouts or MAA, towers, and make them pay for it.'),
+ ('fc', 'Answer: hit them in Feudal before their Castle units arrive. Pikes or camels if knights come.'),
+ ('drush', 'Answer: loom before they land, 2 houses by the wood, keep villagers working. Wall if you can.'),
+ ('militia', 'Answer: loom before they land, keep villagers working. Archers or towers clean them up.'),
+ ('maa', 'Answer: wall early and wall well. Archers or towers on your wood, skirms if archers follow.'),
+ ('tower', 'Answer: scout for forward villagers. Loom, pull villagers back, get stone and build your own.'),
+ ('scouts', 'Answer: spears and walls, or archers with a few spears. Keep villagers close to the TC.'),
+ ('cav archer', 'Answer: skirms and walls, or your own archers in bigger numbers.'),
+ ('archers', 'Answer: skirms, or scouts to raid their archers and villagers. Wall your gold.'),
+ ('skirm', 'Answer: scouts or MAA. Skirms lose to both.'),
+ ('eagle', 'Answer: militia line or scouts with forging. Towers help. Archers struggle.'),
+ ('knight', 'Answer: pikes or camels, walls, and a castle of your own if you can.'),
+ ('lancer', 'Answer: pikes and camels. Archers behind them.'),
+ ('elephant', 'Answer: monks, pikes or halbs. Do not fight them with cavalry.'),
+ ('nothing early', 'Answer: they tend to boom. Punish early with scouts or MAA.'),
+]
+
+def opening_answer(opening):
+    o = (opening or '').lower()
+    for key, text in OPENING_ANSWERS:
+        if o.startswith(key) or (' ' + key) in (' ' + o): return text
+    return None
+
 def mmss(sec):
     return '%d:%02d' % (int(sec) // 60, int(sec) % 60)
 
@@ -7794,10 +7822,11 @@ def main():
             its count, then their usual Feudal and Castle times. As your own game clock comes up
             to one of those times it turns amber with a countdown, then red while it is due."""
             for w in box.winfo_children(): w.destroy()
-            ic = tk.Canvas(box, width=13, height=13, bg=BG, highlightthickness=0)
+            line1 = tk.Frame(box, bg=BG); line1.pack(fill='x', anchor='w')
+            ic = tk.Canvas(line1, width=13, height=13, bg=BG, highlightthickness=0)
             draw_icon(ic, 'clock', 13, BRONZE); ic.pack(side='left', padx=(0, 5))
             W, H = 54, 7
-            bar = tk.Canvas(box, width=W, height=H, bg=PANEL, highlightthickness=1, highlightbackground=RIM)
+            bar = tk.Canvas(line1, width=W, height=H, bg=PANEL, highlightthickness=1, highlightbackground=RIM)
             x, total = 0.0, float(sum(n for _, n in pr['dist'])) or 1.0
             for k, (lab, n) in enumerate(pr['dist']):
                 w_ = W * n / total
@@ -7805,12 +7834,22 @@ def main():
                                      fill=col if k == 0 else (MUT if k == 1 else RIM))
                 x += w_
             bar.pack(side='left', padx=(0, 6))
-            lead = tk.Label(box, text='%s %d/%d' % (pr['opening'], pr['observed'], pr['matches']),
+            lead = tk.Label(line1, text='%s %d/%d' % (pr['opening'], pr['observed'], pr['matches']),
                             fg=GOLDD, bg=BG, font=(DISPLAY, 9, 'bold'))
             lead.pack(side='left')
-            when = tk.Label(box, text='', fg=MUT, bg=BG, font=F_SMALL)
+            when = tk.Label(line1, text='', fg=MUT, bg=BG, font=F_SMALL)
             when.pack(side='left', padx=(8, 0))
-            for w in (box, ic, bar, lead, when): bind_all(w)
+            for w in (box, line1, ic, bar, lead, when): bind_all(w)
+            # and what to do about it: a stock answer to the way they usually open
+            ans = opening_answer(pr['opening'])
+            if ans:
+                line2 = tk.Frame(box, bg=BG); line2.pack(fill='x', anchor='w', pady=(2, 0))
+                sh = tk.Canvas(line2, width=13, height=13, bg=BG, highlightthickness=0)
+                draw_icon(sh, 'shield', 13, GOLDC); sh.pack(side='left', padx=(0, 5), anchor='n')
+                al = tk.Label(line2, text=ans, fg=TXT, bg=BG, font=F_SMALL, anchor='w', justify='left',
+                              wraplength=340)
+                al.pack(side='left', fill='x')
+                for w in (line2, sh, al): bind_all(w)
             marks = [(nm_, sec) for nm_, sec in (('Feudal', pr.get('feudal')), ('Castle', pr.get('castle'))) if sec]
             def tick_():
                 try:
