@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v108'
+VERSION = 'v109'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2726,12 +2726,24 @@ def discord_share_game():
     quick = _uia_fast(auto, ['Stream ' + game_title, 'Stream ' + game_title.split(':')[0]])
     if quick:
         log('go live: found "%s" in %.1fs' % (quick.Name, time.time() - t_))
-        if not _uia_click(quick): _uia_press(quick)
-        go = _uia_fast_wait(auto, GO_NAMES, wait=4)
-        if go:
-            if not _uia_click(go): _uia_press(go)
-            if _uia_fast_wait(auto, ['Stop Streaming'], wait=4):
-                log('go live: sharing Age of Empires II on Discord (quick way, %.1fs)' % (time.time() - t_)); return
+        def press(ctrl, until, label):
+            """Press it, and if nothing happens, press it another way: a real click, then
+            Windows' own 'press this', then a click sent straight to Discord. Discord does not
+            always answer the first."""
+            for how, fn in (('click', _uia_click), ('invoke', _uia_press), ('direct', lambda c: _bg_click(d, c))):
+                try:
+                    if not fn(ctrl): continue
+                except Exception as e:
+                    log('go live, %s %s: %r' % (how, label, e)); continue
+                got = _uia_fast_wait(auto, until, wait=1.5)
+                if got:
+                    log('go live: %s took (%s)' % (label, how)); return got
+            return None
+        got = press(quick, list(GO_NAMES) + ['Stop Streaming'], 'the game stream button')
+        if got and got.Name != 'Stop Streaming':
+            got = press(got, ['Stop Streaming'], 'Stream')
+        if got:
+            log('go live: sharing Age of Empires II on Discord (quick way, %.1fs)' % (time.time() - t_)); return
         log('go live: the quick way did not start a stream, looking the slow way')
         try:
             n_ = discord_dump(os.path.join(os.path.dirname(LOG), 'discord_dump.txt'))
