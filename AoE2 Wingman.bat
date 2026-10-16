@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v107'
+VERSION = 'v108'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2577,7 +2577,9 @@ def _uia_fast(auto, names):
     to do the search itself in one go, which is many times quicker than walking Discord's whole
     window from Python (its chat history alone is thousands of entries). None if not there."""
     try:
-        ia = auto._AutomationClient.instance().IUIAutomation
+        import importlib
+        core = importlib.import_module(auto.__name__ + '.uiautomation')   # the private bits live in here
+        ia = core._AutomationClient.instance().IUIAutomation
         conds = [ia.CreatePropertyCondition(30005, n) for n in names]      # 30005: the name
         cond = conds[0]
         for c_ in conds[1:]: cond = ia.CreateOrCondition(cond, c_)
@@ -2585,7 +2587,7 @@ def _uia_fast(auto, names):
             root = ia.ElementFromHandle(h)
             el = root.FindFirst(4, cond)                                      # 4: everything under it
             if el:
-                c = auto.Control.CreateControlFromElement(el)
+                c = core.Control.CreateControlFromElement(el)
                 if c and _visible(c): return c
     except Exception as e:
         log('go live, quick search: %r' % (e,))
@@ -2731,6 +2733,11 @@ def discord_share_game():
             if _uia_fast_wait(auto, ['Stop Streaming'], wait=4):
                 log('go live: sharing Age of Empires II on Discord (quick way, %.1fs)' % (time.time() - t_)); return
         log('go live: the quick way did not start a stream, looking the slow way')
+        try:
+            n_ = discord_dump(os.path.join(os.path.dirname(LOG), 'discord_dump.txt'))
+            log('go live: wrote what Discord showed (%d controls) to discord_dump.txt' % n_)
+        except Exception as e:
+            log('go live, dump: %r' % (e,))
 
     everything = _uia_all(auto)
     if any(n.strip().lower() == 'stop streaming' for _c, n in everything):
@@ -2851,6 +2858,8 @@ def discord_share_game():
         tile = cands[0] if cands else tile
     if not tile:
         log('go live: no AoE2 tile. New in Discord after Share: %s' % ' | '.join(fresh()[:300]))
+        try: discord_dump(os.path.join(os.path.dirname(LOG), 'discord_dump.txt'))
+        except Exception: pass
         raise LiveFail('Discord did not list Age of Empires II to share.')
     log('go live: picking "%s" (%s)' % (tile.Name, tile.ControlTypeName))
     if not click(tile): _uia_press(tile)
@@ -4704,6 +4713,40 @@ def style_entry(widget):
                      highlightthickness=1, highlightbackground=EDGE, highlightcolor=GOLDC,
                      font=F_BODY)
 
+LIVE_RED, LIVE_HOT, LIVE_BUSY, LIVE_OFF = '#d8343a', '#f04a50', '#c9962b', '#5a5246'
+
+def live_pill(parent, bg):
+    """The Go Live button: a small rounded red pill with a white dot, the way a stream's LIVE
+    badge looks, instead of plain text among the header icons. .set(text, fill) changes it."""
+    import tkinter as tk
+    import tkinter.font as tkfont
+    class Pill(tk.Canvas):
+        def __init__(self):
+            tk.Canvas.__init__(self, parent, bg=bg, highlightthickness=0, bd=0, cursor='hand2', height=18)
+            self.font = tkfont.Font(family=DISPLAY, size=8, weight='bold')
+            self.text, self.fill, self.ink, self.hot = 'GO LIVE', LIVE_RED, 'white', False
+            self.bind('<Enter>', lambda e: self._hover(True), add='+')
+            self.bind('<Leave>', lambda e: self._hover(False), add='+')
+            self.draw()
+        def _hover(self, on):
+            self.hot = on; self.draw()
+        def set(self, text, fill=LIVE_RED, ink='white'):
+            self.text, self.fill, self.ink = text, fill, ink; self.draw()
+        def draw(self):
+            h, dot = 18, 6
+            w = self.font.measure(self.text) + dot + 20
+            self.configure(width=w)
+            self.delete('all')
+            f = LIVE_HOT if (self.hot and self.fill == LIVE_RED) else self.fill
+            r = h / 2.0
+            self.create_oval(0, 0, h, h - 1, fill=f, outline=f)
+            self.create_oval(w - h, 0, w - 1, h - 1, fill=f, outline=f)
+            self.create_rectangle(r, 0, w - r, h - 1, fill=f, outline=f)
+            x = 8
+            self.create_oval(x, r - dot / 2.0, x + dot, r + dot / 2.0, fill=self.ink, outline=self.ink)
+            self.create_text(x + dot + 5, r, text=self.text, anchor='w', fill=self.ink, font=self.font)
+    return Pill()
+
 def icon_button(parent, glyph, bg, hot=GOLDD, size=11):
     """A header icon with a hit area and a hover background, instead of a bare glyph."""
     import tkinter as tk
@@ -4841,12 +4884,11 @@ def main():
     state = tk.Label(head, text='WAITING', fg=MUT, bg=PANEL, font=F_TINY, padx=7, pady=3,
                      highlightthickness=1, highlightbackground=RIM)
     state.grid(row=0, column=2, sticky='e', padx=(10, 2))
-    live_btn = icon_button(head, '\u25cf Go Live', BG, hot=REDC, size=8)    # pause, chat, stream on Discord
-    live_btn.configure(font=(DISPLAY, 8, 'bold'))
-    bo_open = icon_button(head, '\u25b8 Build', BG, size=8)             # brings a closed build order back
-    bo_open.configure(font=(DISPLAY, 8, 'bold'))
-    bo_open.grid(row=0, column=3, sticky='e', padx=(6, 0)); bo_open.grid_remove()
-    live_btn.grid(row=0, column=4, sticky='e', padx=(4, 0))
+    live_btn = live_pill(head, BG)                                      # pause, chat, stream on Discord
+    bo_open = icon_button(head, '\u2630', BG, size=10)                 # brings a closed build order back
+    bo_open.configure(padx=3)
+    bo_open.grid(row=0, column=3, sticky='e', padx=(4, 0)); bo_open.grid_remove()
+    live_btn.grid(row=0, column=4, sticky='e', padx=(6, 2))
     stats_btn = icon_button(head, 'W/L', BG, size=8)
     stats_btn.configure(font=(DISPLAY, 8, 'bold'))
     stats_btn.grid(row=0, column=5, sticky='e', padx=(4, 0))
@@ -5967,14 +6009,14 @@ def main():
                 go_admin('live')       # Windows asks; say yes and it starts again and carries on
                 return
         st['live_busy'] = True
-        def show(text, colour):
-            try: root.after(0, lambda: live_btn.config(text=text, fg=colour))
+        def show(text, fill=LIVE_RED, ink='white'):
+            try: root.after(0, lambda: live_btn.set(text, fill, ink))
             except Exception: pass
         def work():
             ok, why = False, ''
             try:
                 go_live(load_settings(), in_game=in_game, timer=tcw.timer_stopped,
-                        status=lambda t: show('\u25cf ' + t.capitalize() + '...', GOLDD))
+                        status=lambda t: show(t.upper() + '\u2026', LIVE_BUSY, INK))
                 ok = True
             except LiveFail as e:
                 why = str(e)
@@ -5983,12 +6025,12 @@ def main():
             finally:
                 st['live_busy'] = False
             log('go live: %s' % ('done' if ok else 'stopped, ' + why))
-            show('\u25cf Go Live', REDC if ok else MUT)
-            if not ok:
-                show('\u2715 Go Live', REDC)
+            if ok: show('LIVE')
+            else:
+                show('FAILED', LIVE_OFF)
                 try: root.after(0, lambda: host_msg.config(text='Go Live: ' + why))
                 except Exception: pass
-            try: root.after(8000, lambda: live_btn.config(text='\u25cf Go Live', fg=MUT))
+            try: root.after(8000, lambda: live_btn.set('GO LIVE'))
             except Exception: pass
             if report:
                 try: root.after(0, lambda: report(ok, why))
