@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v91'
+VERSION = 'v95'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2364,6 +2364,174 @@ def _move_to(x, y):
     _send_mouse(0x0001, 2, 0); time.sleep(0.02); _send_mouse(0x0001, -2, 0)   # small real nudge for the game's own cursor
     time.sleep(0.06)
 
+# ---------------------------------------------------------------- Go Live
+# One button for "hang on, let me stream this": pause, say sorry in chat, put the game up on
+# Discord, come back and say thanks. It only runs when you press it. In the game it sends the
+# pause key and two lines of chat, nothing else; everything else happens in Discord.
+KEY_NAMES = dict([('F%d' % i, 0x6F + i) for i in range(1, 13)] +
+                 [('PAUSE', 0x13), ('ENTER', 0x0D), ('ESC', 0x1B), ('SPACE', 0x20)])
+LIVE_DEFAULTS = {'live_pause_key': 'F3', 'live_before': 'Sorry 1 sec', 'live_after': 'Thanks 14?'}
+DISCORD_EXES = ('discord.exe', 'discordptb.exe', 'discordcanary.exe')
+
+def _send_keys(events):
+    """events: (vk, scan, flags) tuples, sent as one batch so nothing can land in between."""
+    ctypes, wintypes, u, _ = _win()
+    class KI(ctypes.Structure):
+        _fields_ = [('wVk', wintypes.WORD), ('wScan', wintypes.WORD), ('dwFlags', wintypes.DWORD),
+                    ('time', wintypes.DWORD), ('dwExtraInfo', ctypes.c_size_t)]
+    class INP(ctypes.Structure):
+        class _U(ctypes.Union):
+            _fields_ = [('ki', KI), ('pad', ctypes.c_byte * 32)]
+        _anonymous_ = ('u',)
+        _fields_ = [('type', wintypes.DWORD), ('u', _U)]
+    arr = (INP * len(events))()
+    for i, (vk, scan, fl) in enumerate(events):
+        arr[i].type = 1; arr[i].ki = KI(vk, scan, fl, 0, 0)
+    return u.SendInput(len(events), arr, ctypes.sizeof(INP))
+
+def tap_key(vk):
+    """A key press the way a keyboard sends it, by scan code, which is what games listen to."""
+    ctypes, wintypes, u, _ = _win()
+    scan = u.MapVirtualKeyW(vk, 0)
+    _send_keys([(vk, scan, 0x0008), (vk, scan, 0x0008 | 0x0002)])
+    time.sleep(0.06)
+
+def type_text(text):
+    for ch in text:
+        _send_keys([(0, ord(ch), 0x0004), (0, ord(ch), 0x0004 | 0x0002)])
+        time.sleep(0.018)
+
+def game_chat(text):
+    """Enter, the line, Enter: the same as typing it yourself."""
+    if not text.strip(): return
+    tap_key(0x0D); time.sleep(0.25)
+    type_text(text); time.sleep(0.12)
+    tap_key(0x0D); time.sleep(0.2)
+
+def find_discord_window():
+    ctypes, wintypes, u, _ = _win()
+    hits = []
+    proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def cb(h, l):
+        if not u.GetWindow(h, 4) and (u.IsWindowVisible(h) or u.IsIconic(h)):
+            pid = wintypes.DWORD(); u.GetWindowThreadProcessId(h, ctypes.byref(pid))
+            if _proc_name(pid.value) in DISCORD_EXES and u.GetWindowTextLengthW(h) > 0:
+                r = wintypes.RECT(); u.GetWindowRect(h, ctypes.byref(r))
+                hits.append(((r.right - r.left) * (r.bottom - r.top), h))
+        return True
+    u.EnumWindows(proto(cb), 0)
+    return max(hits)[1] if hits else None
+
+def ensure_pkg(mod, pip_name=None, why=''):
+    """Import a module, installing it for this user the first time if it is missing."""
+    import importlib
+    try: return importlib.import_module(mod)
+    except ImportError: pass
+    try:
+        import subprocess, site
+        exe = sys.executable
+        if exe.lower().endswith('pythonw.exe'): exe = exe[:-11] + 'python.exe'
+        log('installing %s%s' % (pip_name or mod, (' for ' + why) if why else ''))
+        subprocess.run([exe, '-m', 'pip', 'install', '--user', '--disable-pip-version-check', '-q',
+                        pip_name or mod], creationflags=0x08000000, timeout=600, capture_output=True)
+        usp = site.getusersitepackages()
+        if usp not in sys.path: sys.path.append(usp)
+        importlib.invalidate_caches()
+        return importlib.import_module(mod)
+    except Exception as e:
+        log('could not get %s: %r' % (mod, e))
+        return None
+
+class LiveFail(Exception): pass
+
+def _uia_find(auto, root, match, wait=6.0, depth=60):
+    """The first control under root that match(control) likes. Discord is a Chromium app: its
+    controls only show up to Windows' accessibility once something asks, so the first look can
+    come back nearly empty. Keep looking for a few seconds."""
+    seen, end = [], time.time() + wait
+    while True:
+        seen = []
+        try:
+            for c, _d in auto.WalkControl(root, maxDepth=depth):
+                try: name = c.Name or ''
+                except Exception: continue
+                if name: seen.append(name)
+                try:
+                    if match(c, name): return c, seen
+                except Exception: pass
+        except Exception as e:
+            log('go live, looking through Discord: %r' % (e,))
+        if time.time() > end: return None, seen
+        time.sleep(0.4)
+
+def _uia_press(c):
+    for how in ('GetInvokePattern', 'GetSelectionItemPattern', 'GetLegacyIAccessiblePattern'):
+        try:
+            p = getattr(c, how)()
+            if not p: continue
+            if how == 'GetInvokePattern': p.Invoke()
+            elif how == 'GetSelectionItemPattern': p.Select()
+            else: p.DoDefaultAction()
+            return True
+        except Exception:
+            continue
+    try:
+        c.Click(simulateMove=False); return True
+    except Exception:
+        return False
+
+def discord_share_game():
+    """In Discord: Share Your Screen, the Applications tab, Age of Empires II, Go Live. Works off
+    the call you are already in, whether that is a server voice channel or a DM call; Discord
+    keeps the share button for it in the panel at the bottom left."""
+    auto = ensure_pkg('uiautomation', why='the Go Live button')
+    if not auto: raise LiveFail('could not load the Windows accessibility helper (pip install uiautomation)')
+    d = find_discord_window()
+    if not d: raise LiveFail('Discord is not open (or is only in the tray). Open it and join a call first.')
+    focus_window(d); time.sleep(0.5)
+    root = auto.ControlFromHandle(d)
+    def named(*want):
+        w = [x.lower() for x in want]
+        return lambda c, n: n.strip().lower() in w and c.ControlTypeName in ('ButtonControl', 'TabItemControl', 'ListItemControl', 'HyperlinkControl')
+    btn, seen = _uia_find(auto, root, named('Share Your Screen', 'Share Screen'), wait=8)
+    if not btn:
+        log('go live: no share button. Names Discord showed: %s' % ' | '.join(seen[:200]))
+        raise LiveFail('no Share Your Screen button in Discord. Join a voice channel or call first.')
+    _uia_press(btn); time.sleep(1.0)
+    tab, _s = _uia_find(auto, root, named('Applications'), wait=2.5)
+    if tab: _uia_press(tab); time.sleep(0.6)
+    game = lambda c, n: 'age of empires ii' in n.lower() and c.ControlTypeName != 'WindowControl'
+    tile, seen = _uia_find(auto, root, game, wait=5)
+    if not tile:
+        log('go live: no AoE2 tile. Names Discord showed: %s' % ' | '.join(seen[:200]))
+        raise LiveFail('Discord did not list Age of Empires II to share.')
+    _uia_press(tile); time.sleep(0.9)
+    go, seen = _uia_find(auto, root, named('Go Live'), wait=5)
+    if not go:
+        log('go live: no Go Live button. Names Discord showed: %s' % ' | '.join(seen[:200]))
+        raise LiveFail('no Go Live button after picking the game.')
+    _uia_press(go); time.sleep(0.8)
+    log('go live: sharing Age of Empires II on Discord')
+
+def go_live(cfg, in_game=True, status=lambda t: None):
+    """The whole thing, start to finish. in_game False is the Settings test: Discord only."""
+    c = dict(LIVE_DEFAULTS); c.update({k: v for k, v in cfg.items() if k in LIVE_DEFAULTS and v is not None})
+    g = find_game_window()
+    if in_game:
+        if not g: raise LiveFail('the game is not running')
+        if game_needs_admin(): raise LiveFail(ADMIN_MSG)
+        status('pausing'); focus_window(g)
+        tap_key(KEY_NAMES.get(str(c['live_pause_key']).upper().strip(), 0x72)); time.sleep(0.35)
+        game_chat(c['live_before'])
+    status('Discord')
+    try:
+        discord_share_game()
+    finally:
+        if g:
+            status('back'); time.sleep(0.2); focus_window(g); time.sleep(0.5)
+    if in_game:
+        game_chat(c['live_after'])
+
 STOP = threading.Event()                 # set by the Stop button
 OVERLAY_TOP = [None]                     # the overlay's window, so a click that lands on it can pass through
 class Stopped(Exception): pass
@@ -2945,11 +3113,25 @@ class ScoutWatcher(threading.Thread):
     # colours too: the blinking cross when something of yours or an ally's is attacked (a boar
     # will do it), and flares. A player's units and buildings sit there solidly; those markers
     # blink and go. So nothing is called until it has been watched for a few seconds.
-    BURST = 8              # quick looks in a row: it has to be there on every one of them
-    BURST_GAP = 0.25       # seconds between those looks
-    HOLD = 2.5             # then this long again, and it has to still be there
-    AFTER = 2              # on this many looks
-    SNOOZE = 6             # after something came and went, leave that colour alone for this long
+    # Only red and yellow need that. Every other colour (blue, green, aqua, purple, grey, orange)
+    # is never used by the game for a marker, so for those a dot that is there on a few looks in
+    # a row is the player. Scouts walk in and out of sight, and making them hold still for
+    # seconds was turning real finds away (a green scout sat beside yours for two minutes
+    # before the old check let it through).
+    BURST = 6              # red and yellow: quick looks in a row, it has to be there on every one
+    BURST_GAP = 0.2        # seconds between those looks
+    HOLD = 1.2             # then this long again, and it has to still be there
+    AFTER = 1              # on this many looks
+    SNOOZE = 3             # after a red or yellow came and went, leave that colour alone for this long
+    LOOK = 0.5             # seconds between looks at the whole map
+    # Only buildings are called, not scouts. A unit is a small dot that walks about; a building is
+    # a bigger patch that never moves. So a hit has to be at least building sized and sit in the
+    # same spot on a few looks in a row. A scout wandering past is left alone; a house, a camp or a
+    # Town Center coming into view is called inside a second or so.
+    SEEN = 3               # other colours: the same spot on this many looks in a row (LOOK apart)
+    BUILDING = 22          # pixels for the smallest building, on a minimap 616 wide (scaled to yours)
+    STILL = 3              # how far its middle may drift between looks and still be not moving
+    MARKERS = ((254, 0, 0), (255, 255, 1), (255, 0, 0), (255, 255, 0))
     # The minimap is a diamond inside the box that is read. The corners of that box are not map:
     # the game writes its messages there ('Not enough food.' in red, hints in yellow), and those
     # are player colours too. So only what is inside the diamond can be a player, and while a line
@@ -2977,7 +3159,7 @@ class ScoutWatcher(threading.Thread):
         self.lock = threading.Lock()
         self.fail = 0
         self.mask_n, self.mask_rect, self.settle = 0, None, 0
-        self.snooze = {}
+        self.snooze, self.hist = {}, {}
         self.diamond, self.area, self.area_for = None, None, None
         self.rec, self.rec_size, self.begun = None, -1, True
 
@@ -2992,7 +3174,7 @@ class ScoutWatcher(threading.Thread):
             self.found = (self.found & set(targets)) if keep else set()
             self.near, self.mask, self.rect = {}, None, None
             self.mask_n = 0
-            self.snooze = {}
+            self.snooze, self.hist = {}, {}
             self.colours = minimap_colours()
             self.t0 = time.time()
             self.rec = recording
@@ -3078,6 +3260,11 @@ class ScoutWatcher(threading.Thread):
             cx, cy = int(x0 + xs.mean()), int(y0 + ys.mean())
         return n, cx, cy
 
+    def marker_colour(self, idx):
+        """True for the two colours the game also paints its own minimap markers in."""
+        col = self.colours.get(idx)
+        return bool(col) and any(sum(abs(a - b) for a, b in zip(col, m)) <= self.TOL for m in self.MARKERS)
+
     def steady(self, np, idx, cx, cy):
         """Watch a hit for a few seconds before believing it. Returns (it stayed, the pixel
         counts seen). It has to be there on every look, about the same size each time, and
@@ -3159,7 +3346,7 @@ class ScoutWatcher(threading.Thread):
         import numpy as np
         while True:
             try:
-                time.sleep(1.1)
+                time.sleep(self.LOOK)
                 with self.lock:
                     targets = dict(self.targets)
                     left = [i for i in targets if i not in self.found]
@@ -3167,7 +3354,7 @@ class ScoutWatcher(threading.Thread):
                 if not fg or self.pause_fn():
                     # not looking at the game (or it is loading): whatever is on screen is not the
                     # minimap. Start the confirm count again and give the picture time to settle after.
-                    self.near = {}; self.settle = time.time() + self.SETTLE
+                    self.near, self.hist = {}, {}; self.settle = time.time() + self.SETTLE
                     continue
                 if time.time() < self.settle: continue
                 if not self.begun:
@@ -3177,7 +3364,7 @@ class ScoutWatcher(threading.Thread):
                     except OSError: grown = True
                     if not grown and time.time() - self.t0 < 240: continue
                     self.begun = True
-                    self.mask, self.mask_n, self.near = None, 0, {}     # learn the real screen, not the loading one
+                    self.mask, self.mask_n, self.near, self.hist = None, 0, {}, {}   # learn the real screen, not the loading one
                     self.t0 = time.time(); self.settle = time.time() + self.SETTLE
                     continue
                 if self.grab is None: self.grab = _grabber()
@@ -3209,19 +3396,29 @@ class ScoutWatcher(threading.Thread):
                     base = self.mask.get(idx)
                     if base is not None and base.shape == m.shape: m = m & ~base
                     if self.writing(np, m, area):         # one of the game's messages, in this colour, over the map
-                        self.near[idx] = 0; self.snooze[idx] = time.time() + 2
+                        self.near[idx] = 0; self.hist[idx] = []; self.snooze[idx] = time.time() + 2
                         continue
                     m = m & area
                     big, cx, cy = self._cluster(np, m)
+                    hist = self.hist.setdefault(idx, [])
+                    hist.append((big, cx, cy) if big >= self.NEED else None); del hist[:-self.SEEN]
+                    bsize = max(self.NEED + 4, int(round(self.BUILDING * (w / 616.0) ** 2)))
                     if big < self.NEED or time.time() < self.snooze.get(idx, 0):
                         self.near[idx] = 0
                         continue
                     self.near[idx] = self.near.get(idx, 0) + 1
-                    # a couple of pixels has to still be there next time round, so a stray dot
-                    # does not start anything; a solid blob is looked into straight away
-                    if big < self.SURE and self.near[idx] < self.CONFIRM: continue
                     name = targets.get(idx, idx)
-                    stayed, seen = self.steady(np, idx, cx, cy)
+                    if big < bsize: continue                      # a unit's dot, not a building
+                    if self.marker_colour(idx):
+                        # the game's own markers blink and fade; a building does not
+                        if self.near[idx] < self.CONFIRM: continue
+                        stayed, seen = self.steady(np, idx, cx, cy)
+                        if stayed and sorted(seen)[len(seen) // 2] < bsize * 0.8: stayed = False
+                    else:
+                        if len(hist) < self.SEEN or any(x is None or x[0] < bsize for x in hist): continue
+                        xs = [x[1] for x in hist]; ys = [x[2] for x in hist]
+                        if max(xs) - min(xs) > self.STILL or max(ys) - min(ys) > self.STILL: continue
+                        stayed, seen = True, [x[0] for x in hist]
                     self.picture(np, a, cx, cy, '%s_%s' % ('found' if stayed else 'ignored', name))
                     if not stayed:
                         self.near[idx] = 0; self.snooze[idx] = time.time() + self.SNOOZE
@@ -4226,13 +4423,16 @@ def main():
     state = tk.Label(head, text='WAITING', fg=MUT, bg=PANEL, font=F_TINY, padx=7, pady=3,
                      highlightthickness=1, highlightbackground=RIM)
     state.grid(row=0, column=2, sticky='e', padx=(10, 2))
+    live_btn = icon_button(head, '\u25cf LIVE', BG, hot=REDC, size=8)    # pause, chat, stream on Discord
+    live_btn.configure(font=(DISPLAY, 8, 'bold'))
+    live_btn.grid(row=0, column=3, sticky='e', padx=(6, 0))
     stats_btn = icon_button(head, 'W/L', BG, size=8)
     stats_btn.configure(font=(DISPLAY, 8, 'bold'))
-    stats_btn.grid(row=0, column=3, sticky='e', padx=(6, 0))
+    stats_btn.grid(row=0, column=4, sticky='e', padx=(4, 0))
     gear = icon_button(head, '\u2699', BG)
-    gear.grid(row=0, column=4, sticky='e', padx=(4, 0))
+    gear.grid(row=0, column=5, sticky='e', padx=(4, 0))
     close = icon_button(head, '\u2715', BG, hot=REDC)
-    close.grid(row=0, column=5, sticky='e')
+    close.grid(row=0, column=6, sticky='e')
     sep = Rule(frame)
     sep.grid(row=1, column=0, columnspan=4, sticky='we', pady=(4, 5))
 
@@ -4349,7 +4549,7 @@ def main():
             except NameError: pass         # the very first call, before it exists
 
     # the build order strip: one step at a time, because mid game you have no time for a list
-    bo = {'name': None, 'i': 0, 'pop': 0}
+    bo = {'name': None, 'i': 0, 'pop': 0, 'hidden': False}
     BO_WRAP = 260                               # the narrowest the strip wraps to
     bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=5)
     bo_box.grid(row=3, column=0, columnspan=4, sticky='we', pady=(6, 0)); bo_box.grid_remove()
@@ -4359,6 +4559,9 @@ def main():
     bo_cap.grid(row=0, column=0, sticky='w')
     bo_at = tk.Label(bo_box, text='', fg=MUT, bg=PANEL, font=F_TINY, anchor='e')
     bo_at.grid(row=0, column=1, sticky='e')
+    bo_x = icon_button(bo_box, '\u2715', PANEL, hot=REDC, size=9)     # closes the build order
+    bo_x.config(padx=4, pady=0)
+    bo_x.grid(row=0, column=2, sticky='ne', padx=(6, 0))
     bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
                       anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP)
     bo_now.grid(row=1, column=0, columnspan=2, sticky='w', pady=(2, 0))
@@ -4382,7 +4585,7 @@ def main():
             # Nothing picked yet. At the menu that gets an invitation, because otherwise there is
             # nothing on screen to click and no way to find the feature at all. In a game it stays
             # hidden: if you have not picked one by then you do not want a prompt mid match.
-            if waiting_now[0]:
+            if waiting_now[0] and not bo['hidden']:
                 bo_cap.config(text='BUILD ORDER')
                 bo_at.config(text='')
                 bo_now.config(text='Pick one', font=(DISPLAY, 10, 'bold'))
@@ -4406,9 +4609,17 @@ def main():
     def bo_pick(name):
         bo['name'] = name or None
         bo['i'] = 0; bo['pop'] = 0
+        if bo['name']: bo['hidden'] = False
         cfg_ = load_settings(); cfg_['build_order'] = bo['name'] or ''
+        cfg_['build_order_hidden'] = bo['hidden']
         save_settings(cfg_)
         bo_draw()
+
+    def bo_close():
+        """The cross: no build order, and no 'Pick one' at the menu either. Picking one in
+        Settings brings it back."""
+        bo['hidden'] = True
+        bo_pick(None)
 
     def bo_menu():
         """A small list of the builds, right under the strip."""
@@ -5302,10 +5513,45 @@ def main():
     for w in (root, frame, head, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_cap, bo_at, bo_now, bo_next): bind_all(w)
+              bo_box, bo_cap, bo_at, bo_x, bo_now, bo_next, live_btn): bind_all(w)
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
     st['actions'][bo_now] = lambda: bo_menu() if not bo['name'] else bo_step(1)
     st['actions'][bo_next] = bo_menu
+    st['actions'][bo_x] = bo_close
+
+    def live_start(in_game=True, report=None):
+        """The LIVE button. Runs off the main thread so the overlay keeps drawing while it works."""
+        if st.get('live_busy'): return
+        st['live_busy'] = True
+        def show(text, colour):
+            try: root.after(0, lambda: live_btn.config(text=text, fg=colour))
+            except Exception: pass
+        def work():
+            ok, why = False, ''
+            try:
+                go_live(load_settings(), in_game=in_game,
+                        status=lambda t: show('\u25cf ' + t.upper(), GOLDD))
+                ok = True
+            except LiveFail as e:
+                why = str(e)
+            except Exception as e:
+                why = 'something went wrong: %r' % (e,)
+            finally:
+                st['live_busy'] = False
+            log('go live: %s' % ('done' if ok else 'stopped, ' + why))
+            show('\u25cf LIVE', REDC if ok else MUT)
+            if not ok:
+                show('\u2715 LIVE', REDC)
+                try: root.after(0, lambda: host_msg.config(text='Go Live: ' + why))
+                except Exception: pass
+            try: root.after(8000, lambda: live_btn.config(text='\u25cf LIVE', fg=MUT))
+            except Exception: pass
+            if report:
+                try: root.after(0, lambda: report(ok, why))
+                except Exception: pass
+        threading.Thread(target=work, daemon=True).start()
+    st['live_start'] = live_start
+    st['actions'][live_btn] = lambda: live_start(not waiting_now[0])   # at the menu: Discord only
     hover(bo_cap, BRONZE, GOLDD)
     hover(bo_now, GOLDD, 'white')
 
@@ -5568,7 +5814,8 @@ def main():
         section('Build order',
                 'A reminder of the next step, on the overlay, one step at a time. It follows the '
                 'pop counter the Town Center watcher already reads off your screen, and you can '
-                'click the step to move it on yourself. Pick one here or on the overlay itself.\n'
+                'click the step to move it on yourself. Pick one here or on the overlay itself. '
+                'The cross on it closes it until you pick one here again.\n'
                 'Steps in pop (villagers plus your scout), from ' + BUILD_SOURCE + '.')
         bo_var = tk.StringVar(value=cfg.get('build_order') or '')
         bo_row = tk.Frame(outer, bg=INK); bo_row.pack(fill='x', pady=(2, 0))
@@ -5587,6 +5834,31 @@ def main():
                            activeforeground=GOLDD, font=F_SMALL, anchor='w',
                            highlightthickness=0,
                            command=lambda: bo_pick(bo_var.get() or None)).pack(fill='x')
+
+        section('Go Live',
+                'The \u25cf LIVE button at the top: pauses the game, says the first line in chat, '
+                'shares Age of Empires II in the Discord call you are in, comes back and says the '
+                'second line. Join the voice channel or call in Discord first.')
+        lv_row = tk.Frame(outer, bg=INK); lv_row.pack(fill='x', pady=(2, 0))
+        lv = {}
+        for key_, label_ in (('live_pause_key', 'Pause key'), ('live_before', 'Say first'),
+                             ('live_after', 'Say after')):
+            r_ = tk.Frame(lv_row, bg=INK); r_.pack(fill='x', pady=2)
+            tk.Label(r_, text=label_, fg=TXT, bg=INK, font=F_SMALL, width=10, anchor='w').pack(side='left')
+            e_ = tk.Entry(r_, width=30); style_entry(e_)
+            e_.insert(0, str(cfg.get(key_) or LIVE_DEFAULTS[key_])); e_.pack(side='left', fill='x', expand=True, ipady=2)
+            lv[key_] = e_
+        lv_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
+                          justify='left', wraplength=400)
+        def lv_test():
+            merged = load_settings(); merged.update(collect()); save_settings(merged)
+            lv_msg.config(text='Trying the Discord part only, no pause or chat...', fg=MUT)
+            st['live_start'](False, lambda ok, why: lv_msg.config(
+                text=('Worked. You are live on Discord.' if ok else 'Did not work: ' + why),
+                fg=GREEN if ok else REDC))
+        lv_b = tk.Frame(outer, bg=INK); lv_b.pack(fill='x', pady=(6, 0))
+        flat_button(lv_b, 'Test the Discord part', lv_test).pack(side='left')
+        lv_msg.pack(fill='x', pady=(4, 0))
 
         section('Build a house warning',
                 'How much spare population is left when the warning starts. Lower means it waits '
@@ -5810,6 +6082,8 @@ def main():
                     'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
                     'loading_panels': bool(lp_on.get()), 'admin_auto': bool(ad_on.get()),
                     'friends': list(friends),
+                    'live_pause_key': lv['live_pause_key'].get().strip().upper() or 'F3',
+                    'live_before': lv['live_before'].get(), 'live_after': lv['live_after'].get(),
                     'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
         def save():
             c = collect()
@@ -6463,6 +6737,7 @@ def main():
             body.config(text='Could not read the game settings: %s' % e)
         root.after(POLL_MS, tick)
     bo['name'] = load_settings().get('build_order') or None
+    bo['hidden'] = bool(load_settings().get('build_order_hidden')) and not bo['name']
     bo_draw()                                     # after foot_fit exists, so the card can resize
 
     tick(); fast(); root.mainloop()
