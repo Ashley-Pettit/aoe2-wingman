@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v95'
+VERSION = 'v97'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2369,8 +2369,11 @@ def _move_to(x, y):
 # Discord, come back and say thanks. It only runs when you press it. In the game it sends the
 # pause key and two lines of chat, nothing else; everything else happens in Discord.
 KEY_NAMES = dict([('F%d' % i, 0x6F + i) for i in range(1, 13)] +
-                 [('PAUSE', 0x13), ('ENTER', 0x0D), ('ESC', 0x1B), ('SPACE', 0x20)])
-LIVE_DEFAULTS = {'live_pause_key': 'F3', 'live_before': 'Sorry 1 sec', 'live_after': 'Thanks 14?'}
+                 [('PAUSE', 0x13), ('ENTER', 0x0D), ('ESC', 0x1B), ('SPACE', 0x20),
+                  ('CTRL', 0x11), ('CONTROL', 0x11), ('CTL', 0x11),
+                  ('SHIFT', 0x10), ('ALT', 0x12)])
+MODIFIERS = (0x10, 0x11, 0x12)
+LIVE_DEFAULTS = {'live_pause_key': 'CTRL+F3', 'live_before': 'Sorry 1 sec', 'live_after': 'Thanks 14?'}
 DISCORD_EXES = ('discord.exe', 'discordptb.exe', 'discordcanary.exe')
 
 def _send_keys(events):
@@ -2394,6 +2397,23 @@ def tap_key(vk):
     ctypes, wintypes, u, _ = _win()
     scan = u.MapVirtualKeyW(vk, 0)
     _send_keys([(vk, scan, 0x0008), (vk, scan, 0x0008 | 0x0002)])
+    time.sleep(0.06)
+
+def tap_combo(spec):
+    """'CTRL+F3' and the like: hold the modifiers, tap the key, let go in reverse order."""
+    ctypes, wintypes, u, _ = _win()
+    parts = [p.strip().upper() for p in re.split(r'[+\s]+', str(spec)) if p.strip()]
+    vks = [KEY_NAMES[p] if p in KEY_NAMES else (ord(p) if len(p) == 1 and p.isalnum() else None)
+           for p in parts]
+    if not vks or None in vks:
+        log('go live: did not understand the pause key %r, using Ctrl+F3' % (spec,))
+        vks = [0x11, 0x72]
+    mods = [v for v in vks if v in MODIFIERS]; keys = [v for v in vks if v not in MODIFIERS] or [0x72]
+    ev = lambda v, up: (v, u.MapVirtualKeyW(v, 0), 0x0008 | (0x0002 if up else 0))
+    _send_keys([ev(m, False) for m in mods]); time.sleep(0.04)
+    for k_ in keys:
+        _send_keys([ev(k_, False)]); time.sleep(0.04); _send_keys([ev(k_, True)])
+    time.sleep(0.04); _send_keys([ev(m, True) for m in reversed(mods)])
     time.sleep(0.06)
 
 def type_text(text):
@@ -2480,6 +2500,18 @@ def _uia_press(c):
     except Exception:
         return False
 
+def _uia_names(auto, root, depth=60):
+    """Every name Discord shows right now, for telling what a click opened."""
+    out = []
+    try:
+        for c, _d in auto.WalkControl(root, maxDepth=depth):
+            try:
+                if c.Name: out.append(c.Name)
+            except Exception: pass
+    except Exception as e:
+        log('go live, reading Discord: %r' % (e,))
+    return out
+
 def discord_share_game():
     """In Discord: Share Your Screen, the Applications tab, Age of Empires II, Go Live. Works off
     the call you are already in, whether that is a server voice channel or a DM call; Discord
@@ -2492,23 +2524,32 @@ def discord_share_game():
     root = auto.ControlFromHandle(d)
     def named(*want):
         w = [x.lower() for x in want]
-        return lambda c, n: n.strip().lower() in w and c.ControlTypeName in ('ButtonControl', 'TabItemControl', 'ListItemControl', 'HyperlinkControl')
+        return lambda c, n: n.strip().lower() in w and c.ControlTypeName in ('ButtonControl', 'TabItemControl', 'ListItemControl', 'HyperlinkControl', 'RadioButtonControl')
     btn, seen = _uia_find(auto, root, named('Share Your Screen', 'Share Screen'), wait=8)
     if not btn:
-        log('go live: no share button. Names Discord showed: %s' % ' | '.join(seen[:200]))
+        log('go live: no share button. Names Discord showed: %s' % ' | '.join(seen[:400]))
         raise LiveFail('no Share Your Screen button in Discord. Join a voice channel or call first.')
-    _uia_press(btn); time.sleep(1.0)
-    tab, _s = _uia_find(auto, root, named('Applications'), wait=2.5)
-    if tab: _uia_press(tab); time.sleep(0.6)
-    game = lambda c, n: 'age of empires ii' in n.lower() and c.ControlTypeName != 'WindowControl'
-    tile, seen = _uia_find(auto, root, game, wait=5)
+    # Everything already on screen before the click. A friend playing AoE2 shows up in the DM list
+    # with the game's name in it, and that is not the thing to click; the game's tile in the
+    # picker is new after the click, and its name starts with the game's own window title.
+    before = set(_uia_names(auto, root))
+    _uia_press(btn); time.sleep(1.2)
+    def fresh():
+        return [n for n in _uia_names(auto, root) if n not in before]
+    tab, _s = _uia_find(auto, root, named('Applications', 'Windows'), wait=2.5)
+    if tab: _uia_press(tab); time.sleep(0.7)
+    def game(c, n):
+        return (n.strip().lower().startswith('age of empires ii') and n not in before
+                and c.ControlTypeName != 'WindowControl')
+    tile, seen = _uia_find(auto, root, game, wait=6)
     if not tile:
-        log('go live: no AoE2 tile. Names Discord showed: %s' % ' | '.join(seen[:200]))
+        log('go live: no AoE2 tile. New in Discord after Share: %s' % ' | '.join(fresh()[:300]))
         raise LiveFail('Discord did not list Age of Empires II to share.')
-    _uia_press(tile); time.sleep(0.9)
-    go, seen = _uia_find(auto, root, named('Go Live'), wait=5)
+    log('go live: picking "%s" (%s)' % (tile.Name, tile.ControlTypeName))
+    _uia_press(tile); time.sleep(1.0)
+    go, seen = _uia_find(auto, root, named('Go Live', 'Go live', 'Stream'), wait=6)
     if not go:
-        log('go live: no Go Live button. Names Discord showed: %s' % ' | '.join(seen[:200]))
+        log('go live: no Go Live button. New in Discord after Share: %s' % ' | '.join(fresh()[:300]))
         raise LiveFail('no Go Live button after picking the game.')
     _uia_press(go); time.sleep(0.8)
     log('go live: sharing Age of Empires II on Discord')
@@ -2521,7 +2562,7 @@ def go_live(cfg, in_game=True, status=lambda t: None):
         if not g: raise LiveFail('the game is not running')
         if game_needs_admin(): raise LiveFail(ADMIN_MSG)
         status('pausing'); focus_window(g)
-        tap_key(KEY_NAMES.get(str(c['live_pause_key']).upper().strip(), 0x72)); time.sleep(0.35)
+        tap_combo(c['live_pause_key']); time.sleep(0.35)
         game_chat(c['live_before'])
     status('Discord')
     try:
@@ -5522,6 +5563,15 @@ def main():
     def live_start(in_game=True, report=None):
         """The LIVE button. Runs off the main thread so the overlay keeps drawing while it works."""
         if st.get('live_busy'): return
+        if in_game:
+            # pause and chat are key presses into the game, and Windows throws those away when the
+            # game runs as admin and Wingman does not: same fix as the party invite
+            try: blocked = game_needs_admin()
+            except Exception as e: log('admin check: %r' % (e,)); blocked = None
+            if blocked:
+                log('go live: the game is elevated, so the keys would be blocked')
+                go_admin('live')       # Windows asks; say yes and it starts again and carries on
+                return
         st['live_busy'] = True
         def show(text, colour):
             try: root.after(0, lambda: live_btn.config(text=text, fg=colour))
@@ -5841,7 +5891,7 @@ def main():
                 'second line. Join the voice channel or call in Discord first.')
         lv_row = tk.Frame(outer, bg=INK); lv_row.pack(fill='x', pady=(2, 0))
         lv = {}
-        for key_, label_ in (('live_pause_key', 'Pause key'), ('live_before', 'Say first'),
+        for key_, label_ in (('live_pause_key', 'Pause keys'), ('live_before', 'Say first'),
                              ('live_after', 'Say after')):
             r_ = tk.Frame(lv_row, bg=INK); r_.pack(fill='x', pady=2)
             tk.Label(r_, text=label_, fg=TXT, bg=INK, font=F_SMALL, width=10, anchor='w').pack(side='left')
@@ -6082,7 +6132,7 @@ def main():
                     'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
                     'loading_panels': bool(lp_on.get()), 'admin_auto': bool(ad_on.get()),
                     'friends': list(friends),
-                    'live_pause_key': lv['live_pause_key'].get().strip().upper() or 'F3',
+                    'live_pause_key': lv['live_pause_key'].get().strip().upper() or 'CTRL+F3',
                     'live_before': lv['live_before'].get(), 'live_after': lv['live_after'].get(),
                     'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
         def save():
@@ -6493,8 +6543,12 @@ def main():
     if '--resume' in sys.argv:                             # restarted as admin part way through: carry on
         try: what = sys.argv[sys.argv.index('--resume') + 1]
         except IndexError: what = 'party'
-        log('restarted as admin, resuming the %s invite' % what)
-        root.after(2500, lambda: host(what == 'send'))
+        if what == 'live':
+            log('restarted as admin, carrying on with Go Live')
+            root.after(2500, lambda: st['live_start'](True))
+        else:
+            log('restarted as admin, resuming the %s invite' % what)
+            root.after(2500, lambda: host(what == 'send'))
 
     def show_opponents(players):
         for w in opp_area.winfo_children(): w.destroy()
