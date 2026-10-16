@@ -800,17 +800,23 @@ FOUND_IDS = (37161, 37168, 37167, 37156, 37155, 37169, 37170, 37171, 37173)   # 
 
 def _norm(t): return re.sub(r'[^a-z]', '', t.lower())
 
+_OCR_IMPORT = threading.Lock()
+
 def _load_ocr():
+    with _OCR_IMPORT:                     # one thread at a time: see warm_imports
+        return _load_ocr_locked()
+
+def _load_ocr_locked():
     try:
         import winrt.runtime
         from winrt.windows.media.ocr import OcrEngine
         from winrt.windows.graphics.imaging import SoftwareBitmap, BitmapPixelFormat
-    except ImportError:
+    except ImportError as e_:
         import subprocess, importlib, site
+        if FROZEN: raise RuntimeError('the text reader did not load in the exe: %r' % (e_,))
         log('installing the Windows text reader (winrt) with pip')
         exe = sys.executable
         if exe.lower().endswith('pythonw.exe'): exe = exe[:-11] + 'python.exe'
-        if FROZEN: raise RuntimeError('the exe has this built in already')
         subprocess.run([exe, '-m', 'pip', 'install', '--user', '--disable-pip-version-check', '-q'] + OCR_PKGS,
                        creationflags=0x08000000, timeout=600, capture_output=True)
         usp = site.getusersitepackages()
@@ -960,7 +966,9 @@ def house_room(mins, cap, cfg=None):
     if cap == 20:
         room = min(room, c.get('house_cap20', HOUSE_CAP20))
     return room
-CASTLE_NOTE_MIN = 16                      # game minute for the 'two buildings for Castle Age?' reminder
+CASTLE_NOTE_MIN = 13                      # Castle reminder: not before this game minute...
+CASTLE_NOTE_FOOD = 500                    # ...and once your food reaches this (what Castle Age costs)
+CASTLE_NOTE_LATE = 17                     # if the food can't be read, fall back to this minute
 FEUDAL_NOTE_POP = 18                      # population for the 'two buildings for Feudal Age?' reminder
 # both are only where they start: Settings has a box for each
 
@@ -1173,6 +1181,7 @@ class TCWatcher(threading.Thread):
             self.age, self.age_t, self.grace = 1, 0, 0
             self.t0 = started if started and 0 < started <= now else now
             self.clock, self.clock_t, self.speed = None, 0, 1.7
+            self.food = self.food_last = None; self.food_t = 0
         self.set('off')
 
     def needs_house(self, mins, now):
@@ -1252,6 +1261,13 @@ class TCWatcher(threading.Thread):
                             sp = (g - self.clock[0]) / (now - self.clock[1])
                             if 0.5 < sp < 3: self.speed = sp
                         self.clock_prev, self.clock = self.clock, (g, now)
+                if now - getattr(self, 'food_t', 0) > 3 and self.game_minutes(now) >= CASTLE_NOTE_MIN - 0.5:
+                    self.food_t = now
+                    fd = self.read_food(read, grab, x, y, w, s)
+                    if fd is not None:
+                        last_ = getattr(self, 'food_last', None)
+                        if last_ is not None and abs(fd - last_) < 400: self.food = fd   # two sane reads running
+                        self.food_last = fd
                 if now - self.age_t > 4:
                     self.age_t = now
                     ag = self.read_age(read, grab, x, y, w, s)
@@ -1294,6 +1310,22 @@ class TCWatcher(threading.Thread):
         never far over yours."""
         n, m = p
         return 1 <= n <= 500 and 5 <= m <= 500 and m % 5 == 0 and n <= m + 20
+
+    def read_food(self, read, grab, x, y, w, s):
+        """Your food, off the resource bar (wood, food, gold, stone, then the pop counter). The four
+        amounts are the big numbers on that bar, left to right; the small worker counts are not."""
+        px, cy = x + w / 2.0, y + 81 * s
+        k = 3 if s < 0.7 else 2
+        band = (int(px - (SPAN + 80) * s), int(cy - 34 * s), int((SPAN + 60) * s), int(68 * s), k)
+        nums = []
+        for _, ws in read(*grab(band), words=True):
+            for t, wx, wy, ww, wh in ws:
+                t = t.replace('O', '0').replace('o', '0').replace(',', '')
+                if re.fullmatch(r'\d{1,6}', t): nums.append((wx, wh, int(t)))
+        if not nums: return None
+        tall = max(h for _, h, _ in nums)
+        big = sorted((x_, v) for x_, h, v in nums if h >= 0.7 * tall)
+        return big[1][1] if len(big) >= 4 else None
 
     def read_pop(self, read, grab, a):
         bx, by, bw, bh = a['box']
@@ -2499,8 +2531,21 @@ def post_discord(url, content):
                                  headers={'Content-Type': 'application/json', 'User-Agent': 'AoE2Wingman (local, 1.0)'})
     with urllib.request.urlopen(req, timeout=15) as r: return r.status
 
+def tag_parts(entry):
+    """A saved Discord tag: 'Name|123456789012345678', a bare user ID, or just a name.
+    Returns (name to show, user ID or '')."""
+    n = (entry or '').strip()
+    if '|' in n:
+        nm, uid = n.split('|', 1); return nm.strip(), re.sub(r'\D', '', uid)
+    if re.fullmatch(r'<@!?\d+>', n) or re.fullmatch(r'\d{15,21}', n):
+        uid = re.sub(r'\D', '', n); return 'Discord user \u2026' + uid[-4:], uid
+    return n.lstrip('@'), ''
+
 def mention(name):
     n = name.strip()
+    if '|' in n:                                                      # 'Name|ID' from Settings
+        nm, uid = tag_parts(n)
+        return '<@%s>' % uid if uid else '@' + nm
     if re.fullmatch(r'\d{15,21}', n): return '<@%s>' % n            # a Discord user ID pings them
     if re.fullmatch(r'<@!?\d+>', n): return n
     return '@' + n.lstrip('@')
@@ -3933,18 +3978,19 @@ class ScoutWatcher(threading.Thread):
     # a row is the player. Scouts walk in and out of sight, and making them hold still for
     # seconds was turning real finds away (a green scout sat beside yours for two minutes
     # before the old check let it through).
-    BURST = 6              # red and yellow: quick looks in a row, it has to be there on every one
+    BURST = 4              # red and yellow: quick looks in a row, it has to be there on every one
     BURST_GAP = 0.2        # seconds between those looks
-    HOLD = 1.2             # then this long again, and it has to still be there
+    HOLD = 0.8             # then this long again, and it has to still be there
     AFTER = 1              # on this many looks
     SNOOZE = 3             # after a red or yellow came and went, leave that colour alone for this long
-    LOOK = 0.5             # seconds between looks at the whole map
+    LOOK = 0.3             # seconds between looks at the whole map
     # Only buildings are called, not scouts. A unit is a small dot that walks about; a building is
     # a bigger patch that never moves. So a hit has to be at least building sized and sit in the
     # same spot on a few looks in a row. A scout wandering past is left alone; a house, a camp or a
     # Town Center coming into view is called inside a second or so.
-    SEEN = 3               # other colours: the same spot on this many looks in a row (LOOK apart)
-    BUILDING = 22          # pixels for the smallest building, on a minimap 616 wide (scaled to yours)
+    SEEN = 2               # other colours: the same spot on this many looks in a row (LOOK apart)
+    BUILDING = 16          # pixels for the smallest building, on a minimap 616 wide (scaled to yours);
+                           # a scout's dot is 4 to 9, so this still leaves scouts alone
     STILL = 3              # how far its middle may drift between looks and still be not moving
     MARKERS = ((254, 0, 0), (255, 255, 1), (255, 0, 0), (255, 255, 0))
     # The minimap is a diamond inside the box that is read. The corners of that box are not map:
@@ -5526,8 +5572,23 @@ def single_instance():
         log('could not write the pid file: %r' % (e,))
     return True
 
+def warm_imports():
+    """Import the shared modules once, here on the main thread, before any worker thread starts.
+    Several threads importing the same module at the same moment can each get a half-built copy
+    of it. In the exe, where imports are slower, that is what broke the web lookups ('unknown url
+    type: https', ssl half loaded), the text reader and Go Live ('logging' has no 'Handler')."""
+    import importlib
+    for name in ('logging', 'logging.handlers', 'ssl', 'socket', 'http.client', 'urllib.request',
+                 'urllib.parse', 'urllib.error', 'email.utils', 'hashlib', 'base64', 'zipfile',
+                 'subprocess', 'ctypes', 'ctypes.wintypes', 'uuid', 'queue'):
+        try: importlib.import_module(name)
+        except Exception as e: log('warm import %s: %r' % (name, e))
+    # winrt and comtypes are left to their own threads: they set up COM, which the main
+    # thread should not take on. _load_ocr takes a lock so only one thread imports winrt.
+
 def main():
     import tkinter as tk
+    warm_imports()
     if not single_instance():
         log('another copy is already running'); return
     maps, strings, icons = load_data()
@@ -5576,8 +5637,13 @@ def main():
                      highlightthickness=1, highlightbackground=RIM)
     state.grid(row=0, column=2, sticky='e', padx=(10, 2))
     live_btn = live_pill(head, BG)                                      # pause, chat, stream on Discord
-    bo_open = icon_button(head, '\u2630', BG, size=10)                 # brings a closed build order back
-    bo_open.configure(padx=3)
+    bo_open = icon_button(head, '', BG, size=10)                        # brings a hidden build order back
+    try:                                         # the build order's own mark: the gold age-up arrow
+        from PIL import ImageTk
+        bo_open_img = ImageTk.PhotoImage(draw_step_icon('age', 18, BG))
+        bo_open.configure(image=bo_open_img, padx=4, pady=2); bo_open.image = bo_open_img
+    except Exception:
+        bo_open.configure(text='\u2630', padx=3)
     bo_open.grid(row=0, column=3, sticky='e', padx=(4, 0)); bo_open.grid_remove()
     live_btn.grid(row=0, column=4, sticky='e', padx=(6, 2))
     stats_btn = icon_button(head, 'W/L', BG, size=8)
@@ -5674,11 +5740,10 @@ def main():
 
     body = Facts(frame)
     body.grid(row=2, column=0, columnspan=4, sticky='we')
-    # holds the card to one width, so it does not jump about as the facts change. The same
-    # width at the menu and in a game, so it stays where you put it.
-    # CARD_W grows past 400 only if the menu's header needs more (worked out in lock_width).
-    CARD_W = [400]
-    pin = tk.Frame(frame, bg=BG, width=CARD_W[0], height=0)
+    # holds the card to one width in a game, so it does not jump about as the facts change.
+    # Out of a game there is nothing to hold, so the pin comes off and the card shrinks to
+    # its header, which is all there is to show while you are waiting.
+    pin = tk.Frame(frame, bg=BG, width=0, height=0)
     pin.grid(row=9, column=0, columnspan=4)
 
     waiting_now = [True]                 # st does not exist yet when this first runs
@@ -5686,7 +5751,7 @@ def main():
     def idle_size(waiting):
         was = waiting_now[0]
         waiting_now[0] = waiting
-        pin.config(width=CARD_W[0])           # the same width in and out of a game
+        pin.config(width=0 if waiting else 400)
         if waiting:                                   # pull everything in: there is nothing to show
             body.config(text=''); body.grid_remove()
             sep.grid_remove(); footsep.grid_remove()   # no dividers, nothing to divide
@@ -5705,9 +5770,8 @@ def main():
 
     # the build order strip: one step at a time, because mid game you have no time for a list
     bo = {'name': None, 'i': 0, 'pop': 0, 'hidden': False}
-    BO_WRAP = 240                               # the narrowest the strip wraps to
-    BO_FONT = (DISPLAY, 11, 'bold')             # the step you are on
-    bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=8, pady=4)
+    BO_WRAP = 260                               # the narrowest the strip wraps to
+    bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=5)
     bo_box.grid(row=3, column=0, columnspan=4, sticky='we', pady=(6, 0)); bo_box.grid_remove()
     bo_box.columnconfigure(0, weight=1)
     bo_cap = tk.Label(bo_box, text='', fg=BRONZE, bg=PANEL, font=F_TINY, anchor='w', cursor='hand2',
@@ -5718,7 +5782,7 @@ def main():
     bo_x = icon_button(bo_box, '\u2715', PANEL, hot=REDC, size=9)     # closes the build order
     bo_x.config(padx=4, pady=0)
     bo_x.grid(row=0, column=2, sticky='ne', padx=(6, 0))
-    bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=BO_FONT,
+    bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
                       anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP - 30)
     bo_now.grid(row=2, column=0, columnspan=3, sticky='w', pady=(1, 0))
     # how far through the build you are: one short bar per step, gold for the one you are on
@@ -5754,26 +5818,26 @@ def main():
     bo_box.bind('<Configure>', bo_wrap, add='+')
 
     def bo_draw():
+        if bo['hidden']:                          # hidden from the list: the header icon brings it back
+            bo_box.grid_remove(); bo_open_sync(); foot_fit(); return
         found = build_by_name(bo['name'])
         if not found:
             # Nothing picked yet. At the menu that gets an invitation, because otherwise there is
             # nothing on screen to click and no way to find the feature at all. In a game it stays
             # hidden: if you have not picked one by then you do not want a prompt mid match.
-            if waiting_now[0] and not bo['hidden']:
-                # one small line: the source shows in the list itself, so it is not repeated here
+            if waiting_now[0]:
                 bo_cap.config(text='BUILD ORDER')
                 bo_at.config(text='')
-                bo_now.config(text='Pick one  \u203a', font=(DISPLAY, 9, 'bold'), image='')
-                bo_next.config(image='', text=''); bo_ntag.pack_forget()
-                bo_nrow.grid_remove()
+                bo_now.config(text='Pick one', font=(DISPLAY, 10, 'bold'), image='')
+                bo_next.config(image='')
+                bo_next.config(text=BUILD_SOURCE); bo_ntag.pack_forget()
                 bo_box.config(highlightbackground=EDGE)
                 bo_prog.grid_remove()
                 bo_box.grid()
             else:
                 bo_box.grid_remove()
             bo_open_sync(); foot_fit(); return
-        bo_now.config(font=BO_FONT)
-        bo_nrow.grid()
+        bo_now.config(font=(DISPLAY, 12, 'bold'))
         name, pop, steps = found
         i = max(0, min(bo['i'], len(steps) - 1))
         bo['i'] = i
@@ -5781,7 +5845,7 @@ def main():
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
         bo_cap.config(text='%s  \u00b7  %s' % (name.upper(), pop))
         bo_at.config(text='pop %s' % span)
-        img_ = step_icon(text, 20, PANEL, 8)
+        img_ = step_icon(text, 22, PANEL, 8)
         bo_now.config(text=text, image=img_ or '', compound='left')
         bo_now.image = img_
         nxt = steps[i + 1][2] if i + 1 < len(steps) else None
@@ -5797,15 +5861,18 @@ def main():
         bo_box.grid(); bo_open_sync(); foot_fit()
 
     def bo_open_sync():
-        """The little Build button in the header shows only while the build order is closed."""
-        if bo['hidden'] and not bo['name']: bo_open.grid()
+        """The build order icon in the header shows only while the build order is hidden."""
+        if bo['hidden']: bo_open.grid()
         else: bo_open.grid_remove()
 
-    def bo_reopen():
-        bo['hidden'] = False
-        cfg_ = load_settings(); cfg_['build_order_hidden'] = False; save_settings(cfg_)
+    def bo_set_hidden(h):
+        bo['hidden'] = bool(h)
+        cfg_ = load_settings(); cfg_['build_order_hidden'] = bo['hidden']; save_settings(cfg_)
         bo_draw()
-        bo_menu(bo_open)
+
+    def bo_reopen():
+        bo_set_hidden(False)
+        if not bo['name']: bo_menu(bo_box)
 
     def bo_pick(name):
         bo['name'] = name or None
@@ -5815,16 +5882,10 @@ def main():
         cfg_['build_order_hidden'] = bo['hidden']
         save_settings(cfg_)
         bo_draw()
-        cb = st.get('bo_on_change')
-        if cb:
-            try: cb()
-            except Exception: pass
 
     def bo_close():
-        """The cross: no build order, and no 'Pick one' at the menu either. Picking one in
-        Settings brings it back."""
-        bo['hidden'] = True
-        bo_pick(None)
+        """The cross hides the strip but keeps your build; the header icon brings it back."""
+        bo_set_hidden(True)
 
     def bo_menu(anchor=None):
         """The builds in a small dark panel, right under the strip (or under the Build button).
@@ -5852,6 +5913,12 @@ def main():
         def chose(n_):
             close(); bo_pick(n_)
         build_list(inner, [bo['name']], chose, bg=INK).pack(fill='x', pady=(4, 0))
+        # show or hide the strip from here; the build you picked is kept either way
+        hide_ = tk.Label(inner, text='Show the build order' if bo['hidden'] else 'Hide the build order',
+                         fg=MUT, bg=INK, font=F_SMALL, anchor='w', padx=11, pady=4, cursor='hand2')
+        hide_.pack(fill='x')
+        hover(hide_, MUT, GOLDD)
+        hide_.bind('<ButtonRelease-1>', lambda e: (close(), bo_set_hidden(not bo['hidden'])))
         tk.Label(inner, text="Hera hasn't endorsed Wingman yet. I reckon he's great and I hope he does!",
                  fg=FAINT, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=320
                  ).pack(fill='x', pady=(6, 0), padx=(4, 0))
@@ -5946,44 +6013,23 @@ def main():
     # so with no game on the whole panel is one row. The row below it only appears when the
     # button has something to say.
     btn_plate = tk.Frame(head, bg=RIM, padx=1, pady=1)           # dark edge around the bronze face
-    host_btn = tk.Label(btn_plate, text='Party invite', fg='#2a2113', bg=GOLD, font=(DISPLAY, 9, 'bold'),
-                        padx=7, pady=3, cursor='hand2')
+    host_btn = tk.Label(btn_plate, text='Ranked party invite', fg='#2a2113', bg=GOLD, font=(DISPLAY, 9, 'bold'),
+                        padx=8, pady=3, cursor='hand2')
     host_btn.pack()
     host_btn.bind('<Enter>', lambda e: host_btn.cget('bg') == GOLD and host_btn.config(bg=GOLDD), add='+')
     host_btn.bind('<Leave>', lambda e: host_btn.cget('bg') == GOLDD and host_btn.config(bg=GOLD), add='+')
-    btn_plate.grid(row=0, column=2, sticky='e', padx=(8, 2))
+    btn_plate.grid(row=0, column=2, sticky='e', padx=(10, 2))
     state.grid_remove()                                          # the app opens with no game on
     hint = tk.Label(host_row, text='drag to move  \u00b7  click the name to roll up  \u00b7  W/L for your record', fg=FAINT, bg=BG,
                     font=F_TINY, anchor='e')
     hint.grid(row=0, column=1, sticky='e', padx=(12, 2)); hint.grid_remove()
     host_msg = tk.Label(host_row, text='', fg='#b8b19f', bg=BG, font=F_SMALL, anchor='w',
-                        justify='left', wraplength=CARD_W[0])
+                        justify='left', wraplength=430)
     host_msg.grid(row=1, column=0, columnspan=2, sticky='w')
     admin_box = tk.Frame(host_row, bg=BG)                        # the admin buttons, only when they're needed
     admin_box.grid(row=2, column=0, columnspan=2, sticky='w', pady=(6, 0)); admin_box.grid_remove()
     host_row.grid_remove()                                       # nothing to say yet
-    idle_size(True)                 # the app opens with no game on
-
-    def lock_width():
-        """Fix the overlay's width for good. It used to be wider at the menu (the party invite
-        button) than in a game, so a spot picked in a game pushed it off the screen at the menu.
-        Now it is the menu header's width or 400, whichever is more, in and out of a game, and
-        anything wider later (a long map name, say) is cut off at the edge rather than growing it."""
-        root.update_idletasks()
-        shown = bool(bo_open.winfo_manager())
-        bo_open.grid(); root.update_idletasks()        # leave room for the build button too
-        need = head.winfo_reqwidth()
-        if not shown: bo_open.grid_remove()
-        CARD_W[0] = max(400, need)
-        pin.config(width=CARD_W[0]); host_msg.config(wraplength=CARD_W[0])
-        root.update_idletasks()
-        edge = 2 * (int(frame.cget('padx')) + int(frame.cget('highlightthickness')) + 2)
-        w = CARD_W[0] + edge
-        root.minsize(w, 1); root.maxsize(w, max(2000, root.winfo_screenheight() * 2))
-        return w
-    try: card_w = lock_width()
-    except Exception as e:
-        log('lock width: %r' % (e,)); card_w = 440
+    idle_size(True)                 # the app opens with no game on, so start small
     try:
         if god_mode_status()[0] != 'on':
             host_msg.config(text='Idle TC alert needs the God Mode mod (%s). Get it in Settings.'
@@ -5998,8 +6044,6 @@ def main():
             raise ValueError
     except Exception:
         px, py = 20, 120
-    sw0 = root.winfo_screenwidth()
-    if px < sw0 < px + card_w: px = max(0, sw0 - card_w)    # hanging off the right edge: pull it back on
     root.geometry('+%d+%d' % (px, py))
     st = {'drag': None, 'last': None, 'actions': {}, 'shift': False,
           'first': None, 'herd': None, 'extra': 0}
@@ -6113,24 +6157,27 @@ def main():
         if now - st.get('rem_t', 0) > 5:
             c = load_settings()
             st['rem'] = dict(castle=c.get('castle_note', True), feudal=c.get('feudal_note', True),
-                             castle_min=typed_number(c.get('castle_min'), CASTLE_NOTE_MIN, 5, 60),
+                             castle_food=int(typed_number(c.get('castle_food'), CASTLE_NOTE_FOOD, 100, 5000)),
                              feudal_pop=int(typed_number(c.get('feudal_pop'), FEUDAL_NOTE_POP, 5, 60)))
             st['rem_t'] = now
         return st['rem']
 
     def castle_reminder():
-        """At 16 game minutes (or the time set in Settings), one quick nudge to check the two
-        buildings Castle Age needs. Not if you are already in Castle Age, and only once a game."""
+        """Once you are 13 minutes in and your food reaches 500 (the food Castle Age costs), one quick
+        nudge to check the two buildings it needs. If the food can't be read off the screen, it falls
+        back to 17 minutes. Not if you are already in Castle Age, and only once a game."""
         if st.get('last') is None or st.get('castle_note') or not tcw.active: return
-        want = reminders(); at = want['castle_min']
+        want = reminders(); food_at = want['castle_food']
         mins = tcw.game_minutes(time.time())
-        if mins < at: return
+        if mins < CASTLE_NOTE_MIN: return
+        food = getattr(tcw, 'food', None)
+        if food is not None and food < food_at: return
+        if food is None and mins < CASTLE_NOTE_LATE: return
         st['castle_note'] = True
-        if mins >= at + 1 or tcw.age >= 3: return               # opened part way through, or already up
-        if not want['castle']: return
-        clock = '%d:%02d' % (int(at), int(round((at % 1) * 60)))
-        log('%s reminder shown' % clock)
-        tc_note('%s  ·  2 BUILDINGS FOR CASTLE AGE?' % clock)
+        if tcw.age >= 3 or not want['castle']: return
+        log('castle reminder shown (food %s, %.1f min)' % (food, mins))
+        tc_note(('%d FOOD' % food_at if food is not None else '%d MIN' % CASTLE_NOTE_LATE)
+                + '  \u00b7  2 BUILDINGS FOR CASTLE AGE?')
 
     def feudal_reminder():
         """When your population reaches 18 (or the number set in Settings) and you are still in
@@ -6834,6 +6881,9 @@ def main():
                 why = str(e)
             except Exception as e:
                 why = 'something went wrong: %r' % (e,)
+                try:
+                    import traceback; log('go live trace: %s' % traceback.format_exc().strip().replace('\n', ' | ')[-900:])
+                except Exception: pass
             finally:
                 st['live_busy'] = False
             log('go live: %s' % ('done' if ok else 'stopped, ' + why))
@@ -7095,9 +7145,13 @@ def main():
         def copy_link():
             try:
                 win.clipboard_clear(); win.clipboard_append(DOWNLOAD_PAGE)
-                share_msg.config(text='Copied: ' + DOWNLOAD_PAGE, fg=GREEN)
+                share_msg.config(text='Link copied. Opening the page...', fg=GREEN)
             except Exception as e:
                 share_msg.config(text='Could not copy it: %s' % e, fg=REDC)
+            try:                                  # then open it, so you can see what they will see
+                import webbrowser; webbrowser.open(DOWNLOAD_PAGE)
+            except Exception as e:
+                log('open download page: %r' % (e,))
         flat_button(share_, 'Share with mates', copy_link).pack(side='left')
         share_msg.pack(side='left', padx=(10, 0), fill='x')
 
@@ -7193,44 +7247,73 @@ def main():
         flat_button(fr_add, 'Add', add_friend).pack(side='left', padx=(8, 0))
         draw_friends()
 
-        field('People to tag in Discord (optional, one per line)')
-        pg = tk.Text(outer, width=46, height=4); style_entry(pg)
-        pg.insert('1.0', '\n'.join(cfg.get('pings', []))); pg.pack(fill='x')
+        field('Tag in Discord when the lobby is posted')
+        tags = [t for t in cfg.get('pings', []) if t.strip()]
+        tg_list = tk.Frame(outer, bg=INK); tg_list.pack(fill='x')
+        tg_add = tk.Frame(outer, bg=INK); tg_add.pack(fill='x', pady=(6, 0))
+        tg_add.columnconfigure(0, weight=3); tg_add.columnconfigure(1, weight=4)
+        tk.Label(tg_add, text='Name', fg=FAINT, bg=INK, font=F_TINY, anchor='w').grid(row=0, column=0, sticky='w')
+        tk.Label(tg_add, text='Discord user ID (optional, so they get a ping)', fg=FAINT, bg=INK,
+                 font=F_TINY, anchor='w').grid(row=0, column=1, sticky='w', padx=(8, 0))
+        tg_name = tk.Entry(tg_add, width=14); style_entry(tg_name)
+        tg_name.grid(row=1, column=0, sticky='we', ipady=3)
+        tg_id = tk.Entry(tg_add, width=20); style_entry(tg_id)
+        tg_id.grid(row=1, column=1, sticky='we', padx=(8, 0), ipady=3)
+        tg_btns = tk.Frame(outer, bg=INK); tg_btns.pack(fill='x', pady=(8, 0))
+        tg_msg = tk.Label(outer, text='', fg=GREEN, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=400)
+        tg_msg.pack(fill='x', pady=(4, 0))
+        tk.Label(outer, text='For an ID: Discord, Settings, Advanced, turn on Developer Mode, then '
+                             'right-click the person and Copy User ID.', fg=FAINT, bg=INK, font=F_TINY,
+                 anchor='w', justify='left', wraplength=400).pack(fill='x', pady=(2, 0))
 
-        section('Build order')
-        # one tidy selector: the build you have, what it lands on, and Change, which opens the
-        # same list as the overlay right under it
-        sel = tk.Frame(outer, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, cursor='hand2',
-                       padx=12, pady=8)
-        sel.pack(fill='x')
-        sel.columnconfigure(0, weight=1)
-        sel_name = tk.Label(sel, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 11, 'bold'), anchor='w', cursor='hand2')
-        sel_name.grid(row=0, column=0, sticky='w')
-        sel_sub = tk.Label(sel, text='', fg=MUT, bg=PANEL, font=F_SMALL, anchor='w', cursor='hand2')
-        sel_sub.grid(row=1, column=0, sticky='w')
-        sel_go = tk.Label(sel, text='Change', fg=GOLDC, bg=PANEL, font=(F_SMALL[0], F_SMALL[1], 'bold'),
-                          padx=10, pady=3, cursor='hand2', highlightthickness=1, highlightbackground=RIM)
-        sel_go.grid(row=0, column=1, rowspan=2, sticky='e')
-        def sel_show():
-            try:
-                found = build_by_name(bo['name'])
-                if found:
-                    g_ = next((g for g, n, _p, _s in BUILDS if n == found[0]), '')
-                    sel_name.config(text=found[0], fg=GOLDD)
-                    sel_sub.config(text='%s  \u00b7  %s' % (g_, found[1]))
-                else:
-                    sel_name.config(text='No build order', fg=TXT)
-                    sel_sub.config(text='Pick one to have the overlay walk you through it')
-            except tk.TclError:
-                pass
-        sel_show(); st['bo_on_change'] = sel_show
-        def sel_hover(on):
-            sel.config(highlightbackground=RIM if on else EDGE)
-            sel_go.config(fg=GOLDD if on else GOLDC, highlightbackground=BRONZE if on else RIM)
-        for w_ in (sel, sel_name, sel_sub, sel_go):
-            w_.bind('<Enter>', lambda e: sel_hover(True), add='+')
-            w_.bind('<Leave>', lambda e: sel_hover(False), add='+')
-            w_.bind('<Button-1>', lambda e: bo_menu(sel), add='+')
+        def tags_saved(note, col=GREEN):
+            merged = load_settings(); merged['pings'] = list(tags); save_settings(merged)
+            tg_msg.config(text=note, fg=col)
+            win.after(2500, lambda: tg_msg.cget('text') == note and tg_msg.config(text=''))
+
+        def draw_tags():
+            for w in tg_list.winfo_children(): w.destroy()
+            if not tags:
+                tk.Label(tg_list, text='Nobody yet. Until you add someone, your friends get a plain @name.',
+                         fg=FAINT, bg=INK, font=F_SMALL, anchor='w').pack(fill='x', pady=(2, 0))
+                return
+            for t in list(tags):
+                nm, uid = tag_parts(t)
+                row = tk.Frame(tg_list, bg=PANEL, highlightthickness=1, highlightbackground=EDGE)
+                row.pack(fill='x', pady=2)
+                tk.Label(row, text=nm, fg=TXT, bg=PANEL, font=F_BODY, anchor='w', padx=9, pady=4).pack(side='left')
+                x = tk.Label(row, text='\u2715', fg=MUT, bg=PANEL, font=F_SMALL, padx=10, pady=4, cursor='hand2')
+                x.pack(side='right')
+                hover(x, MUT, REDC)
+                tk.Label(row, text='gets a ping' if uid else 'name only', fg=GREEN if uid else FAINT,
+                         bg=INK, font=F_TINY, padx=6, pady=1).pack(side='right', padx=(0, 4))
+                def drop(_e=None, who=t, nm_=nm):
+                    if who in tags: tags.remove(who)
+                    draw_tags(); tags_saved('Removed %s.' % nm_)
+                x.bind('<Button-1>', drop)
+
+        def add_tag(_e=None):
+            nm = tg_name.get().strip().lstrip('@'); raw = tg_id.get().strip()
+            uid = re.sub(r'\D', '', raw)
+            if raw and not re.fullmatch(r'\d{15,21}', uid):
+                tags_saved("That ID doesn't look right: it's a long number, 17 to 19 digits.", REDC); return
+            if not nm and not uid: return
+            if not nm: nm = 'Discord user \u2026' + uid[-4:]
+            if any(tag_parts(t)[0].lower() == nm.lower() for t in tags):
+                tags_saved('%s is already on the list.' % nm, GOLDC); return
+            tags.append('%s|%s' % (nm, uid))
+            tg_name.delete(0, 'end'); tg_id.delete(0, 'end')
+            draw_tags(); tags_saved('Added %s%s.' % (nm, '' if uid else ' (name only)'))
+        def add_friends():
+            have = set(tag_parts(t)[0].lower() for t in tags)
+            new_ = [f for f in friends if f.lower() not in have]
+            for f in new_: tags.append('%s|' % f)
+            draw_tags(); tags_saved('Added %d friend%s. Give them an ID to ping them.' % (len(new_), '' if len(new_) == 1 else 's')
+                                    if new_ else 'Your friends are all on the list already.')
+        tg_name.bind('<Return>', add_tag); tg_id.bind('<Return>', add_tag)
+        flat_button(tg_btns, 'Add', add_tag).pack(side='left')
+        flat_button(tg_btns, 'Add my friends', add_friends).pack(side='left', padx=(8, 0))
+        draw_tags()
 
         section('Go Live')
         lv_row = tk.Frame(outer, bg=INK); lv_row.pack(fill='x', pady=(2, 0))
@@ -7311,7 +7394,8 @@ def main():
         fp_e = reminder_row(fn_on, 'Remind me about my two Feudal Age buildings at',
                             '%d' % typed_number(cfg.get('feudal_pop'), FEUDAL_NOTE_POP, 5, 60), 'population')
         cm_e = reminder_row(cn_on, 'Remind me about my two Castle Age buildings at',
-                            '%g' % typed_number(cfg.get('castle_min'), CASTLE_NOTE_MIN, 5, 60), 'game minutes')
+                            '%d' % typed_number(cfg.get('castle_food'), CASTLE_NOTE_FOOD, 100, 5000),
+                            'food (from %d min)' % CASTLE_NOTE_MIN)
 
         field('Score and scouting')
         cf_on = tk.BooleanVar(value=cfg.get('concede_flag', True))
@@ -7484,14 +7568,14 @@ def main():
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
                     'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
                     'feudal_note': bool(fn_on.get()), 'companion_results': bool(cr_on.get()),
-                    'castle_min': typed_number(cm_e.get(), cfg.get('castle_min', CASTLE_NOTE_MIN), 5, 60),
+                    'castle_food': int(typed_number(cm_e.get(), cfg.get('castle_food', CASTLE_NOTE_FOOD), 100, 5000)),
                     'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
                     'loading_panels': bool(lp_on.get()), 'admin_auto': bool(ad_on.get()),
                     'friends': list(friends),
                     'live_pause_key': (lv['live_pause_key'].get().strip().upper()
                                        if combo_ok(lv['live_pause_key'].get()) else 'CTRL+F3'),
                     'live_before': lv['live_before'].get(), 'live_after': lv['live_after'].get(),
-                    'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
+                    'pings': list(tags)}
         def save():
             c = collect()
             if c['webhook'] and not re.match(r'https://(\w+\.)?discord(app)?\.com/api/webhooks/', c['webhook']):
@@ -8377,7 +8461,7 @@ def main():
             body.config(text='Could not read the game settings: %s' % e)
         root.after(POLL_MS, tick)
     bo['name'] = load_settings().get('build_order') or None
-    bo['hidden'] = bool(load_settings().get('build_order_hidden')) and not bo['name']
+    bo['hidden'] = bool(load_settings().get('build_order_hidden'))
     bo_draw()                                     # after foot_fit exists, so the card can resize
 
     tick(); fast(); root.mainloop()
