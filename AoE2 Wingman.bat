@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v98'
+VERSION = 'v99'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2518,17 +2518,71 @@ def _uia_press(c):
     except Exception:
         return False
 
-def _uia_names(auto, root, depth=60):
-    """Every name Discord shows right now, for telling what a click opened."""
+def _discord_windows():
+    """Every top-level Discord window that is showing: the main one, and any picker or pop-out it
+    opens in a window of its own. The in-game overlay is left out."""
+    ctypes, wintypes, u, _ = _win()
     out = []
-    try:
-        for c, _d in auto.WalkControl(root, maxDepth=depth):
-            try:
-                if c.Name: out.append(c.Name)
-            except Exception: pass
-    except Exception as e:
-        log('go live, reading Discord: %r' % (e,))
+    proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def cb(h, l):
+        if u.IsWindowVisible(h):
+            pid = wintypes.DWORD(); u.GetWindowThreadProcessId(h, ctypes.byref(pid))
+            if _proc_name(pid.value) in DISCORD_EXES:
+                n = u.GetWindowTextLengthW(h)
+                b = ctypes.create_unicode_buffer(n + 1); u.GetWindowTextW(h, b, n + 1)
+                if 'overlay' not in b.value.lower(): out.append((h, b.value))
+        return True
+    u.EnumWindows(proto(cb), 0)
     return out
+
+def _uia_all(auto, depth=60):
+    """(control, name) for everything in every Discord window."""
+    out = []
+    for h, _t in _discord_windows():
+        try: root = auto.ControlFromHandle(h)
+        except Exception: continue
+        try:
+            for c, _d in auto.WalkControl(root, maxDepth=depth):
+                try: out.append((c, c.Name or ''))
+                except Exception: pass
+        except Exception as e:
+            log('go live, reading Discord: %r' % (e,))
+    return out
+
+def _uia_names(auto, root=None, depth=60):
+    return [n for _c, n in _uia_all(auto, depth) if n]
+
+def _uia_wait(auto, match, wait=6.0):
+    """Keep looking through Discord's windows until match(control, name) likes one."""
+    end = time.time() + wait
+    while True:
+        for c, n in _uia_all(auto):
+            try:
+                if match(c, n): return c
+            except Exception: pass
+        if time.time() > end: return None
+        time.sleep(0.4)
+
+def _uia_click(c):
+    """A real left click in the middle of the control, for when asking it nicely does nothing."""
+    try:
+        r = c.BoundingRectangle
+        if r.right - r.left < 2 or r.bottom - r.top < 2: return False
+        x, y = (r.left + r.right) // 2, (r.top + r.bottom) // 2
+        _move_to(x, y)
+        _send_mouse(0x0002); time.sleep(0.05); _send_mouse(0x0004)
+        return True
+    except Exception as e:
+        log('go live, click: %r' % (e,))
+        return False
+
+def _visible(c):
+    try:
+        if c.IsOffscreen: return False
+        r = c.BoundingRectangle
+        return r.right - r.left > 2 and r.bottom - r.top > 2
+    except Exception:
+        return True
 
 def discord_share_game():
     """In Discord: Share Your Screen, the Applications tab, Age of Empires II, Go Live. Works off
@@ -2547,38 +2601,72 @@ def discord_share_game():
                 time.sleep(0.4); d = find_discord_window()
                 if d: break
     if not d: raise LiveFail('could not find the Discord window. Open Discord and join a call first.')
-    focus_window(d); time.sleep(0.5)
-    root = auto.ControlFromHandle(d)
+    focus_window(d); time.sleep(0.6)
+    BUTTONS = ('ButtonControl', 'TabItemControl', 'ListItemControl', 'HyperlinkControl',
+               'RadioButtonControl', 'MenuItemControl')
     def named(*want):
         w = [x.lower() for x in want]
-        return lambda c, n: n.strip().lower() in w and c.ControlTypeName in ('ButtonControl', 'TabItemControl', 'ListItemControl', 'HyperlinkControl', 'RadioButtonControl')
-    btn, seen = _uia_find(auto, root, named('Share Your Screen', 'Share Screen'), wait=8)
-    if not btn:
-        log('go live: no share button. Names Discord showed: %s' % ' | '.join(seen[:400]))
+        return lambda c, n: n.strip().lower() in w and c.ControlTypeName in BUTTONS
+
+    # the share button: there can be more than one (the call view and the panel at the bottom
+    # left), and some may be out of sight. Try the ones on screen first.
+    share_names = named('Share Your Screen', 'Share Screen', 'Share your screen')
+    _uia_wait(auto, share_names, wait=8)                  # wakes Discord's accessibility up
+    cands = [c for c, n in _uia_all(auto) if share_names(c, n)]
+    cands.sort(key=lambda c: not _visible(c))
+    if not cands:
+        log('go live: no share button. Names Discord showed: %s' % ' | '.join(_uia_names(auto)[:400]))
         raise LiveFail('no Share Your Screen button in Discord. Join a voice channel or call first.')
+    for c in cands:
+        try: r = c.BoundingRectangle; where = '%d,%d %dx%d' % (r.left, r.top, r.right - r.left, r.bottom - r.top)
+        except Exception: where = '?'
+        log('go live: share button %s at %s, on screen %s' % (c.ControlTypeName, where, _visible(c)))
+
     # Everything already on screen before the click. A friend playing AoE2 shows up in the DM list
     # with the game's name in it, and that is not the thing to click; the game's tile in the
     # picker is new after the click, and its name starts with the game's own window title.
-    before = set(_uia_names(auto, root))
-    _uia_press(btn); time.sleep(1.2)
+    before = set(_uia_names(auto))
+    wins_before = set(h for h, _t in _discord_windows())
+    def opened():
+        return (set(h for h, _t in _discord_windows()) - wins_before) or \
+               [n for n in _uia_names(auto) if n not in before]
+    picked = False
+    for c in cands[:3]:
+        for how in ('click', 'invoke'):
+            focus_window(d); time.sleep(0.2)
+            if how == 'click': done_ = _uia_click(c)
+            else: done_ = _uia_press(c)
+            if not done_: continue
+            end = time.time() + 3
+            while time.time() < end and not opened(): time.sleep(0.3)
+            if opened():
+                log('go live: share picker opened (%s)' % how); picked = True; break
+        if picked: break
+    if not picked:
+        log('go live: pressing Share changed nothing. Discord windows: %s'
+            % ' | '.join(t for _h, t in _discord_windows()))
+        raise LiveFail('pressed Share Your Screen but no picker came up.')
+    time.sleep(0.6)
     def fresh():
-        return [n for n in _uia_names(auto, root) if n not in before]
-    tab, _s = _uia_find(auto, root, named('Applications', 'Windows'), wait=2.5)
-    if tab: _uia_press(tab); time.sleep(0.7)
+        return [n for n in _uia_names(auto) if n not in before]
+    tab = _uia_wait(auto, named('Applications', 'Windows', 'Apps'), wait=2.5)
+    if tab and (_uia_click(tab) or _uia_press(tab)): time.sleep(0.7)
     def game(c, n):
         return (n.strip().lower().startswith('age of empires ii') and n not in before
                 and c.ControlTypeName != 'WindowControl')
-    tile, seen = _uia_find(auto, root, game, wait=6)
+    tile = _uia_wait(auto, game, wait=6)
     if not tile:
         log('go live: no AoE2 tile. New in Discord after Share: %s' % ' | '.join(fresh()[:300]))
         raise LiveFail('Discord did not list Age of Empires II to share.')
     log('go live: picking "%s" (%s)' % (tile.Name, tile.ControlTypeName))
-    _uia_press(tile); time.sleep(1.0)
-    go, seen = _uia_find(auto, root, named('Go Live', 'Go live', 'Stream'), wait=6)
+    if not _uia_click(tile): _uia_press(tile)
+    time.sleep(1.0)
+    go = _uia_wait(auto, named('Go Live', 'Go live', 'Stream'), wait=6)
     if not go:
         log('go live: no Go Live button. New in Discord after Share: %s' % ' | '.join(fresh()[:300]))
         raise LiveFail('no Go Live button after picking the game.')
-    _uia_press(go); time.sleep(0.8)
+    if not _uia_click(go): _uia_press(go)
+    time.sleep(0.8)
     log('go live: sharing Age of Empires II on Discord')
 
 def go_live(cfg, in_game=True, status=lambda t: None):
