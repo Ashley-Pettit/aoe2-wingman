@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v131'
+VERSION = 'v132'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -325,12 +325,17 @@ def draw_step_icon(kind, S, bg):
     def E(x0, y0, x1, y1, **kw): d.ellipse((x0 * u, y0 * u, x1 * u, y1 * u), **kw)
     def R(x0, y0, x1, y1, r=0, **kw): d.rounded_rectangle((x0 * u, y0 * u, x1 * u, y1 * u), radius=r * u, **kw)
     def L(pts, w, fill): d.line(P(*pts), fill=fill, width=max(1, int(w * u)), joint='curve')
-    if kind == 'sheep':
-        wool, face = '#efe6d2', '#3a3128'
-        for x, y in ((9, 16), (14, 12), (20, 12), (24, 16), (20, 20), (13, 20), (16, 16)):
-            E(x - 6, y - 6, x + 6, y + 6, fill=wool)
-        for x in (11, 15, 19, 23): R(x - 1.2, 21, x + 1.2, 28, 1, fill=face)
-        E(2, 11, 10, 20, fill=face); E(5, 9, 9, 12, fill=face)
+    if kind == 'sheep':                   # side on: dark face and ear, fluffy body, four legs
+        wool, shade, face, leg = '#f6efdd', '#cfc3a6', '#6b5646', '#9c8a74'
+        for x in (13, 18, 23, 27): R(x - 1.5, 18, x + 1.5, 30, 1.4, fill=leg)
+        for x, y, r in ((13, 13, 5.2), (19, 10.5, 5.6), (25, 12, 5.2), (28.5, 17, 4.2), (24, 21.5, 5),
+                        (18, 22, 5), (12.5, 19.5, 4.6), (19, 16, 7)):
+            E(x - r, y - r, x + r, y + r, fill=shade)
+        for x, y, r in ((13, 12.5, 4.8), (19, 10, 5.2), (25, 11.5, 4.8), (28, 16.5, 3.8), (24, 20.5, 4.6),
+                        (18, 21, 4.6), (12.5, 19, 4.2), (19, 15.5, 6.6)):
+            E(x - r, y - r, x + r, y + r, fill=wool)
+        E(0.5, 9, 11.5, 21, fill=face); E(7, 6, 12.5, 11.5, fill=face)
+        E(3.2, 12.4, 5.4, 14.6, fill=wool); E(7.5, 7.5, 13.5, 13.5, fill=wool)
     elif kind == 'boar':
         body, dark = '#9a6a45', '#5a3d28'
         E(6, 10, 28, 24, fill=body)
