@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v129'
+VERSION = 'v130'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -6770,7 +6770,11 @@ def main():
               bo_box, bo_cap, bo_at, bo_x, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, live_btn, bo_open): bind_all(w)
     st['actions'][bo_prog] = bo_menu
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
-    st['actions'][bo_now] = lambda: bo_menu() if not bo['name'] else bo_step(1)
+    # a click anywhere on the build strip opens the list; a right click on the step moves it on
+    st['actions'][bo_now] = bo_menu
+    st['actions'][bo_box] = bo_menu
+    st['actions'][bo_at] = bo_menu
+    bo_now.bind('<Button-3>', lambda e: bo_step(1), add='+')
     st['actions'][bo_next] = bo_menu
     st['actions'][bo_nrow] = bo_menu
     st['actions'][bo_ntag] = bo_menu
