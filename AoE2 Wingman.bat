@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v110'
+VERSION = 'v111'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2916,6 +2916,32 @@ def discord_stop():
     d = find_discord_window()
     if d: focus_window(d); time.sleep(0.3)
     return _uia_click(stop) or _uia_press(stop)
+
+# The game's own cheat codes, typed into chat for you. The game only takes them in single player
+# or in a lobby with cheats switched on; ranked turns them off, so this cannot be used there.
+CHEATS = [
+    ('Resources', [('+1000 food', 'cheese steak jimmy\'s'), ('+1000 wood', 'lumberjack'),
+                   ('+1000 gold', 'robin hood'), ('+1000 stone', 'rock on'),
+                   ('+100k of everything', 'ninjalui')]),
+    ('Map', [('Reveal the map', 'marco'), ('No fog of war', 'polo')]),
+    ('Speed', [('Instant build, train, gather', 'aegis')]),
+    ('Units', [('Cobra car', 'how do you turn this on'), ('Saboteur', 'to smithereens'),
+               ('Monkey boy', 'furious the monkey boy'), ('VDML', 'i love the monkey head'),
+               ('Alfred the alpaca', 'alfred the alpaca')]),
+    ('End it', [('Win now', 'i r winner'), ('Kill all enemies', 'black death'),
+                ('Destroy yourself', 'wimpywimpywimpy')]),
+]
+GODMODE_WORD = 'GODMODE'
+
+def send_cheat(code):
+    """Type one cheat code into the game's chat, the same as you typing it."""
+    g = find_game_window()
+    if not g: return 'The game is not running.'
+    if game_needs_admin(): return 'The game runs as admin: restart Wingman as admin first.'
+    focus_window(g); time.sleep(0.2)
+    game_chat(code)
+    log('godmode: sent "%s"' % code)
+    return 'Sent: %s' % code
 
 def game_paused(timer=None):
     """True if the game is paused, False if it is running, None if that could not be told.
@@ -6128,6 +6154,38 @@ def main():
         except Exception:
             pass
 
+    def open_cheats():
+        """The Godmode panel: buttons for the game's own cheat codes."""
+        if st.get('cheat_win') is not None:
+            try: st['cheat_win'].lift(); return
+            except tk.TclError: st['cheat_win'] = None
+        win = tk.Toplevel(root); st['cheat_win'] = win
+        win.title('Godmode'); win.configure(bg=BORDER); win.attributes('-topmost', True)
+        win.resizable(False, False)
+        win.protocol('WM_DELETE_WINDOW', lambda: (st.update(cheat_win=None), win.destroy()))
+        box = tk.Frame(win, bg=INK, padx=16, pady=12); box.pack(fill='both', expand=True, padx=1, pady=1)
+        tk.Label(box, text='GODMODE', fg=REDC, bg=INK, font=(DISPLAY, 13, 'bold'), anchor='w').pack(fill='x')
+        tk.Label(box, text='The game\'s own cheat codes. Single player, or a lobby with cheats on. '
+                           'Ranked turns cheats off, so none of these work there.',
+                 fg=MUT, bg=INK, font=F_SMALL, anchor='w', justify='left', wraplength=340).pack(fill='x', pady=(2, 8))
+        out = tk.Label(box, text='', fg=GREEN, bg=INK, font=F_SMALL, anchor='w')
+        def fire(code):
+            out.config(text='Sending...', fg=MUT)
+            def work():
+                r = send_cheat(code)
+                try: win.after(0, lambda: out.config(text=r, fg=GREEN if r.startswith('Sent') else REDC))
+                except Exception: pass
+            threading.Thread(target=work, daemon=True).start()
+        for group, items in CHEATS:
+            tk.Label(box, text=group.upper(), fg=BRONZE, bg=INK, font=F_TINY, anchor='w').pack(fill='x', pady=(8, 3))
+            row = tk.Frame(box, bg=INK); row.pack(fill='x')
+            for i, (label, code) in enumerate(items):
+                b = flat_button(row, label, lambda c=code: fire(c))
+                b.configure(padx=8, pady=3, font=F_SMALL, width=22)
+                b.grid(row=i // 2, column=i % 2, sticky='we', padx=(0, 6), pady=2)
+            row.columnconfigure(0, weight=1); row.columnconfigure(1, weight=1)
+        out.pack(fill='x', pady=(10, 0))
+
     def open_settings():
         if st.get('settings_win') is not None:
             try: st['settings_win'].lift(); return
@@ -6366,6 +6424,30 @@ def main():
         lv_b = tk.Frame(outer, bg=INK); lv_b.pack(fill='x', pady=(6, 0))
         flat_button(lv_b, 'Test the Discord part', lv_test).pack(side='left')
         lv_msg.pack(fill='x', pady=(4, 0))
+
+        section('Godmode', 'Type the password to unlock the cheat codes panel.')
+        gm_row = tk.Frame(outer, bg=INK); gm_row.pack(fill='x', pady=(2, 0))
+        gm_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w')
+        def gm_open_btn():
+            for w_ in gm_row.winfo_children(): w_.destroy()
+            flat_button(gm_row, 'Open Godmode', open_cheats, fill=True).pack(side='left')
+            def lock():
+                c_ = load_settings(); c_['godmode'] = False; save_settings(c_); gm_lock_box()
+            flat_button(gm_row, 'Lock it again', lock).pack(side='left', padx=(8, 0))
+        def gm_lock_box():
+            for w_ in gm_row.winfo_children(): w_.destroy()
+            e_ = tk.Entry(gm_row, width=18, show='\u2022'); style_entry(e_); e_.pack(side='left', ipady=2)
+            def unlock(_=None):
+                if e_.get().strip() == GODMODE_WORD:
+                    c_ = load_settings(); c_['godmode'] = True; save_settings(c_)
+                    gm_msg.config(text='Unlocked.', fg=GREEN); gm_open_btn()
+                else:
+                    gm_msg.config(text='Not the password.', fg=REDC); e_.delete(0, 'end')
+            e_.bind('<Return>', unlock)
+            flat_button(gm_row, 'Unlock', unlock).pack(side='left', padx=(8, 0))
+        if cfg.get('godmode'): gm_open_btn()
+        else: gm_lock_box()
+        gm_msg.pack(fill='x', pady=(4, 0))
 
         section('Build a house warning',
                 'How much spare population is left when the warning starts. Lower means it waits '
