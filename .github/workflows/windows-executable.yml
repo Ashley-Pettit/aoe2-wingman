@@ -1,13 +1,16 @@
-name: Experimental Windows Wingman build
+name: Windows Wingman build
 
+# Builds Wingman.exe. Not on every push (that would burn Actions minutes on every small
+# change): only when asked from the Actions tab, or when a release tag like exe-v113 is
+# pushed (Release-Exe.cmd does that). A release tag also publishes a GitHub Release with
+# both ways of running Wingman attached: Wingman.exe and AoE2 Wingman.bat.
 on:
   workflow_dispatch:
   push:
-    branches: [dev]
-    paths:
-      - 'AoE2 Wingman.bat'
-      - 'packaging/**'
-      - '.github/workflows/windows-executable.yml'
+    tags: ['exe-*']
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -26,7 +29,7 @@ jobs:
         run: python packaging/prepare_build.py
       - name: Build executable
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name Wingman --collect-all winrt --collect-all uiautomation --hidden-import=PIL.ImageTk --hidden-import=winrt.windows.media.ocr --hidden-import=winrt.windows.graphics.imaging --hidden-import=winrt.windows.storage.streams --hidden-import=winrt.windows.foundation --hidden-import=winrt.windows.foundation.collections --hidden-import=winrt.windows.globalization build/wingman_frozen.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name Wingman --collect-all winrt --collect-all uiautomation --hidden-import=PIL.ImageTk --hidden-import=winrt.windows.media.ocr --hidden-import=winrt.windows.graphics.imaging --hidden-import=winrt.windows.storage.streams --hidden-import=winrt.windows.foundation --hidden-import=winrt.windows.foundation.collections --hidden-import=winrt.windows.globalization --paths . --hidden-import=opponent_intelligence build/wingman_frozen.py
       - name: Check output
         shell: pwsh
         run: |
@@ -55,3 +58,16 @@ jobs:
         with:
           name: Wingman-Windows-experimental
           path: dist/Wingman.exe
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/exe-')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Wingman ${{ github.ref_name }}
+          body: |
+            Two ways to run Wingman. Pick one:
+            - **Wingman.exe**: download and double-click. Nothing else to install. Update by downloading the newest one.
+            - **AoE2 Wingman.bat**: needs Python. Updates itself from Settings.
+            Windows may warn that the exe is not signed: click More info, then Run anyway.
+          files: |
+            dist/Wingman.exe
+            AoE2 Wingman.bat
