@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v105'
+VERSION = 'v106'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2329,8 +2329,9 @@ def focus_window(h):
     for _ in range(3):
         u.keybd_event(0x12, 0, 0, 0); u.keybd_event(0x12, 0, 2, 0)          # Alt down/up
         u.ShowWindow(h, 5); u.BringWindowToTop(h); u.SetForegroundWindow(h)
-        time.sleep(0.4)
-        if u.GetForegroundWindow() == h: return True
+        for _i in range(8):                                                 # up to 0.4s, but no longer than it takes
+            time.sleep(0.05)
+            if u.GetForegroundWindow() == h: return True
     log('could not bring a window to the front')
     return False
 
@@ -2563,6 +2564,32 @@ def _uia_wait(auto, match, wait=6.0):
         if time.time() > end: return None
         time.sleep(0.4)
 
+def _uia_fast(auto, names):
+    """The first control in any Discord window whose name is exactly one of names. Asks Windows
+    to do the search itself in one go, which is many times quicker than walking Discord's whole
+    window from Python (its chat history alone is thousands of entries). None if not there."""
+    try:
+        ia = auto._AutomationClient.instance().IUIAutomation
+        conds = [ia.CreatePropertyCondition(30005, n) for n in names]      # 30005: the name
+        cond = conds[0]
+        for c_ in conds[1:]: cond = ia.CreateOrCondition(cond, c_)
+        for h, _t in _discord_windows():
+            root = ia.ElementFromHandle(h)
+            el = root.FindFirst(4, cond)                                      # 4: everything under it
+            if el:
+                c = auto.Control.CreateControlFromElement(el)
+                if c and _visible(c): return c
+    except Exception as e:
+        log('go live, quick search: %r' % (e,))
+    return None
+
+def _uia_fast_wait(auto, names, wait=4.0):
+    end = time.time() + wait
+    while True:
+        c = _uia_fast(auto, names)
+        if c or time.time() > end: return c
+        time.sleep(0.12)
+
 def _uia_click(c):
     """A real left click in the middle of the control, for when asking it nicely does nothing."""
     try:
@@ -2659,18 +2686,43 @@ def discord_share_game():
     g = find_game_window()
     if g and not _win()[2].IsIconic(g):
         _win()[2].ShowWindow(g, 6)                         # minimise
-        time.sleep(0.5)
+        time.sleep(0.25)
     focus_window(d)
     mode = {'bg': False}
     def click(c):
         if mode['bg']: return _bg_click(d, c)
         return _uia_click(c)
-    time.sleep(0.4)
     BUTTONS = ('ButtonControl', 'TabItemControl', 'ListItemControl', 'HyperlinkControl',
                'RadioButtonControl', 'MenuItemControl')
     def named(*want):
         w = [x.lower() for x in want]
         return lambda c, n: n.strip().lower() in w and c.ControlTypeName in BUTTONS
+
+    GO_NAMES = ('Go Live', 'Go live', 'Stream')
+    try:
+        game_title = 'Age of Empires II: Definitive Edition'
+        gw = find_game_window()
+        if gw:
+            u_ = _win()[2]; n_ = u_.GetWindowTextLengthW(gw)
+            import ctypes as _ct
+            b_ = _ct.create_unicode_buffer(n_ + 1); u_.GetWindowTextW(gw, b_, n_ + 1)
+            if b_.value.strip(): game_title = b_.value.strip()
+    except Exception:
+        pass
+    # the quick way: Discord's own button for streaming the game, by its exact name
+    if _uia_fast(auto, ['Stop Streaming']):
+        log('go live: already streaming, nothing to start'); return
+    t_ = time.time()
+    quick = _uia_fast(auto, ['Stream ' + game_title, 'Stream ' + game_title.split(':')[0]])
+    if quick:
+        log('go live: found "%s" in %.1fs' % (quick.Name, time.time() - t_))
+        if not _uia_click(quick): _uia_press(quick)
+        go = _uia_fast_wait(auto, GO_NAMES, wait=4)
+        if go:
+            if not _uia_click(go): _uia_press(go)
+            if _uia_fast_wait(auto, ['Stop Streaming'], wait=4):
+                log('go live: sharing Age of Empires II on Discord (quick way, %.1fs)' % (time.time() - t_)); return
+        log('go live: the quick way did not start a stream, looking the slow way')
 
     everything = _uia_all(auto)
     if any(n.strip().lower() == 'stop streaming' for _c, n in everything):
@@ -2683,7 +2735,7 @@ def discord_share_game():
         return l.startswith('stream') and 'age of empires' in l and c.ControlTypeName in BUTTONS
     gs = [c for c, n in everything if game_stream(c, n)]
     live_now = lambda c, n: n.strip().lower() == 'stop streaming'
-    go_live_btn = named('Go Live', 'Go live', 'Stream')   # Discord labels it either way
+    go_live_btn = named(*GO_NAMES)                        # Discord labels it either way
 
     def front():
         """Discord did not take it from behind (it can stop drawing while the game covers it):
@@ -2844,7 +2896,7 @@ def game_paused(g):
         read = _load_ocr(); grab = _grabber()
         x, y, w, hh = client_rect(g); s = hh / 2160.0
         t1 = TCWatcher.read_clock(None, read, grab, x, y, w, s)
-        time.sleep(1.6)
+        time.sleep(1.0)                    # the timer runs at 1.7 game seconds a second, so it moves
         t2 = TCWatcher.read_clock(None, read, grab, x, y, w, s)
         if t1 is not None and t2 is not None:
             log('go live: game timer %d then %d' % (t1, t2))
@@ -4779,14 +4831,17 @@ def main():
     state.grid(row=0, column=2, sticky='e', padx=(10, 2))
     live_btn = icon_button(head, '\u25cf Go Live', BG, hot=REDC, size=8)    # pause, chat, stream on Discord
     live_btn.configure(font=(DISPLAY, 8, 'bold'))
-    live_btn.grid(row=0, column=3, sticky='e', padx=(6, 0))
+    bo_open = icon_button(head, '\u25b8 Build', BG, size=8)             # brings a closed build order back
+    bo_open.configure(font=(DISPLAY, 8, 'bold'))
+    bo_open.grid(row=0, column=3, sticky='e', padx=(6, 0)); bo_open.grid_remove()
+    live_btn.grid(row=0, column=4, sticky='e', padx=(4, 0))
     stats_btn = icon_button(head, 'W/L', BG, size=8)
     stats_btn.configure(font=(DISPLAY, 8, 'bold'))
-    stats_btn.grid(row=0, column=4, sticky='e', padx=(4, 0))
+    stats_btn.grid(row=0, column=5, sticky='e', padx=(4, 0))
     gear = icon_button(head, '\u2699', BG)
-    gear.grid(row=0, column=5, sticky='e', padx=(4, 0))
+    gear.grid(row=0, column=6, sticky='e', padx=(4, 0))
     close = icon_button(head, '\u2715', BG, hot=REDC)
-    close.grid(row=0, column=6, sticky='e')
+    close.grid(row=0, column=7, sticky='e')
     sep = Rule(frame)
     sep.grid(row=1, column=0, columnspan=4, sticky='we', pady=(4, 5))
 
@@ -4947,7 +5002,7 @@ def main():
                 bo_box.grid()
             else:
                 bo_box.grid_remove()
-            foot_fit(); return
+            bo_open_sync(); foot_fit(); return
         bo_now.config(font=(DISPLAY, 12, 'bold'))
         name, pop, steps = found
         i = max(0, min(bo['i'], len(steps) - 1))
@@ -4958,7 +5013,18 @@ def main():
         bo_at.config(text='pop %s' % span)
         bo_now.config(text=text)
         bo_next.config(text=('next  ' + steps[i + 1][2]) if i + 1 < len(steps) else '')
-        bo_box.grid(); foot_fit()
+        bo_box.grid(); bo_open_sync(); foot_fit()
+
+    def bo_open_sync():
+        """The little Build button in the header shows only while the build order is closed."""
+        if bo['hidden'] and not bo['name']: bo_open.grid()
+        else: bo_open.grid_remove()
+
+    def bo_reopen():
+        bo['hidden'] = False
+        cfg_ = load_settings(); cfg_['build_order_hidden'] = False; save_settings(cfg_)
+        bo_draw()
+        bo_menu(bo_open)
 
     def bo_pick(name):
         bo['name'] = name or None
@@ -4975,8 +5041,8 @@ def main():
         bo['hidden'] = True
         bo_pick(None)
 
-    def bo_menu():
-        """A small list of the builds, right under the strip."""
+    def bo_menu(anchor=None):
+        """A small list of the builds, right under the strip (or under the Build button)."""
         m = tk.Menu(root, tearoff=0, bg=INK, fg=TXT, activebackground=PANEL,
                     activeforeground=GOLDD, bd=0, font=F_SMALL)
         m.add_command(label=BUILD_SOURCE, state='disabled')
@@ -4987,7 +5053,9 @@ def main():
             m.add_command(label='%s  (%s)' % (n, pop), command=lambda n_=n: bo_pick(n_))
         m.add_separator()
         m.add_command(label='No build order', command=lambda: bo_pick(None))
-        try: m.tk_popup(bo_box.winfo_rootx(), bo_box.winfo_rooty() + bo_box.winfo_height())
+        at = anchor if anchor is not None or not bo_box.winfo_ismapped() else bo_box
+        at = at if at is not None else bo_open
+        try: m.tk_popup(at.winfo_rootx(), at.winfo_rooty() + at.winfo_height())
         finally: m.grab_release()
 
     def bo_step(by=1):
@@ -5867,11 +5935,12 @@ def main():
     for w in (root, frame, head, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_cap, bo_at, bo_x, bo_now, bo_next, live_btn): bind_all(w)
+              bo_box, bo_cap, bo_at, bo_x, bo_now, bo_next, live_btn, bo_open): bind_all(w)
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
     st['actions'][bo_now] = lambda: bo_menu() if not bo['name'] else bo_step(1)
     st['actions'][bo_next] = bo_menu
     st['actions'][bo_x] = bo_close
+    st['actions'][bo_open] = bo_reopen
 
     def live_start(in_game=True, report=None):
         """The Go Live button. Runs off the main thread so the overlay keeps drawing while it works."""
@@ -5938,7 +6007,7 @@ def main():
         header; in a game the state tag takes its place, so there is nothing to fat finger while you play."""
         st['footer'] = on
         if on: state.grid_remove(); btn_plate.grid()
-        else: btn_plate.grid_remove(); state.grid()
+        else: btn_plate.grid_remove()             # nothing in its place: no 'IN GAME' tag
         foot_fit()
         if st.get('rolled'): return
         if on and not waiting_now[0]: footsep.grid()              # no divider while idle
@@ -6178,7 +6247,7 @@ def main():
                 'A reminder of the next step, on the overlay, one step at a time. It follows the '
                 'pop counter the Town Center watcher already reads off your screen, and you can '
                 'click the step to move it on yourself. Pick one here or on the overlay itself. '
-                'The cross on it closes it until you pick one here again.\n'
+                'The cross on it closes it; the small Build button at the top brings it back.\n'
                 'Steps in pop (villagers plus your scout), from ' + BUILD_SOURCE + '.')
         bo_var = tk.StringVar(value=cfg.get('build_order') or '')
         bo_row = tk.Frame(outer, bg=INK); bo_row.pack(fill='x', pady=(2, 0))
