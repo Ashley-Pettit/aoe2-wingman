@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v100'
+VERSION = 'v101'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -6766,6 +6766,69 @@ def main():
         else:
             log('restarted as admin, resuming the %s invite' % what)
             root.after(2500, lambda: host(what == 'send'))
+
+    # ------------------------------------------------------------ publish by itself
+    # Only on Ash's own setup, where Publish-Wingman.cmd sits above this copy: when a new build
+    # lands in the incoming folder, run the publish script (commit, push dev, merge and push
+    # Prod), then restart into the new copy the next time you are at the menu, never mid game.
+    def auto_publish():
+        top = os.path.dirname(os.path.dirname(self_path()))
+        pub = os.path.join(top, 'Publish-Wingman.cmd')
+        inc = os.path.join(top, 'incoming', BAT_NAME)
+        if not os.path.isfile(pub): return
+        import subprocess
+        log('auto publish: watching %s' % inc)
+        last, tried = None, None
+        while True:
+            time.sleep(4)
+            try:
+                if not os.path.isfile(inc): last = None; continue
+                st_ = os.stat(inc); sig = (st_.st_size, int(st_.st_mtime))
+                if sig != last: last = sig; continue              # still landing: wait for it to settle
+                if sig == tried: continue                         # that one already failed once
+                ver = script_version(inc) or '?'
+                log('auto publish: %s is waiting, publishing it' % ver)
+                out = os.path.join(os.path.dirname(LOG), 'wingman_publish.log')
+                env = dict(os.environ, GIT_TERMINAL_PROMPT='0')
+                with open(out, 'w', encoding='utf-8', errors='replace') as fh:
+                    # one string with the whole thing in an extra pair of quotes, which cmd /c
+                    # strips, so the quotes round the path and the message survive
+                    r = subprocess.run('cmd /c ""%s" "auto publish" /auto"' % pub, cwd=top, env=env,
+                                       stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                       creationflags=0x08000000, timeout=300)
+                if r.returncode != 0 or os.path.isfile(inc):
+                    tried = sig
+                    log('auto publish: %s did not go through (see wingman_publish.log)' % ver)
+                    root.after(0, lambda v=ver: host_msg.config(
+                        text='Could not publish %s by itself. Run Publish-Wingman.cmd to see why.' % v))
+                    continue
+                log('auto publish: %s is on dev and Prod' % ver)
+                if _sha(self_path()) != SELF_SHA:
+                    st['restart_into'] = ver
+            except subprocess.TimeoutExpired:
+                tried = last; log('auto publish: took too long, left it for you to run')
+            except Exception as e:
+                log('auto publish: %r' % (e,)); time.sleep(20)
+
+    def settings_open():
+        w = st.get('settings_win')
+        try: return bool(w) and bool(w.winfo_exists())
+        except Exception: return False
+
+    def restart_when_free():
+        ver = st.get('restart_into')
+        if ver and waiting_now[0] and not st.get('live_busy') and not st.get('hosting') \
+                and not st.get('updating') and not settings_open():
+            log('auto publish: restarting into %s' % ver)
+            try: restart_app(self_path())
+            except Exception as e:
+                log('restart failed: %r' % (e,)); st['restart_into'] = None
+            else:
+                try: root.destroy()
+                finally: os._exit(0)
+        root.after(3000, restart_when_free)
+    threading.Thread(target=auto_publish, daemon=True).start()
+    root.after(5000, restart_when_free)
 
     def show_opponents(players):
         for w in opp_area.winfo_children(): w.destroy()
