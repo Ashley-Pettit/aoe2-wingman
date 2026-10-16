@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v114'
+VERSION = 'v115'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -2090,6 +2090,76 @@ def update_from_github(branch, me_=None, running=None):
         return True, 'Switched this folder to %s: %s.' % (branch, new_ver), bat
     return True, ('Updated from %s to %s (%s).' % (run_ver, new_ver, branch)) if new_ver != run_ver \
         else 'Updated %s (%s).' % (new_ver, branch), bat
+
+# ---------------------------------------------------------------- the public releases
+# Wingman.exe and AoE2 Wingman.bat are published together on the repo's Releases page (tags
+# like exe-v114). The exe cannot update itself from git the way the .bat does, so it checks
+# that page instead and swaps itself for the newer one.
+NUDGE_AFTER = 20                           # seconds after start before checking for a release
+RELEASES_API = 'https://api.github.com/repos/%s/releases/latest' % REPO
+DOWNLOAD_PAGE = 'https://ashley-pettit.github.io/aoe2-wingman/'
+_REL = {}
+
+def ver_num(v):
+    m = re.search(r'(\d+)', str(v or ''))
+    return int(m.group(1)) if m else 0
+
+def latest_release(fresh=False):
+    """The newest public release: {'ver': 'v115', 'exe': url, 'bat': url, 'page': url}, or None."""
+    if not fresh and _REL.get('t', 0) > time.time() - 600: return _REL.get('rel')
+    rel = None
+    try:
+        import urllib.request
+        req = urllib.request.Request(RELEASES_API, headers={'User-Agent': 'AoE2-Wingman',
+                                                            'Accept': 'application/vnd.github+json'})
+        d = json.loads(urllib.request.urlopen(req, timeout=15).read().decode('utf-8'))
+        assets = {a.get('name', ''): a.get('browser_download_url') for a in d.get('assets', [])}
+        rel = {'ver': 'v%d' % ver_num(d.get('tag_name')), 'tag': d.get('tag_name'),
+               'exe': assets.get('Wingman.exe'),
+               'bat': next((u for n, u in assets.items() if n.lower().endswith('.bat')), None),
+               'page': d.get('html_url')}
+    except Exception as e:
+        log('release check: %r' % (e,))
+    _REL.update(t=time.time(), rel=rel)
+    return rel
+
+def newer_release():
+    """The release if it is newer than this copy, else None."""
+    rel = latest_release()
+    return rel if rel and ver_num(rel['ver']) > ver_num(VERSION) else None
+
+def update_exe(rel, progress=lambda t: None):
+    """Swap this Wingman.exe for the release's one. Windows lets a running exe be renamed but
+    not overwritten, so the running one steps aside as Wingman.old.exe (cleared next start)
+    and the new one takes its name. Returns the path to start."""
+    import urllib.request
+    me = sys.executable
+    here = os.path.dirname(me)
+    new = os.path.join(here, 'Wingman.new.exe')
+    old = os.path.join(here, 'Wingman.old.exe')
+    progress('Downloading %s...' % rel['ver'])
+    req = urllib.request.Request(rel['exe'], headers={'User-Agent': 'AoE2-Wingman'})
+    with urllib.request.urlopen(req, timeout=120) as r, open(new, 'wb') as fh:
+        shutil.copyfileobj(r, fh)
+    with open(new, 'rb') as fh:
+        if fh.read(2) != b'MZ' or os.path.getsize(new) < 1000000:
+            raise RuntimeError('the download was not a working Wingman.exe')
+    try:
+        if os.path.exists(old): os.remove(old)
+    except OSError:
+        pass
+    os.replace(me, old)
+    os.replace(new, me)
+    log('updated the exe to %s' % rel['ver'])
+    return me
+
+def clear_old_exe():
+    if not FROZEN: return
+    try:
+        old = os.path.join(os.path.dirname(sys.executable), 'Wingman.old.exe')
+        if os.path.exists(old): os.remove(old)
+    except OSError:
+        pass
 
 def restart_app(bat):
     """Start the given copy. The caller closes this one straight after."""
@@ -6332,43 +6402,96 @@ def main():
                 tk.Label(outer, text=note, fg=MUT, bg=INK, font=F_SMALL, anchor='w',
                          justify='left', wraplength=400).pack(fill='x', pady=(0, 4))
 
-        section('Update', 'Gets the newest version from GitHub, then closes and restarts the app. '
-                          'Prod is the settled version. dev gets new changes first.', gap=10)
-        up_row = tk.Frame(outer, bg=INK); up_row.pack(fill='x', pady=(2, 0))
-        up_msg = tk.Label(outer, text='This copy is %s%s.' % (VERSION, ' (Wingman.exe: update by downloading the newest one)' if FROZEN else ''),
-                          fg='#b8b19f', bg=INK, font=F_SMALL,
-                          anchor='w', justify='left', wraplength=400)
+        section('Update', 'Wingman.exe updates itself from the public Releases page. The .bat '
+                          'updates from GitHub: Prod is the settled version, dev gets changes first.', gap=10)
+        card_ = tk.Frame(outer, bg=PANEL, highlightthickness=1, highlightbackground=RIM, padx=12, pady=9)
+        card_.pack(fill='x', pady=(2, 0))
+        row1 = tk.Frame(card_, bg=PANEL); row1.pack(fill='x')
+        tk.Label(row1, text='YOU HAVE', fg=BRONZE, bg=PANEL, font=F_TINY).pack(side='left')
+        tk.Label(row1, text='%s  \u00b7  %s' % (VERSION, 'Wingman.exe' if FROZEN else 'AoE2 Wingman.bat'),
+                 fg=TXT, bg=PANEL, font=(DISPLAY, 10, 'bold')).pack(side='left', padx=(8, 0))
+        newest = tk.Label(row1, text='checking...', fg=MUT, bg=PANEL, font=F_SMALL)
+        newest.pack(side='right')
+        up_row = tk.Frame(card_, bg=PANEL); up_row.pack(fill='x', pady=(8, 0))
+        up_msg = tk.Label(card_, text='', fg='#b8b19f', bg=PANEL, font=F_SMALL,
+                          anchor='w', justify='left', wraplength=380)
+        def restart_into(path_):
+            def swap():
+                try:
+                    if FROZEN:
+                        import subprocess
+                        subprocess.Popen([path_, '--wait-turn'], close_fds=True)
+                    else:
+                        restart_app(path_)
+                except Exception as e:
+                    log('restart failed: %r' % (e,))
+                    try: up_msg.config(text='Updated, but could not restart: %s' % e, fg=REDC)
+                    except tk.TclError: pass
+                    return
+                try: root.destroy()
+                finally: os._exit(0)
+            root.after(1200, swap)
         def run_update(branch):
             if st.get('updating'): return
             st['updating'] = True
-            up_msg.config(text='Checking GitHub for the newest %s...' % branch, fg=MUT)
+            up_msg.config(text='Checking for the newest %s...' % (branch if branch != 'exe' else 'Wingman.exe'), fg=MUT)
             def work():
+                path_ = None
                 try:
-                    ok_, text_, bat_ = update_from_github(branch)
+                    if branch == 'exe':
+                        rel = latest_release(fresh=True)
+                        if not rel or not rel.get('exe'):
+                            ok_, text_ = False, 'Could not find a Wingman.exe on the Releases page.'
+                        elif ver_num(rel['ver']) <= ver_num(VERSION):
+                            ok_, text_ = True, 'You have the newest one (%s).' % VERSION
+                        else:
+                            path_ = update_exe(rel, lambda t: root.after(0, lambda: up_msg.config(text=t, fg=MUT)))
+                            ok_, text_ = True, 'Updated to %s.' % rel['ver']
+                    else:
+                        ok_, text_, path_ = update_from_github(branch)
                 except Exception as e:
                     log('update failed: %r' % (e,))
-                    ok_, text_, bat_ = False, 'Update failed: %s' % e, None
+                    ok_, text_, path_ = False, 'Update failed: %s' % e, None
                 log('update from %s: %s' % (branch, text_))
                 def done():
                     st['updating'] = False
-                    try: up_msg.config(text=text_ + ('  Restarting...' if bat_ else ''), fg=GREEN if ok_ else REDC)
+                    try: up_msg.config(text=text_ + ('  Restarting...' if path_ else ''), fg=GREEN if ok_ else REDC)
                     except tk.TclError: pass
-                    if bat_:
-                        def swap():
-                            try: restart_app(bat_)
-                            except Exception as e:
-                                log('restart failed: %r' % (e,))
-                                try: up_msg.config(text='Updated, but could not restart: %s' % e, fg=REDC)
-                                except tk.TclError: pass
-                                return
-                            try: root.destroy()
-                            finally: os._exit(0)
-                        root.after(1200, swap)
+                    if path_: restart_into(path_)
                 root.after(0, done)
             threading.Thread(target=work, daemon=True).start()
-        flat_button(up_row, 'Update from Prod', lambda: run_update('Prod'), fill=True).pack(side='left')
-        flat_button(up_row, 'Update from dev', lambda: run_update('dev')).pack(side='left', padx=(8, 0))
+        st['run_update'] = run_update
+        if FROZEN:
+            flat_button(up_row, 'Get the newest Wingman.exe', lambda: run_update('exe'), fill=True).pack(side='left')
+        else:
+            flat_button(up_row, 'Update from Prod', lambda: run_update('Prod'), fill=True).pack(side='left')
+            flat_button(up_row, 'Update from dev', lambda: run_update('dev')).pack(side='left', padx=(8, 0))
         up_msg.pack(fill='x', pady=(6, 0))
+        def look_newest():
+            rel = latest_release()
+            def put():
+                try:
+                    if not rel: newest.config(text='no public release yet', fg=FAINT)
+                    elif ver_num(rel['ver']) > ver_num(VERSION): newest.config(text='%s is out' % rel['ver'], fg=GOLDD)
+                    else: newest.config(text='up to date', fg=GREEN)
+                except tk.TclError: pass
+            try: root.after(0, put)
+            except Exception: pass
+        threading.Thread(target=look_newest, daemon=True).start()
+
+        # share it: one link that lets your mates pick the exe or the .bat
+        share_ = tk.Frame(outer, bg=INK); share_.pack(fill='x', pady=(8, 0))
+        share_msg = tk.Label(share_, text='Sends them to the download page, where they pick the exe or the .bat.',
+                             fg=MUT, bg=INK, font=F_SMALL, anchor='w', justify='left', wraplength=250)
+        def copy_link():
+            try:
+                win.clipboard_clear(); win.clipboard_append(DOWNLOAD_PAGE)
+                share_msg.config(text='Copied: ' + DOWNLOAD_PAGE, fg=GREEN)
+            except Exception as e:
+                share_msg.config(text='Could not copy it: %s' % e, fg=REDC)
+        flat_button(share_, 'Share with mates', copy_link).pack(side='left')
+        share_msg.pack(side='left', padx=(10, 0), fill='x')
+
         def where_am_i():
             b = git_branch(os.path.dirname(self_path()))
             def say():
@@ -7311,6 +7434,42 @@ def main():
             except Exception as e:
                 log('test: %r' % (e,))
     threading.Thread(target=test_watch, daemon=True).start()
+
+    # A newer public release: say so on the bar at the menu, one click to take it. The exe swaps
+    # itself; a .bat takes Prod. Ash's own setup publishes and restarts by itself, so not there.
+    clear_old_exe()
+    def nudge_update():
+        time.sleep(NUDGE_AFTER)
+        rel = newer_release()
+        if not rel or (not FROZEN and find_publish()): return
+        def take():
+            host_msg.config(text='Getting %s...' % rel['ver'], fg=MUT)
+            def work():
+                try:
+                    if FROZEN:
+                        path_ = update_exe(rel)
+                        import subprocess
+                        subprocess.Popen([path_, '--wait-turn'], close_fds=True)
+                    else:
+                        ok_, text_, path_ = update_from_github('Prod')
+                        if not path_:
+                            root.after(0, lambda t=text_, c=(MUT if ok_ else REDC): host_msg.config(text=t, fg=c))
+                            return
+                        restart_app(path_)
+                    root.after(0, lambda: (root.destroy(), os._exit(0)))
+                except Exception as e:
+                    log('update from the bar: %r' % (e,))
+                    root.after(0, lambda t='Could not update: %s' % e: host_msg.config(text=t, fg=REDC))
+            threading.Thread(target=work, daemon=True).start()
+        def show():
+            if host_msg.cget('text').strip():                     # something more pressing is up
+                root.after(30000, show); return
+            host_msg.config(text='\u2191 Wingman %s is out. Click here to update.' % rel['ver'], fg=GOLDD)
+            st['actions'][host_msg] = take; bind_all(host_msg)
+            foot_fit()
+        try: root.after(0, show)
+        except Exception: pass
+    threading.Thread(target=nudge_update, daemon=True).start()
 
     def show_opponents(players):
         for w in opp_area.winfo_children(): w.destroy()
