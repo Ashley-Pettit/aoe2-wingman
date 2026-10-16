@@ -3,87 +3,390 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="AoE2 Wingman: a small always-on-top helper for Age of Empires II: Definitive Edition ranked games.">
-<title>AoE2 Wingman: Download</title>
+<title>AoE2 Wingman</title>
+<meta name="description" content="A free overlay for Age of Empires II: DE. Walks you through a build order off your pop counter, scouts your opponent from public games, and nudges you when you forget.">
+<meta property="og:title" content="AoE2 Wingman">
+<meta property="og:description" content="Your build order, on top of the game. Free overlay for Age of Empires II: DE.">
+<meta property="og:image" content="https://ashley-pettit.github.io/aoe2-wingman/img/in-game.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--stone:#17130c;--panel:#221c12;--rim:#4a3a20;--bronze:#a9823c;--gold:#e3c06a;--gold-hot:#f0d796;--text:#efe6d2;--muted:#b3a68a;--red:#d8343a;color-scheme:dark;font-family:Georgia,'Times New Roman',serif}
+:root{
+  --ink:#100d08;--stone:#17130c;--panel:#221b11;--panel2:#2a2116;--edge:#3a2f1f;--rim:#6d5222;
+  --bronze:#a9823c;--gold:#d8b253;--gold-hot:#f0d796;--text:#ece2c8;--muted:#a2937a;--faint:#7c6f5c;
+  --red:#d8343a;--green:#88b060;
+  --serif:'Cinzel',Georgia,serif;--sans:'Source Sans 3',system-ui,'Segoe UI',sans-serif;
+  color-scheme:dark;
+}
 *{box-sizing:border-box}
-body{margin:0;background:var(--stone);color:var(--text);line-height:1.6}
-main{max-width:960px;margin:auto;padding:48px 20px 72px}
-.eyebrow{color:var(--bronze);font:700 .78rem/1.2 system-ui,'Segoe UI',sans-serif;letter-spacing:.14em;text-transform:uppercase}
-h1{font-size:clamp(2.4rem,7vw,4.2rem);line-height:1.05;margin:12px 0 10px;color:var(--gold)}
-h2{font-size:1.35rem;margin:0 0 8px;color:var(--gold)}
-p{max-width:66ch;margin:0 0 12px}
-.lead{font-size:1.15rem;color:var(--text)}
-.hero{display:grid;grid-template-columns:1.05fr 1fr;gap:32px;align-items:center;margin:28px 0 52px}
-.hero img{width:100%;border-radius:10px;border:1px solid var(--rim);box-shadow:0 0 0 4px var(--panel)}
-.buttons{display:flex;flex-wrap:wrap;gap:12px;margin:18px 0 10px}
-.button{display:inline-block;border-radius:8px;padding:13px 20px;text-decoration:none;font:700 1rem/1.2 system-ui,'Segoe UI',sans-serif}
-.button.main{background:var(--gold);color:var(--stone)}
-.button.main:hover{background:var(--gold-hot)}
-.button.alt{background:var(--panel);color:var(--text);border:1px solid var(--rim)}
-.button.alt:hover{border-color:var(--bronze)}
-.small{font:.88rem/1.5 system-ui,'Segoe UI',sans-serif;color:var(--muted)}
-.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:20px 0 36px}
-.card{padding:20px;border-radius:10px;background:var(--panel);border:1px solid var(--rim)}
-.card p{font:.95rem/1.55 system-ui,'Segoe UI',sans-serif;color:var(--text)}
-.card ul{margin:0;padding-left:18px;font:.95rem/1.6 system-ui,'Segoe UI',sans-serif}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--ink);color:var(--text);font:400 17px/1.6 var(--sans);overflow-x:hidden}
 a{color:var(--gold-hot)}
-.note{border-left:3px solid var(--bronze);padding:4px 0 4px 14px;margin:8px 0 28px}
-footer{padding-top:20px;border-top:1px solid var(--rim)}
-@media(max-width:760px){.hero,.cards{grid-template-columns:1fr}main{padding-top:28px}}
+img{max-width:100%;display:block}
+svg{display:block}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+
+/* backdrop: warm torchlight over dark stone */
+.sky{position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(900px 520px at 78% -8%,rgba(216,178,83,.16),transparent 60%),
+    radial-gradient(700px 500px at -10% 30%,rgba(169,130,60,.10),transparent 60%),
+    radial-gradient(1200px 700px at 50% 120%,rgba(120,60,30,.18),transparent 60%),
+    linear-gradient(180deg,#130f09 0%,#0e0b07 100%)}
+.sky:after{content:"";position:absolute;inset:0;opacity:.35;
+  background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0 1px,transparent 1px 4px),
+                   repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 1px,transparent 1px 3px)}
+
+/* nav */
+nav{position:sticky;top:0;z-index:10;backdrop-filter:blur(8px);background:rgba(16,13,8,.72);border-bottom:1px solid rgba(109,82,34,.35)}
+nav .wrap{display:flex;align-items:center;gap:22px;height:60px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--gold);font:800 18px/1 var(--serif);letter-spacing:.12em}
+.brand svg{width:26px;height:26px}
+nav .links{margin-left:auto;display:flex;gap:22px}
+nav .links a{color:var(--muted);text-decoration:none;font-weight:600;font-size:15px}
+nav .links a:hover{color:var(--gold-hot)}
+nav .cta{padding:8px 14px;border-radius:7px;background:var(--gold);color:var(--ink)!important}
+nav .cta:hover{background:var(--gold-hot)}
+
+/* hero */
+.hero{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center;padding:72px 0 64px}
+.eyebrow{display:inline-flex;align-items:center;gap:10px;color:var(--bronze);font:700 12px/1 var(--sans);letter-spacing:.22em;text-transform:uppercase}
+.eyebrow:before{content:"";width:28px;height:1px;background:var(--bronze)}
+h1{font:800 clamp(36px,5vw,58px)/1.08 var(--serif);margin:18px 0 18px;letter-spacing:.01em;
+  background:linear-gradient(180deg,#fbe7b0 0%,#e2bd62 45%,#a9823c 100%);-webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 0 40px rgba(216,178,83,.12)}
+.lead{font-size:20px;color:var(--text);max-width:34em;margin:0 0 26px}
+.lead b{color:var(--gold-hot);font-weight:600}
+.buttons{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:10px;border-radius:9px;padding:14px 22px;text-decoration:none;font:700 16px/1 var(--sans);transition:transform .15s,background .15s,border-color .15s}
+.btn:hover{transform:translateY(-1px)}
+.btn.main{background:linear-gradient(180deg,#f0d796,#d8b253);color:#1a1409;box-shadow:0 6px 24px rgba(216,178,83,.25),inset 0 1px 0 rgba(255,255,255,.5)}
+.btn.alt{background:rgba(34,27,17,.8);color:var(--text);border:1px solid var(--edge)}
+.btn.alt:hover{border-color:var(--bronze)}
+.btn svg{width:18px;height:18px}
+.fine{margin-top:14px;color:var(--faint);font-size:14px}
+
+/* the overlay mock: the real look of the build strip, drawn in the page */
+.stage{position:relative;padding:54px 30px}
+.stage:before{content:"";position:absolute;inset:0;border-radius:18px;
+  background:radial-gradient(120% 90% at 30% 20%,rgba(88,120,60,.35),transparent 60%),
+             radial-gradient(90% 90% at 80% 90%,rgba(120,90,50,.35),transparent 60%),#2b2a1c;
+  box-shadow:inset 0 0 120px rgba(0,0,0,.75);border:1px solid rgba(109,82,34,.4)}
+.stage .field{position:absolute;inset:0;border-radius:18px;overflow:hidden;opacity:.55}
+.stage .field i{position:absolute;width:34px;height:34px;opacity:.85;filter:drop-shadow(0 3px 2px rgba(0,0,0,.5))}
+.ov{position:relative;background:linear-gradient(180deg,#1b160e,#15110a);border:2px solid var(--rim);border-radius:6px;padding:12px 14px 14px;
+  box-shadow:0 20px 60px rgba(0,0,0,.6),0 0 0 1px #000;max-width:470px;margin:0 auto;font-family:var(--sans)}
+.ov:before,.ov:after,.ov i.c1,.ov i.c2{content:"";position:absolute;width:12px;height:12px;border:2px solid var(--bronze)}
+.ov:before{left:5px;top:5px;border-right:0;border-bottom:0}
+.ov:after{right:5px;bottom:5px;border-left:0;border-top:0}
+.ov i.c1{right:5px;top:5px;border-left:0;border-bottom:0}
+.ov i.c2{left:5px;bottom:5px;border-right:0;border-top:0}
+.ov .head{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text)}
+.ov .head .t{font-family:Georgia,serif}
+.ov .pill{margin-left:auto;display:inline-flex;align-items:center;gap:5px;background:#4a1d1c;color:#f6dcd8;border-radius:99px;padding:2px 9px;font:700 10px/1.4 var(--sans);letter-spacing:.06em}
+.ov .pill:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red)}
+.ov .wl{color:var(--muted);font-size:12px}
+.strip{margin-top:10px;background:var(--panel);border:1px solid var(--edge);padding:9px 11px 10px}
+.strip .cap{display:flex;gap:8px;font-size:11px;color:var(--bronze);letter-spacing:.04em}
+.strip .cap b{font-weight:600;color:var(--bronze)}
+.strip .cap span{margin-left:auto;color:var(--muted);white-space:nowrap}
+#mHead:before{content:"\00b7  ";white-space:pre}
+.prog{display:flex;gap:3px;margin:7px 0 7px}
+.prog i{flex:1;height:3px;background:var(--edge);transition:background .3s}
+.prog i.d{background:var(--bronze)}.prog i.n{background:var(--gold)}
+.now{display:flex;align-items:center;gap:9px;color:var(--gold-hot);font:700 17px/1.3 Georgia,serif;min-height:44px}
+.now svg{width:24px;height:24px;flex:none}
+.next{display:flex;align-items:center;gap:6px;color:var(--faint);font-size:12.5px;margin-top:2px;min-height:18px}
+.next svg{width:14px;height:14px;flex:none}
+.now.flash{animation:flash .5s ease}
+@keyframes flash{from{opacity:.2;transform:translateY(3px)}to{opacity:1;transform:none}}
+.stage .tag{position:absolute;left:50%;transform:translateX(-50%);white-space:nowrap;bottom:-14px;background:var(--ink);border:1px solid var(--rim);color:var(--muted);font-size:12.5px;border-radius:99px;padding:5px 12px}
+.stage .tag b{color:var(--gold-hot);font-weight:600}
+
+/* sections */
+section{padding:72px 0}
+.kicker{color:var(--bronze);font:700 12px/1 var(--sans);letter-spacing:.22em;text-transform:uppercase;margin-bottom:12px}
+h2{font:800 clamp(28px,4vw,40px)/1.1 var(--serif);color:var(--gold);margin:0 0 14px}
+.sub{color:var(--muted);max-width:44em;margin:0 0 30px;font-size:18px}
+.rule{height:1px;background:linear-gradient(90deg,transparent,var(--rim),transparent);position:relative;margin:0}
+.rule:after{content:"";position:absolute;left:50%;top:-4px;width:8px;height:8px;background:var(--bronze);transform:translateX(-50%) rotate(45deg)}
+
+/* Hera's builds */
+.builds{display:grid;grid-template-columns:300px 1fr;gap:26px;align-items:start}
+.picker{background:rgba(23,19,12,.85);border:1px solid var(--edge);border-radius:12px;padding:12px}
+.picker h4{margin:14px 6px 6px;color:var(--bronze);font:700 11px/1 var(--sans);letter-spacing:.18em;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.picker h4:after{content:"";flex:1;height:1px;background:var(--edge)}
+.picker h4:first-child{margin-top:4px}
+.pick{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-left:3px solid transparent;color:var(--text);
+  padding:8px 10px;font:600 15px/1.2 var(--sans);cursor:pointer;border-radius:0 6px 6px 0}
+.pick small{margin-left:auto;font-weight:400;color:var(--muted);font-size:12px;white-space:nowrap;background:var(--panel);padding:2px 7px;border-radius:4px}
+.pick:hover{background:var(--panel);border-left-color:var(--rim);color:var(--gold-hot)}
+.pick.on{background:var(--panel);border-left-color:var(--gold);color:var(--gold-hot)}
+.pick.on small{background:var(--ink);color:var(--text)}
+.card{background:linear-gradient(180deg,rgba(34,27,17,.95),rgba(23,19,12,.95));border:1px solid var(--edge);border-radius:12px;padding:24px 26px;position:relative}
+.bhead{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;margin-bottom:6px}
+.bhead h3{margin:0;font:800 26px/1.15 var(--serif);color:var(--gold-hot)}
+.badge{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--rim);color:var(--gold);border-radius:99px;padding:4px 12px;font-weight:700;font-size:14px}
+.badge svg{width:16px;height:16px}
+.steps{list-style:none;margin:18px 0 0;padding:0;position:relative}
+.steps:before{content:"";position:absolute;left:86px;top:6px;bottom:6px;width:2px;background:linear-gradient(var(--edge),var(--rim),var(--edge))}
+.steps li{display:grid;grid-template-columns:62px 26px 1fr;gap:12px;align-items:center;padding:7px 0;position:relative}
+.steps .p{justify-self:end;font:700 13px/1 var(--sans);color:var(--muted);background:var(--panel2);border:1px solid var(--edge);border-radius:5px;padding:5px 7px;white-space:nowrap;min-width:46px;text-align:center}
+.steps .ic{width:26px;height:26px;border-radius:50%;background:var(--stone);box-shadow:0 0 0 2px var(--edge);display:grid;place-items:center;z-index:1}
+.steps .ic svg{width:20px;height:20px}
+.steps .tx{color:var(--text)}
+.steps li.up .p{background:var(--gold);color:#1a1409;border-color:var(--gold)}
+.steps li.up .ic{box-shadow:0 0 0 2px var(--gold),0 0 18px rgba(216,178,83,.45)}
+.steps li.up .tx{color:var(--gold-hot);font-weight:700}
+.credit{display:flex;gap:12px;align-items:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--edge);color:var(--muted);font-size:14.5px}
+.credit svg{width:22px;height:22px;flex:none}
+.credit b{color:var(--gold-hot);font-weight:600}
+
+/* features */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.feat{background:rgba(34,27,17,.75);border:1px solid var(--edge);border-radius:12px;padding:22px;transition:border-color .2s,transform .2s}
+.feat:hover{border-color:var(--rim);transform:translateY(-2px)}
+.feat .fi{width:44px;height:44px;border-radius:10px;background:var(--stone);border:1px solid var(--edge);display:grid;place-items:center;margin-bottom:14px}
+.feat .fi svg{width:28px;height:28px}
+.feat h3{margin:0 0 6px;font:700 19px/1.2 var(--serif);color:var(--gold-hot)}
+.feat p{margin:0;color:var(--muted);font-size:15.5px}
+
+/* screenshots */
+.shots{display:grid;grid-template-columns:1.2fr .8fr;gap:22px;align-items:start}
+.frame{background:var(--panel);border:1px solid var(--rim);border-radius:12px;padding:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.frame img{border-radius:6px;width:100%;image-rendering:auto}
+.frame figcaption{color:var(--muted);font-size:14px;padding:10px 4px 2px}
+.stack{display:grid;gap:22px}
+
+/* install */
+.steps3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;counter-reset:s}
+.st{background:rgba(34,27,17,.75);border:1px solid var(--edge);border-radius:12px;padding:22px 22px 20px;position:relative}
+.st:before{counter-increment:s;content:counter(s);position:absolute;top:-14px;left:20px;width:30px;height:30px;border-radius:50%;
+  background:var(--gold);color:#1a1409;font:800 15px/30px var(--serif);text-align:center;box-shadow:0 0 0 4px var(--ink)}
+.st h3{margin:8px 0 6px;font:700 18px/1.2 var(--serif);color:var(--gold-hot)}
+.st p{margin:0;color:var(--muted);font-size:15.5px}
+.note{margin-top:22px;border-left:3px solid var(--bronze);padding:6px 0 6px 16px;color:var(--muted);font-size:15px}
+.honest{display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:center;background:linear-gradient(90deg,rgba(136,176,96,.08),transparent);border:1px solid var(--edge);border-radius:12px;padding:24px}
+.honest svg{width:52px;height:52px}
+.honest h3{margin:0 0 4px;font:700 22px/1.2 var(--serif);color:var(--gold-hot)}
+.honest p{margin:0;color:var(--muted)}
+
+footer{padding:40px 0 60px;color:var(--faint);font-size:14px;border-top:1px solid rgba(109,82,34,.35)}
+footer .wrap{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center}
+footer a{color:var(--muted)}
+footer .r{margin-left:auto}
+
+.reveal{opacity:0;transform:translateY(14px);transition:opacity .6s,transform .6s}
+.reveal.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none}.now.flash{animation:none}}
+
+@media(max-width:900px){
+  .hero{grid-template-columns:1fr;gap:34px;padding-top:44px}
+  .builds{grid-template-columns:1fr}
+  .picker{display:flex;gap:6px;overflow-x:auto;padding:8px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+  .picker h4{display:none}
+  .pick{flex:none;width:auto;border-left:0;border-bottom:3px solid transparent;border-radius:6px 6px 0 0;background:var(--panel)}
+  .pick.on{border-bottom-color:var(--gold)}
+  .pick small{display:none}
+  .grid,.steps3{grid-template-columns:1fr 1fr}
+  .shots{grid-template-columns:1fr}
+  .ov{margin:0 auto}
+}
+@media(max-width:600px){
+  .wrap{padding:0 16px}
+  nav .links a:not(.cta){display:none}
+  .grid,.steps3{grid-template-columns:1fr}
+  .stage{padding:14px}
+  .card{padding:18px 16px}
+  .steps li{grid-template-columns:52px 26px 1fr;gap:10px}
+  .steps:before{left:74px}
+  .lead{font-size:18px}
+  #mHead{display:none}
+  section{padding:56px 0}
+  .honest{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
-<main>
-<div class="eyebrow">Age of Empires II: Definitive Edition</div>
-<div class="hero">
-<div>
-<h1>Wingman</h1>
-<p class="lead">A small helper that sits on top of the game while you play ranked. Map facts, a scouting report on your opponent, alerts when you forget something, and your record.</p>
-<div class="buttons">
-<a class="button main" href="https://github.com/Ashley-Pettit/aoe2-wingman/releases/latest/download/Wingman.exe">Download Wingman.exe</a>
-<a class="button alt" href="https://github.com/Ashley-Pettit/aoe2-wingman/releases/latest/download/AoE2.Wingman.bat">Python version (.bat)</a>
-</div>
-<p class="small">Windows only. Free. <a href="https://github.com/Ashley-Pettit/aoe2-wingman/releases">All releases</a></p>
-</div>
-<img src="https://raw.githubusercontent.com/Ashley-Pettit/aoe2-wingman/Prod/docs/in-game.png" alt="Wingman in a game on Arabia, showing the map's resources and the opponent">
+<div class="sky"></div>
+
+<nav><div class="wrap">
+  <a class="brand" href="#top"><svg viewBox="0 0 32 32"><path d="M16 2 28 6.5 26 19 16 30 6 19 4 6.5Z" fill="#a9823c"/><path d="M16 6 24 9 22.5 18 16 25.5 9.5 18 8 9Z" fill="#d8b253"/><path d="M16 9 16 22" stroke="#2a2116" stroke-width="2"/><path d="M11.5 13.5h9" stroke="#2a2116" stroke-width="2"/></svg>WINGMAN</a>
+  <div class="links">
+    <a href="#builds">Hera's builds</a>
+    <a href="#features">Features</a>
+    <a href="#install">Install</a>
+    <a class="cta" href="https://github.com/Ashley-Pettit/aoe2-wingman/releases/latest/download/Wingman.exe">Download</a>
+  </div>
+</div></nav>
+
+<main id="top">
+<div class="wrap">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Age of Empires II: Definitive Edition</div>
+      <h1>Your build order, on top of the game.</h1>
+      <p class="lead">Wingman is a small free overlay for ranked. It reads your <b>pop counter</b> and walks you through the build one step at a time, sizes up your opponent from their public games, and gives you a nudge when your Town Center goes idle.</p>
+      <div class="buttons">
+        <a class="btn main" href="https://github.com/Ashley-Pettit/aoe2-wingman/releases/latest/download/Wingman.exe"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 20h16" fill="none" stroke="#1a1409" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Download for Windows</a>
+        <a class="btn alt" href="#builds">See the builds</a>
+      </div>
+      <div class="fine">Free. No account. Windows only. <a href="https://github.com/Ashley-Pettit/aoe2-wingman/releases/latest/download/AoE2.Wingman.bat">Python version (.bat)</a></div>
+    </div>
+
+    <div class="stage reveal">
+      <div class="field" id="field"></div>
+      <div class="ov" aria-label="The Wingman build order strip, playing through a build">
+        <i class="c1"></i><i class="c2"></i>
+        <div class="head"><span class="t">AoE2 Wingman</span><span class="pill">LIVE</span><span class="wl">W/L</span></div>
+        <div class="strip">
+          <div class="cap"><b id="mName">TOWER RUSH</b><b id="mHead">18 pop, Feudal 8:25</b><span id="mPop">pop 2-7</span></div>
+          <div class="prog" id="mProg"></div>
+          <div class="now" id="mNow"></div>
+          <div class="next" id="mNext"></div>
+        </div>
+      </div>
+      <div class="tag">Follows your pop counter. <b>Live preview.</b></div>
+    </div>
+  </div>
 </div>
 
-<div class="cards">
-<section class="card">
-<h2>Knows the map</h2>
-<p>Sheep, boar and relics on the map, counted off as you find them.</p>
-</section>
-<section class="card">
-<h2>Scouts your opponent</h2>
-<p>Their rating, how they usually open, when they usually hit Feudal and Castle, and what beats their unique unit. All from their public games.</p>
-</section>
-<section class="card">
-<h2>Nags you, nicely</h2>
-<p>Idle Town Center, houses, your Feudal and Castle buildings, and a build order that follows your pop.</p>
-</section>
-</div>
+<div class="rule"></div>
 
-<h2>Pick how to run it</h2>
-<div class="cards">
-<section class="card">
-<h2>Wingman.exe</h2>
-<ul><li>Download and double-click</li><li>Nothing else to install</li><li>Update by downloading the new one</li></ul>
+<section id="builds">
+  <div class="wrap">
+    <div class="kicker">Build orders</div>
+    <h2>Hera's builds, one step at a time</h2>
+    <p class="sub">Fourteen builds from Hera's strategy guide, cut down to one line per step so you can read them mid game. Each line lands on the pop the villager comes out at, and the Feudal click lands on your last villager.</p>
+    <div class="builds">
+      <div class="picker" id="picker"></div>
+      <div class="card" id="build"></div>
+    </div>
+  </div>
 </section>
-<section class="card">
-<h2>AoE2 Wingman.bat</h2>
-<ul><li>Needs Python installed first</li><li>Updates itself from Settings</li><li>Gets new bits first</li></ul>
-</section>
-<section class="card">
-<h2>Not cheating</h2>
-<p>It only uses what you can already see: the lobby, your own screen and the public ladder. It never reads the game's memory.</p>
-</section>
-</div>
 
-<p class="note small">The first time you run Wingman.exe, Windows may say it "protected your PC", because the file is not signed. Click <strong>More info</strong>, then <strong>Run anyway</strong>. <a href="https://github.com/Ashley-Pettit/aoe2-wingman#how-to-install">Full install guide</a></p>
+<div class="rule"></div>
 
-<footer class="small">Made by a player, for players. <a href="https://github.com/Ashley-Pettit/aoe2-wingman">Source code on GitHub</a></footer>
+<section id="features">
+  <div class="wrap">
+    <div class="kicker">What it does</div>
+    <h2>A wingman, not an autopilot</h2>
+    <p class="sub">Everything it shows you is something you could already see. It just puts it where your eyes are.</p>
+    <div class="grid">
+      <div class="feat reveal"><div class="fi"><svg viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="9.0" cy="16.0" rx="6.0" ry="6.0" fill="#efe6d2"/><ellipse cx="14.0" cy="12.0" rx="6.0" ry="6.0" fill="#efe6d2"/><ellipse cx="20.0" cy="12.0" rx="6.0" ry="6.0" fill="#efe6d2"/><ellipse cx="24.0" cy="16.0" rx="6.0" ry="6.0" fill="#efe6d2"/><ellipse cx="20.0" cy="20.0" rx="6.0" ry="6.0" fill="#efe6d2"/><ellipse cx="13.0" cy="20.0" rx="6.0" ry="6.0" fill="#efe6d2"/><ellipse cx="16.0" cy="16.0" rx="6.0" ry="6.0" fill="#efe6d2"/><rect x="9.8" y="21" width="2.4" height="7" rx="1" fill="#3a3128"/><rect x="13.8" y="21" width="2.4" height="7" rx="1" fill="#3a3128"/><rect x="17.8" y="21" width="2.4" height="7" rx="1" fill="#3a3128"/><rect x="21.8" y="21" width="2.4" height="7" rx="1" fill="#3a3128"/><ellipse cx="6.0" cy="15.5" rx="4.0" ry="4.5" fill="#3a3128"/><ellipse cx="7.0" cy="10.5" rx="2.0" ry="1.5" fill="#3a3128"/></svg></div><h3>Knows the map</h3><p>Sheep, boar and relics for the map you're on, counted off as you find them.</p></div>
+      <div class="feat reveal"><div class="fi"><svg viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="18.5" cy="16.5" rx="9.5" ry="5.5" fill="#9a6a45"/><polygon points="12,14 6,4 10,2 16,13" fill="#9a6a45"/><polygon points="6,4 1,9 3,11 8,8" fill="#9a6a45"/><polyline points="9,3 14,12" fill="none" stroke="#3a3128" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="10.8" y="20" width="2.4" height="9" rx="1" fill="#5a3d28"/><rect x="14.8" y="20" width="2.4" height="9" rx="1" fill="#5a3d28"/><rect x="20.8" y="20" width="2.4" height="9" rx="1" fill="#5a3d28"/><rect x="24.8" y="20" width="2.4" height="9" rx="1" fill="#5a3d28"/></svg></div><h3>Scouts your opponent</h3><p>Their rating, how they usually open, when they hit Feudal and Castle, and how to answer it.</p></div>
+      <div class="feat reveal"><div class="fi"><svg viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16.0" cy="16.0" rx="14.0" ry="14.0" fill="#d8b253"/><ellipse cx="16.0" cy="16.0" rx="11.5" ry="11.5" fill="#2a2116"/><polygon points="16,7 24,16 19,16 19,25 13,25 13,16 8,16" fill="#f0d796"/></svg></div><h3>Follows your build</h3><p>Reads the pop counter off your screen and moves the build on as villagers come out.</p></div>
+      <div class="feat reveal"><div class="fi"><svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="3,15 16,4 29,15" fill="#a0503a"/><rect x="6" y="14" width="20" height="15" rx="1" fill="#d9c39a"/><rect x="13" y="19" width="6" height="10" rx="1" fill="#5a3d28"/></svg></div><h3>Nags you, nicely</h3><p>Idle Town Center, about to be housed, and a reminder to get your two Feudal buildings up.</p></div>
+      <div class="feat reveal"><div class="fi"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="9" y="9" width="14" height="21" rx="1" fill="#b3afa7"/><rect x="8" y="4" width="4" height="6" rx="0.5" fill="#b3afa7"/><rect x="14" y="4" width="4" height="6" rx="0.5" fill="#b3afa7"/><rect x="20" y="4" width="4" height="6" rx="0.5" fill="#b3afa7"/><rect x="14" y="14" width="4" height="6" rx="2" fill="#3a3128"/></svg></div><h3>Knows when it's gone</h3><p>Fall a long way behind on score and it tells you. It never resigns for you.</p></div>
+      <div class="feat reveal"><div class="fi"><svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28,7 26,19 16,29 6,19 4,7" fill="#a9823c"/><polygon points="16,7 24,10 22,18 16,25 10,18 8,10" fill="#d8b253"/></svg></div><h3>Keeps your record</h3><p>Wins and losses by civ and map, rating game by game, and which maps to ban.</p></div>
+    </div>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">In game</div>
+    <h2>Small, quiet, always on top</h2>
+    <p class="sub">It sits in a corner, rolls up when you want it out of the way, and never takes focus from the game.</p>
+    <div class="shots">
+      <figure class="frame reveal" style="margin:0"><img src="img/in-game.png" alt="Wingman during a game on Arabia: the map's resources and the opponent's scouting report" style="max-width:520px;margin:0 auto"><figcaption>During a game: the map, your opponent, and what beats their unique unit.</figcaption></figure>
+      <div class="stack">
+        <figure class="frame reveal" style="margin:0"><img src="img/alerts.png" alt="The Town Center idle and Build a house alerts" style="max-width:260px"><figcaption>Idle TC and house alerts sit under the Global Queue.</figcaption></figure>
+        <figure class="frame reveal" style="margin:0"><img src="img/behind.png" alt="The concede available warning"><figcaption>Tells you when a game looks gone.</figcaption></figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<section id="install">
+  <div class="wrap">
+    <div class="kicker">Install</div>
+    <h2>Two minutes, start to finish</h2>
+    <div class="steps3" style="margin-top:34px">
+      <div class="st reveal"><h3>Download</h3><p>Grab <a href="https://github.com/Ashley-Pettit/aoe2-wingman/releases/latest/download/Wingman.exe">Wingman.exe</a> and put it on your Desktop.</p></div>
+      <div class="st reveal"><h3>Run it</h3><p>Double-click. If Windows says it protected your PC, click <b>More info</b>, then <b>Run anyway</b>. The exe isn't signed, that's all.</p></div>
+      <div class="st reveal"><h3>Play ranked</h3><p>The small bar opens into the full panel when your match starts. Pick a build from the strip.</p></div>
+    </div>
+    <p class="note">Updates are one click from the bar when a new version is out. Prefer Python? The <a href="https://github.com/Ashley-Pettit/aoe2-wingman/releases/latest/download/AoE2.Wingman.bat">.bat version</a> updates itself from GitHub. <a href="https://github.com/Ashley-Pettit/aoe2-wingman/tree/dev#install-2-minutes">Full guide</a></p>
+  </div>
+</section>
+
+<section style="padding-top:0">
+  <div class="wrap">
+    <div class="honest reveal">
+      <svg viewBox="0 0 32 32"><path d="M16 2 28 6.5 26 19 16 30 6 19 4 6.5Z" fill="#88b060" opacity=".25"/><path d="M16 2 28 6.5 26 19 16 30 6 19 4 6.5Z" fill="none" stroke="#88b060" stroke-width="1.6"/><path d="M10.5 16.5l4 4 7.5-8.5" fill="none" stroke="#b5d48c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div><h3>Not a cheat</h3><p>It only uses what you can already see: the lobby, your own screen and the public ladder. It never reads the game's memory, never shows you anything hidden, and never moves a unit.</p></div>
+    </div>
+  </div>
+</section>
 </main>
+
+<footer><div class="wrap">
+  <span>Made by a player, for players. Free, and staying free.</span>
+  <span>Build orders from Hera's strategy guide. All credit to Hera.</span>
+  <span class="r"><a href="https://github.com/Ashley-Pettit/aoe2-wingman">Source on GitHub</a></span>
+</div></footer>
+
+<script>
+const D={"b":[{"g":"Scouts","n":"Scouts, one stable","h":"19 pop, Feudal 8:50","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-9","t":"2 to wood","i":"wood","up":false},{"pop":"10","t":"Lure the first boar","i":"boar","up":false},{"pop":"11","t":"House, then berries with the mill","i":"house","up":false},{"pop":"12-17","t":"6 hunt under the TC, one takes the second boar","i":"boar","up":false},{"pop":"18","t":"2 to wood. Lure deer with the scout","i":"wood","up":false},{"pop":"19","t":"Second one to wood. Loom, then click Feudal (up at 8:50)","i":"age","up":true},{"pop":"20+","t":"Barracks then stable, 3 scouts, double bit axe","i":"sword","up":false}]},{"g":"Scouts","n":"Scouts, two stables","h":"19 pop, Feudal 8:50","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-9","t":"2 to wood","i":"wood","up":false},{"pop":"10","t":"Lure the first boar","i":"boar","up":false},{"pop":"11","t":"House, then berries with the mill","i":"house","up":false},{"pop":"12-17","t":"6 hunt under the TC. Lure deer with the scout","i":"boar","up":false},{"pop":"18","t":"2 to wood","i":"wood","up":false},{"pop":"19","t":"Second one to wood. Loom, then click Feudal (up at 8:50)","i":"age","up":true},{"pop":"20+","t":"Barracks, then two stables, double bit axe","i":"sword","up":false}]},{"g":"Scouts","n":"Scouts into archers","h":"19 pop, Feudal 8:50","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-9","t":"2 to wood","i":"wood","up":false},{"pop":"10","t":"Lure the first boar","i":"boar","up":false},{"pop":"11","t":"1 hunts under the TC","i":"boar","up":false},{"pop":"12","t":"House, then the mill","i":"house","up":false},{"pop":"13","t":"Lure the second boar","i":"boar","up":false},{"pop":"14-18","t":"6 hunt under the TC","i":"boar","up":false},{"pop":"19","t":"Sixth one hunts. Loom, then click Feudal (up at 8:50)","i":"age","up":true},{"pop":"20+","t":"6 to wood until 8 on one camp, 4 berries, barracks, double bit axe","i":"wood","up":false}]},{"g":"Scouts","n":"Scouts into skirms","h":"19 pop, Feudal 8:50","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-9","t":"2 to wood","i":"wood","up":false},{"pop":"10","t":"Lure the first boar","i":"boar","up":false},{"pop":"11","t":"1 hunts under the TC","i":"boar","up":false},{"pop":"12","t":"House, then berries with the mill","i":"house","up":false},{"pop":"13","t":"Lure the second boar","i":"boar","up":false},{"pop":"14-18","t":"6 hunt under the TC. Lure deer with the scout","i":"boar","up":false},{"pop":"19","t":"Sixth one hunts. Loom, then click Feudal (up at 8:50)","i":"age","up":true},{"pop":"20+","t":"6 to wood until 8 on one camp, 4 berries, barracks and house","i":"wood","up":false}]},{"g":"Archers","n":"Archers, one range","h":"20 pop, Feudal 9:15","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-10","t":"3 to wood","i":"wood","up":false},{"pop":"11","t":"Lure the first boar","i":"boar","up":false},{"pop":"12","t":"House, then berries with the mill","i":"house","up":false},{"pop":"13-18","t":"6 hunt under the TC, one takes the second boar","i":"boar","up":false},{"pop":"19","t":"2 to wood. Lure deer with the scout","i":"wood","up":false},{"pop":"20","t":"Second one to wood. Loom, then click Feudal (up at 9:15)","i":"age","up":true},{"pop":"21+","t":"5 hunt to a second lumber camp, 2 berries, 3 gold, range up","i":"boar","up":false}]},{"g":"Infantry","n":"Men-at-arms","h":"19 pop, Feudal 8:50","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-10","t":"3 to wood, one builds a house in the wall","i":"wood","up":false},{"pop":"11","t":"Lure the first boar. Lure 2 deer, not optional","i":"boar","up":false},{"pop":"12-16","t":"5 hunt under the TC, take the second boar","i":"boar","up":false},{"pop":"17","t":"Barracks, then a house at the front. No mill yet","i":"sword","up":false},{"pop":"18","t":"2 more hunt","i":"boar","up":false},{"pop":"19","t":"Second one hunts. Loom, then click Feudal (up at 8:50)","i":"age","up":true},{"pop":"20+","t":"5 hunt to wood, 2 gold camp, 1 berries, 3 militia out","i":"boar","up":false}]},{"g":"Infantry","n":"Men-at-arms into skirms","h":"20 pop, Feudal 9:15","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-10","t":"3 to wood","i":"wood","up":false},{"pop":"11","t":"Lure the first boar","i":"boar","up":false},{"pop":"12","t":"House, then the mill on chickens, or berries","i":"house","up":false},{"pop":"13-14","t":"2 more to the mill. Lure a deer or two if you can","i":"berries","up":false},{"pop":"15","t":"Lure the second boar","i":"boar","up":false},{"pop":"16-17","t":"2 hunt under the TC","i":"boar","up":false},{"pop":"18","t":"Barracks, then a house at the front","i":"sword","up":false},{"pop":"19","t":"2 more hunt","i":"boar","up":false},{"pop":"20","t":"Second one hunts. Loom, then click Feudal (up at 9:15)","i":"age","up":true},{"pop":"21+","t":"Militia out, skirms behind them","i":"sword","up":false}]},{"g":"Infantry","n":"Feudal drush","h":"19 pop, Feudal 8:50","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-10","t":"3 to wood","i":"wood","up":false},{"pop":"11","t":"Lure the first boar","i":"boar","up":false},{"pop":"12","t":"House, then back to the hunt","i":"house","up":false},{"pop":"13-16","t":"4 hunt under the TC, take the second boar","i":"boar","up":false},{"pop":"17","t":"Barracks out front, house beside it. No mill yet","i":"sword","up":false},{"pop":"18","t":"1 more hunt","i":"boar","up":false},{"pop":"19","t":"1 to wood. Loom, then click Feudal (up at 8:50)","i":"age","up":true},{"pop":"20+","t":"Militia out, 1 to berries with the mill","i":"sword","up":false}]},{"g":"Infantry","n":"Double barracks eagles","h":"19 pop, Feudal 8:50","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-9","t":"2 to wood","i":"wood","up":false},{"pop":"10","t":"Lure the first boar","i":"boar","up":false},{"pop":"11","t":"1 hunts under the TC","i":"boar","up":false},{"pop":"12","t":"House, then the mill","i":"house","up":false},{"pop":"13","t":"Lure the second boar","i":"boar","up":false},{"pop":"14-18","t":"6 hunt under the TC. Lure deer with the scout","i":"boar","up":false},{"pop":"19","t":"Sixth one hunts. Loom if Aztecs or Incas, then click Feudal (up at 8:50)","i":"age","up":true},{"pop":"20+","t":"5 to wood for 7 on one camp, 2 gold, barracks and house, 3 berries","i":"wood","up":false}]},{"g":"Fast Castle","n":"Fast Castle boom","h":"24 pop, Castle 14:00","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-10","t":"3 to wood","i":"wood","up":false},{"pop":"11","t":"Lure the first boar","i":"boar","up":false},{"pop":"12","t":"House, then berries with the mill","i":"house","up":false},{"pop":"13-14","t":"2 hunt, one takes the second boar. Lure 3 deer","i":"boar","up":false},{"pop":"15-18","t":"4 to berries, seed 3 farms off the hunt","i":"berries","up":false},{"pop":"19-22","t":"4 to wood","i":"wood","up":false},{"pop":"23","t":"2 to gold","i":"gold","up":false},{"pop":"24","t":"Second one to gold. Click Feudal, no loom (up at 10:30)","i":"age","up":true},{"pop":"25-26","t":"Feudal is in: 2 more to wood, market and blacksmith","i":"wood","up":false},{"pop":"27+","t":"Click Castle as soon as both are up (in at 14:00)","i":"age","up":true}]},{"g":"Fast Castle","n":"Drush into Fast Castle","h":"31 pop, Castle 16:05","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-11","t":"4 to wood","i":"wood","up":false},{"pop":"12","t":"Lure the first boar","i":"boar","up":false},{"pop":"13","t":"2 houses, then a barracks","i":"house","up":false},{"pop":"14-17","t":"1 to gold, then back to the boar. 3 militia out","i":"gold","up":false},{"pop":"18","t":"Lure the second boar","i":"boar","up":false},{"pop":"19-23","t":"5 to berries, build the mill","i":"berries","up":false},{"pop":"24-27","t":"4 to wood on one camp, then loom","i":"wood","up":false},{"pop":"28-30","t":"4 to gold","i":"gold","up":false},{"pop":"31","t":"Fourth one to gold. Click Feudal (up at 12:35)","i":"age","up":true},{"pop":"32-33","t":"Feudal is in: 2 more to gold, range and blacksmith","i":"gold","up":false},{"pop":"34+","t":"Click Castle, keep the militia busy (in at 16:05)","i":"age","up":true}]},{"g":"Fast Castle","n":"Knight rush (easier)","h":"26 pop, Castle 16:05","s":[{"pop":"2-7","t":"2 houses first, then 6 to sheep","i":"house","up":false},{"pop":"8-10","t":"3 to wood","i":"wood","up":false},{"pop":"11","t":"Lure the first boar","i":"boar","up":false},{"pop":"12","t":"2 houses, then berries with the mill","i":"house","up":false},{"pop":"13","t":"1 hunts under the TC","i":"boar","up":false},{"pop":"14","t":"Lure the second boar","i":"boar","up":false},{"pop":"15-18","t":"4 to berries","i":"berries","up":false},{"pop":"19-23","t":"5 to wood","i":"wood","up":false},{"pop":"24-25","t":"A house, then 3 to gold","i":"house","up":false},{"pop":"26","t":"Third one to gold. Loom, then click Feudal (up at 11:45). Barracks and a house","i":"age","up":true},{"pop":"27+","t":"Stable and market, 4 more to gold, click Castle (in at 16:05)","i":"age","up":true}]},{"g":"Other","n":"Tower rush, any civ","h":"18 pop, Feudal 8:25","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-9","t":"2 to wood","i":"wood","up":false},{"pop":"10","t":"Lure the first boar","i":"boar","up":false},{"pop":"11","t":"1 hunts under the TC","i":"boar","up":false},{"pop":"12","t":"House, then the mill","i":"house","up":false},{"pop":"13","t":"Lure the second boar","i":"boar","up":false},{"pop":"14-17","t":"5 hunt under the TC","i":"boar","up":false},{"pop":"18","t":"Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)","i":"age","up":true},{"pop":"19+","t":"2 to stone with a camp, 5 forward, spears or skirms behind the towers","i":"stone","up":false}]},{"g":"Other","n":"Teuton tower rush","h":"18 pop, Feudal 8:25","s":[{"pop":"2-7","t":"6 to sheep under the TC","i":"sheep","up":false},{"pop":"8-9","t":"2 to wood","i":"wood","up":false},{"pop":"10","t":"Lure the first boar","i":"boar","up":false},{"pop":"11","t":"1 hunts under the TC","i":"boar","up":false},{"pop":"12","t":"House, then the mill","i":"house","up":false},{"pop":"13","t":"Lure the second boar","i":"boar","up":false},{"pop":"14-17","t":"5 hunt under the TC","i":"boar","up":false},{"pop":"18","t":"Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)","i":"age","up":true},{"pop":"19+","t":"2 to stone with a camp, 10 forward, tower 8 tiles off their wood","i":"stone","up":false}]}],"i":{"sheep":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><ellipse cx=\"9.0\" cy=\"16.0\" rx=\"6.0\" ry=\"6.0\" fill=\"#efe6d2\"/><ellipse cx=\"14.0\" cy=\"12.0\" rx=\"6.0\" ry=\"6.0\" fill=\"#efe6d2\"/><ellipse cx=\"20.0\" cy=\"12.0\" rx=\"6.0\" ry=\"6.0\" fill=\"#efe6d2\"/><ellipse cx=\"24.0\" cy=\"16.0\" rx=\"6.0\" ry=\"6.0\" fill=\"#efe6d2\"/><ellipse cx=\"20.0\" cy=\"20.0\" rx=\"6.0\" ry=\"6.0\" fill=\"#efe6d2\"/><ellipse cx=\"13.0\" cy=\"20.0\" rx=\"6.0\" ry=\"6.0\" fill=\"#efe6d2\"/><ellipse cx=\"16.0\" cy=\"16.0\" rx=\"6.0\" ry=\"6.0\" fill=\"#efe6d2\"/><rect x=\"9.8\" y=\"21\" width=\"2.4\" height=\"7\" rx=\"1\" fill=\"#3a3128\"/><rect x=\"13.8\" y=\"21\" width=\"2.4\" height=\"7\" rx=\"1\" fill=\"#3a3128\"/><rect x=\"17.8\" y=\"21\" width=\"2.4\" height=\"7\" rx=\"1\" fill=\"#3a3128\"/><rect x=\"21.8\" y=\"21\" width=\"2.4\" height=\"7\" rx=\"1\" fill=\"#3a3128\"/><ellipse cx=\"6.0\" cy=\"15.5\" rx=\"4.0\" ry=\"4.5\" fill=\"#3a3128\"/><ellipse cx=\"7.0\" cy=\"10.5\" rx=\"2.0\" ry=\"1.5\" fill=\"#3a3128\"/></svg>","boar":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><ellipse cx=\"17.0\" cy=\"17.0\" rx=\"11.0\" ry=\"7.0\" fill=\"#9a6a45\"/><polygon points=\"8,12 1,16 2,20 9,22\" fill=\"#9a6a45\"/><ellipse cx=\"2.0\" cy=\"18.0\" rx=\"2.0\" ry=\"2.0\" fill=\"#5a3d28\"/><polyline points=\"4,19 2,14\" fill=\"none\" stroke=\"#efe6d2\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"8.7\" y=\"21\" width=\"2.6\" height=\"7\" rx=\"1\" fill=\"#5a3d28\"/><rect x=\"13.7\" y=\"21\" width=\"2.6\" height=\"7\" rx=\"1\" fill=\"#5a3d28\"/><rect x=\"19.7\" y=\"21\" width=\"2.6\" height=\"7\" rx=\"1\" fill=\"#5a3d28\"/><rect x=\"23.7\" y=\"21\" width=\"2.6\" height=\"7\" rx=\"1\" fill=\"#5a3d28\"/><polygon points=\"14,10 18,6 22,10\" fill=\"#5a3d28\"/></svg>","deer":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><ellipse cx=\"17.5\" cy=\"17.0\" rx=\"9.5\" ry=\"5.0\" fill=\"#b98a55\"/><polygon points=\"10,15 6,7 9,6 13,13\" fill=\"#b98a55\"/><ellipse cx=\"6.5\" cy=\"7.5\" rx=\"3.5\" ry=\"2.5\" fill=\"#b98a55\"/><polyline points=\"7,6 5,1 3,2\" fill=\"none\" stroke=\"#6e4f2e\" stroke-width=\"1.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><polyline points=\"8,6 10,1 12,2\" fill=\"none\" stroke=\"#6e4f2e\" stroke-width=\"1.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"10\" y=\"20\" width=\"2\" height=\"9\" rx=\"1\" fill=\"#6e4f2e\"/><rect x=\"14\" y=\"20\" width=\"2\" height=\"9\" rx=\"1\" fill=\"#6e4f2e\"/><rect x=\"20\" y=\"20\" width=\"2\" height=\"9\" rx=\"1\" fill=\"#6e4f2e\"/><rect x=\"24\" y=\"20\" width=\"2\" height=\"9\" rx=\"1\" fill=\"#6e4f2e\"/></svg>","berries":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><ellipse cx=\"16.0\" cy=\"18.5\" rx=\"13.0\" ry=\"10.5\" fill=\"#3f6b33\"/><ellipse cx=\"13.0\" cy=\"12.0\" rx=\"7.0\" ry=\"7.0\" fill=\"#4d7d3c\"/><ellipse cx=\"10.0\" cy=\"14.0\" rx=\"2.6\" ry=\"2.6\" fill=\"#c0485a\"/><ellipse cx=\"17.0\" cy=\"12.0\" rx=\"2.6\" ry=\"2.6\" fill=\"#c0485a\"/><ellipse cx=\"22.0\" cy=\"18.0\" rx=\"2.6\" ry=\"2.6\" fill=\"#c0485a\"/><ellipse cx=\"13.0\" cy=\"21.0\" rx=\"2.6\" ry=\"2.6\" fill=\"#c0485a\"/><ellipse cx=\"19.0\" cy=\"24.0\" rx=\"2.6\" ry=\"2.6\" fill=\"#c0485a\"/><ellipse cx=\"25.0\" cy=\"23.0\" rx=\"2.6\" ry=\"2.6\" fill=\"#c0485a\"/><ellipse cx=\"8.0\" cy=\"22.0\" rx=\"2.6\" ry=\"2.6\" fill=\"#c0485a\"/></svg>","wood":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><rect x=\"4\" y=\"17\" width=\"13\" height=\"11\" rx=\"5\" fill=\"#7a5236\"/><ellipse cx=\"13.5\" cy=\"22.5\" rx=\"3.5\" ry=\"4.0\" fill=\"#d9b07a\"/><ellipse cx=\"13.5\" cy=\"22.5\" rx=\"1.0\" ry=\"1.5\" fill=\"#7a5236\"/><rect x=\"16\" y=\"17\" width=\"13\" height=\"11\" rx=\"5\" fill=\"#7a5236\"/><ellipse cx=\"25.5\" cy=\"22.5\" rx=\"3.5\" ry=\"4.0\" fill=\"#d9b07a\"/><ellipse cx=\"25.5\" cy=\"22.5\" rx=\"1.0\" ry=\"1.5\" fill=\"#7a5236\"/><rect x=\"10\" y=\"7\" width=\"13\" height=\"11\" rx=\"5\" fill=\"#7a5236\"/><ellipse cx=\"19.5\" cy=\"12.5\" rx=\"3.5\" ry=\"4.0\" fill=\"#d9b07a\"/><ellipse cx=\"19.5\" cy=\"12.5\" rx=\"1.0\" ry=\"1.5\" fill=\"#7a5236\"/></svg>","gold":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><polygon points=\"3,27 9,15 17,20 14,28\" fill=\"#c99a2e\"/><polygon points=\"12,28 17,13 27,17 29,28\" fill=\"#e2b84a\"/><polygon points=\"8,18 13,6 21,10 18,19\" fill=\"#f0d27a\"/></svg>","stone":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><polygon points=\"2,28 6,16 15,13 18,28\" fill=\"#8d8a84\"/><polygon points=\"13,28 17,10 27,12 30,28\" fill=\"#b3afa7\"/><polygon points=\"7,17 11,7 19,8 17,16\" fill=\"#cfcac0\"/></svg>","house":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><polygon points=\"3,15 16,4 29,15\" fill=\"#a0503a\"/><rect x=\"6\" y=\"14\" width=\"20\" height=\"15\" rx=\"1\" fill=\"#d9c39a\"/><rect x=\"13\" y=\"19\" width=\"6\" height=\"10\" rx=\"1\" fill=\"#5a3d28\"/></svg>","tower":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><rect x=\"9\" y=\"9\" width=\"14\" height=\"21\" rx=\"1\" fill=\"#b3afa7\"/><rect x=\"8\" y=\"4\" width=\"4\" height=\"6\" rx=\"0.5\" fill=\"#b3afa7\"/><rect x=\"14\" y=\"4\" width=\"4\" height=\"6\" rx=\"0.5\" fill=\"#b3afa7\"/><rect x=\"20\" y=\"4\" width=\"4\" height=\"6\" rx=\"0.5\" fill=\"#b3afa7\"/><rect x=\"14\" y=\"14\" width=\"4\" height=\"6\" rx=\"2\" fill=\"#3a3128\"/></svg>","sword":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><polyline points=\"6,26 25,5\" fill=\"none\" stroke=\"#d9d4cc\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><polyline points=\"8,18 14,24\" fill=\"none\" stroke=\"#a9823c\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><polyline points=\"4,28 8,24\" fill=\"none\" stroke=\"#7a5236\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>","bow":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><path d=\"M9 4 A13 13 0 0 1 9 28\" fill=\"none\" stroke=\"#b98a55\" stroke-width=\"3\"/><polyline points=\"9,4 9,28\" fill=\"none\" stroke=\"#efe6d2\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><polyline points=\"9,16 29,16\" fill=\"none\" stroke=\"#d9d4cc\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><polygon points=\"29,16 25,13.5 25,18.5\" fill=\"#d9d4cc\"/></svg>","horse":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><ellipse cx=\"18.5\" cy=\"16.5\" rx=\"9.5\" ry=\"5.5\" fill=\"#9a6a45\"/><polygon points=\"12,14 6,4 10,2 16,13\" fill=\"#9a6a45\"/><polygon points=\"6,4 1,9 3,11 8,8\" fill=\"#9a6a45\"/><polyline points=\"9,3 14,12\" fill=\"none\" stroke=\"#3a3128\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"10.8\" y=\"20\" width=\"2.4\" height=\"9\" rx=\"1\" fill=\"#5a3d28\"/><rect x=\"14.8\" y=\"20\" width=\"2.4\" height=\"9\" rx=\"1\" fill=\"#5a3d28\"/><rect x=\"20.8\" y=\"20\" width=\"2.4\" height=\"9\" rx=\"1\" fill=\"#5a3d28\"/><rect x=\"24.8\" y=\"20\" width=\"2.4\" height=\"9\" rx=\"1\" fill=\"#5a3d28\"/></svg>","loom":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><polygon points=\"16,3 28,7 26,19 16,29 6,19 4,7\" fill=\"#a9823c\"/><polygon points=\"16,7 24,10 22,18 16,25 10,18 8,10\" fill=\"#d8b253\"/></svg>","age":"<svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><ellipse cx=\"16.0\" cy=\"16.0\" rx=\"14.0\" ry=\"14.0\" fill=\"#d8b253\"/><ellipse cx=\"16.0\" cy=\"16.0\" rx=\"11.5\" ry=\"11.5\" fill=\"#2a2116\"/><polygon points=\"16,7 24,16 19,16 19,25 13,25 13,16 8,16\" fill=\"#f0d796\"/></svg>"}};
+const $=s=>document.querySelector(s);
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const ic=k=>k&&D.i[k]?D.i[k]:'';
+
+/* scattered map bits behind the overlay mock */
+(function(){const f=$('#field'),bits=['sheep','sheep','sheep','boar','berries','wood','wood','gold','stone','deer','sheep','wood'];
+  bits.forEach((k,n)=>{const i=document.createElement('i');i.innerHTML=ic(k);
+    i.style.left=(6+((n*37)%86))+'%';i.style.top=(8+((n*53)%80))+'%';i.style.transform='scale('+(.7+((n*7)%5)/10)+')';f.appendChild(i);});})();
+
+/* the overlay mock plays a build through, step by step */
+(function(){
+  const b=D.b.find(x=>x.n==='Tower rush, any civ')||D.b[0];let i=0;
+  const prog=$('#mProg');prog.innerHTML=b.s.map(()=>'<i></i>').join('');
+  $('#mName').textContent=b.n.toUpperCase();$('#mHead').textContent=b.h;
+  function show(){
+    const s=b.s[i],n=b.s[i+1];
+    $('#mPop').textContent='pop '+s.pop;
+    const now=$('#mNow');now.classList.remove('flash');void now.offsetWidth;now.classList.add('flash');
+    now.innerHTML=ic(s.i)+'<span>'+esc(s.t)+'</span>';
+    $('#mNext').innerHTML=n?(ic(n.i)+'<span>next&nbsp; '+esc(n.t)+'</span>'):'<span>last step</span>';
+    [...prog.children].forEach((e,k)=>e.className=k<i?'d':(k===i?'n':''));
+    i=(i+1)%b.s.length;
+  }
+  show();
+  if(!matchMedia('(prefers-reduced-motion: reduce)').matches) setInterval(show,2300);
+})();
+
+/* Hera's builds: pick one on the left, see every step on the right */
+(function(){
+  const pk=$('#picker'),card=$('#build');let last=null,cur=null;
+  D.b.forEach((b,k)=>{
+    if(b.g!==last){const h=document.createElement('h4');h.textContent=b.g;pk.appendChild(h);last=b.g;}
+    const btn=document.createElement('button');btn.className='pick';btn.type='button';
+    btn.innerHTML=esc(b.n)+'<small>'+esc(b.h.split(',')[0])+'</small>';
+    btn.onclick=()=>show(k,btn);pk.appendChild(btn);
+    if(cur===null&&b.n==='Scouts, one stable'){cur=[k,btn];}
+  });
+  function show(k,btn){
+    pk.querySelectorAll('.pick').forEach(x=>x.classList.toggle('on',x===btn));
+    const b=D.b[k],up=b.h.split(', ');
+    card.innerHTML='<div class="bhead"><h3>'+esc(b.n)+'</h3><span class="badge">'+ic('age')+esc(b.h)+'</span></div>'+
+      '<ol class="steps">'+b.s.map(s=>'<li class="'+(s.up?'up':'')+'"><span class="p">'+esc(s.pop)+'</span><span class="ic">'+ic(s.i)+'</span><span class="tx">'+esc(s.t)+'</span></li>').join('')+'</ol>'+
+      '<div class="credit">'+ic('loom')+'<span>From <b>Hera’s strategy guide</b> (December 2025 edition). Pop is villagers plus your scout. Your civ, map and start shift the numbers a little: treat it as the shape, not a script.</span></div>';
+  }
+  if(!cur){cur=[0,pk.querySelector('.pick')];}
+  show(cur[0],cur[1]);
+})();
+
+/* fade sections in as they scroll up */
+(function(){const els=document.querySelectorAll('.reveal');
+  if(!('IntersectionObserver' in window)){els.forEach(e=>e.classList.add('in'));return;}
+  const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}}),{threshold:.12});
+  els.forEach(e=>io.observe(e));})();
+</script>
 </body>
 </html>
