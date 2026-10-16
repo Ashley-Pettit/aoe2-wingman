@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v118'
+VERSION = 'v119'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -5245,30 +5245,45 @@ def build_list(parent, current, on_pick, bg=INK, width=330):
     gets a gold bar and gold name. on_pick(name or None)."""
     import tkinter as tk
     box = tk.Frame(parent, bg=bg)
+    tk.Frame(box, bg=bg, width=width, height=0).pack()             # holds the list at a steady width
     rows = {}
     def row(name, label, chip=None):
-        r = tk.Frame(box, bg=bg, cursor='hand2', width=width)
+        r = tk.Frame(box, bg=bg, cursor='hand2')
         r.pack(fill='x', pady=1)
-        bar = tk.Frame(r, bg=bg, width=3); bar.pack(side='left', fill='y')
+        r.columnconfigure(1, weight=1)
+        bar = tk.Frame(r, bg=bg, width=3, height=1); bar.grid(row=0, column=0, sticky='ns')
         nm = tk.Label(r, text=label, fg=TXT, bg=bg, font=F_SMALL, anchor='w', padx=8, pady=4, cursor='hand2')
-        nm.pack(side='left')
+        nm.grid(row=0, column=1, sticky='w')
         ch = None
         if chip:
             ch = tk.Label(r, text=chip, fg=MUT, bg=PANEL, font=F_TINY, padx=6, pady=1, cursor='hand2')
-            ch.pack(side='right', padx=(10, 6))
+            ch.grid(row=0, column=2, sticky='e', padx=(10, 6))
         parts = [w_ for w_ in (r, bar, nm, ch) if w_ is not None]
+        def inside():
+            try:
+                x, y = r.winfo_pointerxy()
+                return (r.winfo_rootx() <= x < r.winfo_rootx() + r.winfo_width()
+                        and r.winfo_rooty() <= y < r.winfo_rooty() + r.winfo_height())
+            except tk.TclError:
+                return False
         def paint(hot=False):
             on = (current[0] or None) == name
             back = PANEL if (hot or on) else bg
             for w_ in (r, nm): w_.config(bg=back)
             bar.config(bg=GOLDC if on else (RIM if hot else back))
-            nm.config(fg=GOLDD if on else (GOLDD if hot else (TXT if name else MUT)),
-                      font=(F_SMALL[0], F_SMALL[1], 'bold') if on else F_SMALL)
+            nm.config(fg=GOLDD if (on or hot) else (TXT if name else MUT))   # colour only: no reflow
             if ch is not None: ch.config(bg=INK if (hot or on) else PANEL, fg=TXT if on else MUT)
+        def hover(_e=None):
+            # Moving from the row onto its own label counts as leaving the row in Tk, so ask
+            # where the pointer really is instead, once things have settled. No flicker.
+            try: r.after_idle(lambda: r.winfo_exists() and paint(inside()))
+            except tk.TclError: pass
+        def release(_e=None, n_=name):
+            if inside(): pick(n_)
         for w_ in parts:
-            w_.bind('<Enter>', lambda e: paint(True), add='+')
-            w_.bind('<Leave>', lambda e: paint(False), add='+')
-            w_.bind('<Button-1>', lambda e, n_=name: pick(n_), add='+')
+            w_.bind('<Enter>', hover, add='+')
+            w_.bind('<Leave>', hover, add='+')
+            w_.bind('<ButtonRelease-1>', release, add='+')
         rows[name] = paint; paint()
     def pick(name):
         current[0] = name
@@ -5630,38 +5645,30 @@ def main():
 
     def bo_menu(anchor=None):
         """The builds in a small dark panel, right under the strip (or under the Build button).
-        Pick one and it closes; so does clicking away, Escape, or the mouse wandering off."""
+        Like the overlay it never takes focus from the game (the game mutes itself when it loses
+        focus). Pick one and it closes; so does a click anywhere else, or the mouse wandering off."""
         old = st.get('bo_pop')
         if old is not None:
+            st['bo_pop'] = None
             try: old.destroy()
             except tk.TclError: pass
-            st['bo_pop'] = None
             return
         pop_ = tk.Toplevel(root); st['bo_pop'] = pop_
+        pop_.withdraw()
         pop_.overrideredirect(True); pop_.attributes('-topmost', True); pop_.configure(bg=RIM)
         inner = tk.Frame(pop_, bg=INK, padx=10, pady=8); inner.pack(padx=1, pady=1)
         hd = tk.Frame(inner, bg=INK); hd.pack(fill='x')
         tk.Frame(hd, bg=GOLDC, width=3, height=14).pack(side='left', padx=(0, 7))
         tk.Label(hd, text='Build order', fg=GOLDC, bg=INK, font=F_HEAD).pack(side='left')
         tk.Label(hd, text=BUILD_SOURCE, fg=FAINT, bg=INK, font=F_TINY).pack(side='right', padx=(14, 0))
-        timer = {'id': None}
-        def close(_e=None):
-            if timer['id']:
-                try: root.after_cancel(timer['id'])
-                except Exception: pass
-            st['bo_pop'] = None
+        live = {'away': None}
+        def close():
+            if st.get('bo_pop') is pop_: st['bo_pop'] = None
             try: pop_.destroy()
             except tk.TclError: pass
         def chose(n_):
-            bo_pick(n_); close()
+            close(); bo_pick(n_)
         build_list(inner, [bo['name']], chose, bg=INK).pack(fill='x', pady=(4, 0))
-        def left(_e=None):
-            if timer['id']: root.after_cancel(timer['id'])
-            timer['id'] = root.after(2500, close)
-        def back(_e=None):
-            if timer['id']: root.after_cancel(timer['id']); timer['id'] = None
-        pop_.bind('<Leave>', left); pop_.bind('<Enter>', back)
-        pop_.bind('<Escape>', close); pop_.bind('<FocusOut>', lambda e: close() if e.widget is pop_ else None)
         at = anchor if anchor is not None or not bo_box.winfo_ismapped() else bo_box
         at = at if at is not None else bo_open
         pop_.update_idletasks()
@@ -5671,8 +5678,35 @@ def main():
         if y + h_ > sh_ - 40: y = max(0, at.winfo_rooty() - h_ - 4)     # no room below: open upwards
         x = max(0, min(x, sw_ - w_ - 4))
         pop_.geometry('+%d+%d' % (x, y))
-        try: pop_.focus_force()
-        except tk.TclError: pass
+        pop_.deiconify(); pop_.lift()
+        try:                                       # no activate, no taskbar button: same as the overlay
+            import ctypes
+            u32 = ctypes.windll.user32
+            u32.GetAncestor.restype = ctypes.c_void_p
+            u32.GetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            u32.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_long]
+            h = u32.GetAncestor(pop_.winfo_id(), 2)
+            u32.SetWindowLongW(ctypes.c_void_p(h), -20, u32.GetWindowLongW(ctypes.c_void_p(h), -20) | 0x08000000 | 0x80)
+            down = lambda: bool(u32.GetAsyncKeyState(0x01) & 0x8000) or bool(u32.GetAsyncKeyState(0x02) & 0x8000)
+        except Exception:
+            down = lambda: False
+        def over(w):
+            try:
+                px, py = w.winfo_pointerxy()
+                return (w.winfo_rootx() <= px < w.winfo_rootx() + w.winfo_width()
+                        and w.winfo_rooty() <= py < w.winfo_rooty() + w.winfo_height())
+            except tk.TclError:
+                return False
+        def watch():
+            if st.get('bo_pop') is not pop_: return
+            if over(pop_) or over(root):              # on the list, or still on the overlay
+                live['away'] = None
+            else:
+                if down() and not over(root): close(); return           # clicked somewhere else
+                live['away'] = live['away'] or time.time()
+                if time.time() - live['away'] > 4: close(); return      # wandered off
+            pop_.after(80, watch)
+        pop_.after(300, watch)
 
     def bo_step(by=1):
         if not bo['name']: return
@@ -6551,7 +6585,8 @@ def main():
     for w in (root, frame, head, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_cap, bo_at, bo_x, bo_now, bo_next, live_btn, bo_open): bind_all(w)
+              bo_box, bo_cap, bo_at, bo_x, bo_now, bo_next, bo_prog, live_btn, bo_open): bind_all(w)
+    st['actions'][bo_prog] = bo_menu
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
     st['actions'][bo_now] = lambda: bo_menu() if not bo['name'] else bo_step(1)
     st['actions'][bo_next] = bo_menu
