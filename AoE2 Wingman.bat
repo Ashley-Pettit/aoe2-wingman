@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v128'
+VERSION = 'v129'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -8001,22 +8001,14 @@ def main():
     # itself; a .bat takes Prod. Ash's own setup publishes and restarts by itself, so not there.
     clear_old_exe()
     # The exe: put it in the Start menu and on the Desktop the first time it runs, then keep those
-    # pointing at it if it moves. Pinning to the taskbar is the player's call (Windows only allows
-    # that by hand), so the first run says how.
+    # pointing at it if it moves. Done quietly; pinning to the taskbar is the player's call.
     def shortcuts_once():
         cfg_ = load_settings()
         if cfg_.get('shortcuts_made'):
             make_shortcuts(only_fix=True); return
         made = make_shortcuts()
         if not made: return
-        cfg_ = load_settings(); cfg_['shortcuts_made'] = True; save_settings(cfg_)
-        def say():
-            if host_msg.cget('text').strip(): return
-            host_msg.config(text='Wingman is in your Start menu and on your Desktop now. To pin it to the '
-                                 'taskbar: Start, find AoE2 Wingman, right-click it, Pin to taskbar.', fg=MUT)
-            foot_fit()
-        try: root.after(0, say)
-        except Exception: pass
+        cfg_ = load_settings(); cfg_['shortcuts_made'] = True; save_settings(cfg_)   # quietly: no message
     if FROZEN: threading.Thread(target=shortcuts_once, daemon=True).start()
     def nudge_update():
         time.sleep(NUDGE_AFTER)
