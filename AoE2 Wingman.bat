@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v125'
+VERSION = 'v126'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -2387,6 +2387,8 @@ APP_ICON_PNG = (  # the Wingman crest (64 and 32 px PNG), for the title bars and
     'OpvNjhav6GjxilBnszn03hvizYOtAwAClbH/fas47n77yI6FU8cOiYbqKquhuso6deyQePvIjgUA3U8rTk8HAOrqCilLiVs/'
     '/cvRvW99Ms45AHw7xNjho//4pbdp85/HxsYNoqe/jKwdoqeHAfDt2Vr1zvWTr4vrJ18Xe7Z63gHgq3z76q0iFDz8WuDi4e8H'
     'LgIIfmXrvpqFw5AAhACEKu//c6Mvm0v/V/ZvlsG3a7nIekkAAAAASUVORK5CYII=')
+
+CREST_20_PNG = 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAD5klEQVR42p1UXUybZRR+zvv15+tHgZaWn8IEGQwmNEwxQy9MRDEuWbLswo3pxRK92YXJLszMXKKxNHqDi8TEeDN3MROjUZbFH9RlY7Fsc4mGDRhScLQF1lGghdCW8rWl/d7XCz5GEzVze5I3Oe97znlyzptzHkIBPB6wVv9hmmiJUieAztYKIR05r3Gx6WcEaN8cknwTUfIBgA9A5xD3esHxkHDo54GgLePYsaeN90buthbL6bodFaU7y8usDWV2pb7YqtRaLHI1EaCmM5G1VDq8Gl8PRZdTwchSYkblltlKd+3EmTM3cwBAHg+Y1wveUmttefOVxvGO9gamwYhMDlhO5BCJqbi7kAQR4TFXMVwOC5ylJlhMgIQ8/rgV4J+dn26bDK9PeDxgBIABxAHR8P3HL4/8HhLKpV/9PLORIzWdhcTAiED5vAYiJoxGgzCZjIIxJvZ3udkzO0k9eOLSUwAFAcEMAARjAOdYiCczEYmzZsHzVOsqYZwLRFeSkBiD3WZFaj1DajoLW4kZnANMyyGe5BEACzqHYACEpr3PAKiTodjIvufbUj988bb49IM3Nhrrq9fiCRXNDdW4cPYtHDnwLFYT6ygpVtIfvvNqfP+Le1R/cOkWAFXnEAwA+ru9BADzCytD09N3lEw6mzcbYRzzzyq5PMdze3ehyGLA3j2Pw15ahKlAxDw2OWeanQlZ5sLLVws5GAB094MTEXxj0csZNZWcmVs0OG0W6mirl4oUMxw2JTtyO7ixu74cVeU2VDpLWZ2rRE4k4snf/CuXiQjd/ZuzyPSpEZxzCscQvDcfu5jfSErpdDbvbqpC2+4a/BWIiIHBUW63yXA3uVDjsudLFcHmwku/hGMIcs4JgAAAaXskvWxoCCKTTsU73NWvVVY4ySQRsypmfnU4KMKRVTr4Qgtlszly2ku4YlC1z78dPrG4qs1s5QKA4T6dF1wIQUTkGx0PXnQ31R2oLrfyXM6hfXIuKkkSw1Qgoj35RBXUddXQP3BtYCSU9ek591ePFa5NTw8REWlf/Tz50fDYHbXSLrPxqXm+puZYYi3LRv1hXuNQ2O2JafXLH//sJSKtp4eokMNQeNmskhMRXf/pWuis01H2+ndXJslkYGYB4MKgP7ujQskODAXPhWK4rsfy/yQEACKC3kavu9G2zySbdm3kNA4AxCTrzfFA4OvBmV495h/iwP5FMITeesQ/vfjeoa46kmVZyLIsDr9UR/7A4rtEFNFbFf9br4TwMAA4dbS5r+9kl+g72SVOHW3uK/Q9LEgIQQCU08fbb5w+3n4DgKK/ER4RW/9UC6BWtx+ZbFuEt2t6INnfINDIdW9GrLUAAAAASUVORK5CYII='  # the crest, header size
 
 SHORTCUT_PS = r"""
 $s = New-Object -ComObject WScript.Shell
@@ -5562,6 +5564,12 @@ def main():
     head = tk.Frame(frame, bg=BG)
     head.grid(row=0, column=0, columnspan=4, sticky='we')
     head.columnconfigure(1, weight=1)
+    try:
+        crest_img = tk.PhotoImage(data=CREST_20_PNG)
+        badge = tk.Label(head, image=crest_img, bg=BG, bd=0); badge.image = crest_img
+    except Exception:
+        badge = tk.Label(head, text='', bg=BG)
+    badge.grid(row=0, column=0, sticky='w', padx=(0, 6))
     title = tk.Label(head, text=APP_NAME, fg=GOLDC, bg=BG, font=F_HEADLINE, anchor='w', cursor='hand2')
     title.grid(row=0, column=1, sticky='w', padx=(2, 0))
     state = tk.Label(head, text='WAITING', fg=MUT, bg=PANEL, font=F_TINY, padx=7, pady=3,
@@ -5949,9 +5957,8 @@ def main():
     idle_size(True)                 # the app opens with no game on, so start small
     try:
         if god_mode_status()[0] != 'on':
-            host_msg.config(text='God Mode mod is %s. The idle Town Center alert needs it: '
-                                 'click the cog to install it.' % ('not installed' if god_mode_status()[0] == 'missing'
-                                                                   else 'switched off'))
+            host_msg.config(text='Idle TC alert needs the God Mode mod (%s). Get it in Settings.'
+                                 % ('not installed' if god_mode_status()[0] == 'missing' else 'switched off'))
     except Exception as e:
         log('god mode check: %r' % (e,))
     cfg0 = load_settings()
@@ -6753,7 +6760,7 @@ def main():
     def bind_all(w):
         w.bind('<ButtonPress-1>', press); w.bind('<B1-Motion>', motion)
         w.bind('<ButtonRelease-1>', release)
-    for w in (root, frame, head, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
+    for w in (root, frame, head, badge, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
               bo_box, bo_cap, bo_at, bo_x, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, live_btn, bo_open): bind_all(w)
@@ -8202,14 +8209,14 @@ def main():
             mark(beat, 'swords', BRONZE)
             u1 = tk.Label(beat, text=uu or 'Civ notes', fg='#e6d9b0', bg=BG, font=F_SMALL, cursor='hand2')
             u1.pack(side='left')
-            u2 = tk.Label(beat, text=('  \u2192 ' + beats) if beats else '  (no listed counter)' if uu else '',
+            u2 = tk.Label(beat, text=('  \u2192 ' + beats) if beats else '',
                           fg=GREEN if beats else FAINT, bg=BG, font=F_SMALL, cursor='hand2')
             u2.pack(side='left')
-            u3 = tk.Label(beat, text='  \u25be', fg=FAINT, bg=BG, font=F_SMALL, cursor='hand2')   # there is more behind this line
+            u3 = tk.Label(beat, text='  more', fg=FAINT, bg=BG, font=F_TINY, cursor='hand2')   # there is more behind this line
             u3.pack(side='left')
 
             def name_now(h=who, box=more, nm=nm):
-                h.config(text=('\u25be ' if box.winfo_manager() else '\u25b8 ') + nm['shown'])
+                h.config(text=nm['shown'])                 # the fold shows for itself: no arrows needed
             def fold(box=more, show=name_now):
                 """A click on the player's line: everything under it folds away, or comes back.
                 It is remembered, so the next game starts the way you left this one."""
@@ -8220,7 +8227,7 @@ def main():
                     log('could not remember the fold: %r' % (e,))
             def notes(dt=det, arrow=u3):
                 """A click on the unique unit's line: the notes on the civ, and how this player opens."""
-                toggle(dt); arrow.config(text='  \u25b4' if dt.winfo_manager() else '  \u25be')
+                toggle(dt); arrow.config(text='  less' if dt.winfo_manager() else '  more')
             def fit(line=top, box=opn, nm=nm, show=name_now):
                 """Keep the player's line inside the panel. The second opening goes first, then
                 the end of a long name."""
@@ -8242,14 +8249,16 @@ def main():
                 for w in box.winfo_children(): w.destroy()
                 for n_, (lab, cnt) in enumerate(tops):
                     lead = n_ == 0
-                    c = tk.Frame(box, bg=PANEL, highlightthickness=1, cursor='hand2',
-                                 highlightbackground=lead_colour if lead else RIM)
-                    t = tk.Label(c, text=lab.upper(), fg=GOLDD if lead else TXT, bg=PANEL,
-                                 font=(DISPLAY, 9, 'bold'), padx=6, pady=1)
+                    # quiet tags: a dark plate, the usual one lit in their colour, no heavy boxes
+                    c = tk.Frame(box, bg=PANEL, cursor='hand2')
+                    bar_ = tk.Frame(c, bg=lead_colour if lead else EDGE, width=2)
+                    bar_.pack(side='left', fill='y')
+                    t = tk.Label(c, text=lab.upper(), fg=GOLDD if lead else MUT, bg=PANEL,
+                                 font=(F_SMALL[0], F_SMALL[1], 'bold'), padx=6, pady=1)
                     t.pack(side='left')
-                    bits = [t]
+                    bits = [t, bar_]
                     if cnt:
-                        x = tk.Label(c, text='×%d' % cnt, fg=MUT, bg=PANEL, font=F_SMALL, pady=1)
+                        x = tk.Label(c, text='\u00d7%d' % cnt, fg=FAINT, bg=PANEL, font=F_TINY, pady=1)
                         x.pack(side='left', padx=(0, 6)); bits.append(x)
                     c.pack(side='left', padx=(0, 4))
                     for w in [c] + bits:
