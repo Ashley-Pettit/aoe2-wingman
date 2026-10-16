@@ -31,9 +31,16 @@ https://github.com/Ashley-Pettit/aoe2-wingman/pull/4
 
 **Player value:** Download and double-click instead of installing Python.
 
-**Status / caveats:** This PR was closed without merging. The existing dev Windows workflow already builds an Actions artifact; that is not the same as a GitHub Release download. An event-driven release workflow needs to be on the default branch to trigger, and the EXE is unsigned.
+**Status / caveats:** This PR was closed without merging. The existing dev Windows workflow already builds an Actions artifact; that is not the same as a GitHub Release download. The EXE is unsigned, so Windows SmartScreen warns on first run (More info > Run anyway). Note: a tag push runs the workflow file in the tagged commit, so a release workflow on dev does trigger for `exe-*` tags; only scheduled and manual-dispatch-from-the-UI runs need the default branch.
 
 **Claude review requests:** Reassess whether another publishing workflow is needed before reviving this idea. Avoid two competing EXE pipelines. Confirm smoke tests cover meaningful startup behavior and ensure clear Windows security guidance.
+
+## Where this landed (v115)
+
+- **One EXE pipeline:** the existing dev `windows-executable.yml` builds, smoke tests and, on an `exe-*` tag, attaches `Wingman.exe` and `AoE2 Wingman.bat` to a GitHub Release. `Release-Exe.cmd` pushes that tag. PR #4's separate workflow was not needed.
+- **In the app:** Settings has an Update card (your version, exe or .bat, newest release), a one-click "Get the newest Wingman.exe" that swaps the exe in place, and a "Share with mates" button that copies the download page link. The bar shows a click-to-update line when a newer release is out.
+- **Both launch methods kept:** the .bat still updates from Prod or dev.
+- **Still to switch on:** GitHub Pages (Settings > Pages > Source: GitHub Actions) and the first `exe-*` release.
 
 ## Practical review guidance
 
