@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AoE2 Wingman: a small companion overlay for Age of Empires II: Definitive Edition.">
+  <title>AoE2 Wingman — Download</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+    *{box-sizing:border-box}body{margin:0;background:#101721;color:#f6f8fc;line-height:1.6}
+    main{max-width:940px;margin:auto;padding:48px 24px 80px}
+    .eyebrow{color:#9bc9f2;font-weight:700;letter-spacing:.09em;text-transform:uppercase;font-size:.8rem}
+    h1{font-size:clamp(2.5rem,7vw,4.5rem);line-height:1.08;margin:12px 0}
+    h2{font-size:1.45rem;margin:0 0 10px}p{max-width:70ch}
+    .lead{font-size:1.2rem;color:#cdd9e8}
+    a{color:#b6dfff}.button{display:inline-block;border-radius:12px;padding:14px 20px;text-decoration:none;font-weight:700;background:#a8d7ff;color:#0d223a;margin:12px 12px 0 0}
+    .button.secondary{background:#26364c;color:#f4f7fb;border:1px solid #58708b}
+    .hero{display:grid;grid-template-columns:1.1fr 1fr;gap:30px;align-items:center;margin:30px 0 55px}
+    img{max-width:100%;border-radius:14px;border:1px solid #475b71}
+    .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:24px 0}
+    .card{padding:24px;border-radius:16px;background:#1c2839;border:1px solid #374b62}
+    .muted{color:#cad3df;font-size:.94rem}footer{padding-top:22px;border-top:1px solid #394b60;color:#bdcddd}
+    @media(max-width:680px){.hero,.cards{grid-template-columns:1fr}main{padding-top:30px}}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">Age of Empires II: Definitive Edition companion</div>
+    <div class="hero">
+      <div>
+        <h1>Meet Wingman.</h1>
+        <p class="lead">Your small, always-on-top helper for ranked games. Map tips, opponent scouting, alerts and your match record.</p>
+        <a class="button" href="https://github.com/Ashley-Pettit/aoe2-wingman/releases/latest">Download for Windows ↗</a>
+        <a class="button secondary" href="https://github.com/Ashley-Pettit/aoe2-wingman#how-to-install">Other install options ↗</a>
+        <p class="muted">Windows · Requires Age of Empires II: Definitive Edition. Download <strong>Wingman.exe</strong> from the latest release, if available.</p>
+      </div>
+      <img src="https://raw.githubusercontent.com/Ashley-Pettit/aoe2-wingman/Prod/docs/in-game.png" alt="Wingman game overlay showing map and opponent information">
+    </div>
+    <h2>Choose how to run it</h2>
+    <div class="cards">
+      <section class="card">
+        <h2>Windows app</h2>
+        <p>For players who want the easiest option: download <strong>Wingman.exe</strong> from Releases and run it. No Python setup.</p>
+        <a href="https://github.com/Ashley-Pettit/aoe2-wingman/releases">Browse releases ↗</a>
+      </section>
+      <section class="card">
+        <h2>Python version</h2>
+        <p>Prefer the existing launch method? Install Python and run <strong>AoE2 Wingman.bat</strong>. Same underlying Wingman.</p>
+        <a href="https://github.com/Ashley-Pettit/aoe2-wingman#how-to-install">Read installation instructions ↗</a>
+      </section>
+    </div>
+    <p class="muted">The Windows executable may show a SmartScreen warning because it is unsigned. Only run files you trust; do not disable your security software. If no release is listed yet, the Windows build is not publicly available through Releases.</p>
+    <footer>Built for players. <a href="https://github.com/Ashley-Pettit/aoe2-wingman">View source code and documentation on GitHub ↗</a></footer>
+  </main>
+</body>
+</html>
