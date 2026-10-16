@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v102'
+VERSION = 'v103'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2331,7 +2331,7 @@ def focus_window(h):
         u.ShowWindow(h, 5); u.BringWindowToTop(h); u.SetForegroundWindow(h)
         time.sleep(0.4)
         if u.GetForegroundWindow() == h: return True
-    log('could not bring the game to the front')
+    log('could not bring a window to the front')
     return False
 
 def client_rect(h):
@@ -2653,9 +2653,15 @@ def discord_share_game():
     if not d: raise LiveFail('could not find the Discord window. Open Discord and join a call first.')
     # Try it all without leaving the game first: Discord stays behind and gets its clicks posted
     # to it. Only if Discord will not take them that way does it come to the front for a moment.
-    fg_ = _win()[2].GetForegroundWindow()
-    if fg_ != d: _keep_behind(d)
-    mode = {'bg': fg_ != d}
+    # The game sits over everything while it is full screen, so Discord can be told to come to
+    # the front and still not be seen. Do what Alt+Tab does instead: put the game down to the
+    # taskbar, bring Discord up, and once it is streaming put the game straight back.
+    g = find_game_window()
+    if g and not _win()[2].IsIconic(g):
+        _win()[2].ShowWindow(g, 6)                         # minimise
+        time.sleep(0.5)
+    focus_window(d)
+    mode = {'bg': False}
     def click(c):
         if mode['bg']: return _bg_click(d, c)
         return _uia_click(c)
@@ -2802,9 +2808,42 @@ def discord_share_game():
         time.sleep(0.8)
     log('go live: sharing Age of Empires II on Discord (%s)' % ('stayed in the game' if mode['bg'] else 'Discord came up'))
 
+def discord_dump(path):
+    """Write down everything Discord shows to accessibility tools, with type and place, for
+    working out what to click when something changes on Discord's side."""
+    auto = ensure_pkg('uiautomation', why='the Go Live button')
+    if not auto: return 0
+    rows = []
+    for c, n in _uia_all(auto):
+        try:
+            r = c.BoundingRectangle
+            rows.append('%s\t%s\t%d,%d,%d,%d\t%s' % (c.ControlTypeName, n.replace('\n', ' ')[:200],
+                        r.left, r.top, r.right, r.bottom, 'off' if c.IsOffscreen else 'on'))
+        except Exception:
+            rows.append('?\t%s' % n[:200])
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write('Discord windows: %s\n' % ' | '.join(t for _h, t in _discord_windows()))
+        fh.write('\n'.join(rows))
+    return len(rows)
+
+def discord_stop():
+    """Stop Streaming, for tests."""
+    auto = ensure_pkg('uiautomation', why='the Go Live button')
+    if not auto: return False
+    stop = _uia_wait(auto, lambda c, n: n.strip().lower() == 'stop streaming', wait=3)
+    if not stop: return False
+    d = find_discord_window()
+    if d: focus_window(d); time.sleep(0.3)
+    return _uia_click(stop) or _uia_press(stop)
+
 def go_live(cfg, in_game=True, status=lambda t: None):
     """The whole thing, start to finish. in_game False is the Settings test: Discord only."""
     c = dict(LIVE_DEFAULTS); c.update({k: v for k, v in cfg.items() if k in LIVE_DEFAULTS and v is not None})
+    if not combo_ok(c['live_pause_key']):                   # a bad saved value: put the default back for good
+        c['live_pause_key'] = LIVE_DEFAULTS['live_pause_key']
+        try:
+            s_ = load_settings(); s_['live_pause_key'] = c['live_pause_key']; save_settings(s_)
+        except Exception: pass
     g = find_game_window()
     if in_game:
         if not g: raise LiveFail('the game is not running')
@@ -5032,7 +5071,7 @@ def main():
     except Exception as e:
         log('window setup: %r' % (e,))
     try:
-        with open(LOG, 'w', encoding='utf-8') as f: f.write('%s %s started\n' % (APP_NAME, VERSION))
+        with open(LOG, 'w', encoding='utf-8') as f: f.write('%s %s started from %s\n' % (APP_NAME, VERSION, self_path()))
     except OSError: pass
     watcher = HerdWatcher(strings); watcher.start()
 
@@ -6805,11 +6844,22 @@ def main():
     # Only on Ash's own setup, where Publish-Wingman.cmd sits above this copy: when a new build
     # lands in the incoming folder, run the publish script (commit, push dev, merge and push
     # Prod), then restart into the new copy the next time you are at the menu, never mid game.
+    def find_publish():
+        """The folder with Publish-Wingman.cmd in it: above this copy, or the usual spot on the desktop."""
+        here = os.path.dirname(os.path.abspath(self_path()))
+        tops = [os.path.dirname(here), here]
+        for desk in (os.path.join(HOME, 'Desktop'), os.path.join(HOME, 'OneDrive*', 'Desktop')):
+            tops += sorted(glob.glob(os.path.join(desk, 'Claude', 'AoE2 Map Overlay')))
+        for t in tops:
+            if os.path.isfile(os.path.join(t, 'Publish-Wingman.cmd')): return t
+        log('auto publish: off, no Publish-Wingman.cmd near %s' % here)
+        return None
+
     def auto_publish():
-        top = os.path.dirname(os.path.dirname(self_path()))
+        top = find_publish()
+        if not top: return
         pub = os.path.join(top, 'Publish-Wingman.cmd')
         inc = os.path.join(top, 'incoming', BAT_NAME)
-        if not os.path.isfile(pub): return
         import subprocess
         log('auto publish: watching %s' % inc)
         last, tried = None, None
@@ -6839,6 +6889,8 @@ def main():
                 log('auto publish: %s is on dev and Prod' % ver)
                 if _sha(self_path()) != SELF_SHA:
                     st['restart_into'] = ver
+                else:
+                    log('auto publish: this copy (%s) is not the one that changed, no restart' % self_path())
             except subprocess.TimeoutExpired:
                 tried = last; log('auto publish: took too long, left it for you to run')
             except Exception as e:
@@ -6863,6 +6915,37 @@ def main():
         root.after(3000, restart_when_free)
     threading.Thread(target=auto_publish, daemon=True).start()
     root.after(5000, restart_when_free)
+
+    # Remote tests, on Ash's setup only: a file named wingman_test.txt in the incoming folder
+    # holds one word, and Wingman does that and writes what happened to its log.
+    #   live   - the Discord half of Go Live (no pause, no chat)
+    #   stop   - Stop Streaming
+    #   dump   - write what Discord is showing to discord_dump.txt beside the log
+    #   restart- start this copy again
+    def test_watch():
+        top = find_publish()
+        if not top: return
+        cmd_file = os.path.join(top, 'incoming', 'wingman_test.txt')
+        while True:
+            time.sleep(2)
+            try:
+                if not os.path.isfile(cmd_file): continue
+                with open(cmd_file, encoding='utf-8', errors='replace') as fh: what = fh.read().strip().lower()
+                try: os.remove(cmd_file)
+                except OSError: os.replace(cmd_file, cmd_file + '.done')
+                log('test: %s' % what)
+                if what.startswith('live'):
+                    root.after(0, lambda g_=('game' in what): st['live_start'](g_))
+                elif what == 'stop':
+                    log('test: stop streaming %s' % ('done' if discord_stop() else 'found nothing to stop'))
+                elif what == 'dump':
+                    out = os.path.join(os.path.dirname(LOG), 'discord_dump.txt')
+                    log('test: wrote %d controls to %s' % (discord_dump(out), out))
+                elif what == 'restart':
+                    st['restart_into'] = 'the same copy'
+            except Exception as e:
+                log('test: %r' % (e,))
+    threading.Thread(target=test_watch, daemon=True).start()
 
     def show_opponents(players):
         for w in opp_area.winfo_children(): w.destroy()
