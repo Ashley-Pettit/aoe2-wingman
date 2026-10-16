@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v115'
+VERSION = 'v116'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -151,18 +151,18 @@ BUILDS = [
    (10, 10, 'Lure the first boar'),
    (11, 11, 'House, then berries with the mill'),
    (12, 17, '6 hunt under the TC, one takes the second boar'),
-   (18, 19, '2 to wood. Lure deer with the scout'),
-   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
-   (21, 99, 'Barracks then stable, 3 scouts, double bit axe')]),
+   (18, 18, '2 to wood. Lure deer with the scout'),
+   (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
+   (20, 99, 'Barracks then stable, 3 scouts, double bit axe')]),
  ('Scouts', 'Scouts, two stables', '19 pop, Feudal 8:50', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, 'House, then berries with the mill'),
    (12, 17, '6 hunt under the TC. Lure deer with the scout'),
-   (18, 19, '2 to wood'),
-   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
-   (21, 99, 'Barracks, then two stables, double bit axe')]),
+   (18, 18, '2 to wood'),
+   (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
+   (20, 99, 'Barracks, then two stables, double bit axe')]),
  ('Scouts', 'Scouts into archers', '19 pop, Feudal 8:50', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
@@ -170,27 +170,27 @@ BUILDS = [
    (11, 11, '1 hunts under the TC'),
    (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 19, '6 hunt under the TC'),
-   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
-   (21, 99, '6 to wood until 8 on one camp, 4 berries, barracks, double bit axe')]),
+   (14, 18, '6 hunt under the TC'),
+   (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
+   (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks, double bit axe')]),
  ('Archers', 'Archers, one range', '20 pop, Feudal 9:15', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'House, then berries with the mill'),
    (13, 18, '6 hunt under the TC, one takes the second boar'),
-   (19, 20, '2 to wood. Lure deer with the scout'),
-   (21, 21, 'Loom, then click Feudal at 20 pop (9:15)'),
-   (22, 99, '5 hunt to a second lumber camp, 2 berries, 3 gold, range up')]),
+   (19, 19, '2 to wood. Lure deer with the scout'),
+   (20, 20, 'Second one to wood. Loom, then click Feudal (up at 9:15)'),
+   (21, 99, '5 hunt to a second lumber camp, 2 berries, 3 gold, range up')]),
  ('Infantry', 'Men-at-arms', '19 pop, Feudal 8:50', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 10,  '3 to wood, one builds a house in the wall'),
    (11, 11, 'Lure the first boar. Lure 2 deer, not optional'),
    (12, 16, '5 hunt under the TC, take the second boar'),
    (17, 17, 'Barracks, then a house at the front. No mill yet'),
-   (18, 19, '2 more hunt'),
-   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
-   (21, 99, '5 hunt to wood, 2 gold camp, 1 berries, 3 militia out')]),
+   (18, 18, '2 more hunt'),
+   (19, 19, 'Second one hunts. Loom, then click Feudal (up at 8:50)'),
+   (20, 99, '5 hunt to wood, 2 gold camp, 1 berries, 3 militia out')]),
  ('Infantry', 'Men-at-arms into skirms', '20 pop, Feudal 9:15', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 10,  '3 to wood'),
@@ -200,9 +200,9 @@ BUILDS = [
    (15, 15, 'Lure the second boar'),
    (16, 17, '2 hunt under the TC'),
    (18, 18, 'Barracks, then a house at the front'),
-   (19, 20, '2 more hunt'),
-   (21, 21, 'Loom, then click Feudal at 20 pop (9:15)'),
-   (22, 99, 'Militia out, skirms behind them')]),
+   (19, 19, '2 more hunt'),
+   (20, 20, 'Second one hunts. Loom, then click Feudal (up at 9:15)'),
+   (21, 99, 'Militia out, skirms behind them')]),
  ('Infantry', 'Feudal drush', '19 pop, Feudal 8:50', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 10,  '3 to wood'),
@@ -211,9 +211,8 @@ BUILDS = [
    (13, 16, '4 hunt under the TC, take the second boar'),
    (17, 17, 'Barracks out front, house beside it. No mill yet'),
    (18, 18, '1 more hunt'),
-   (19, 19, '1 to wood'),
-   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
-   (21, 99, 'Militia out, 1 to berries with the mill')]),
+   (19, 19, '1 to wood. Loom, then click Feudal (up at 8:50)'),
+   (20, 99, 'Militia out, 1 to berries with the mill')]),
  ('Fast Castle', 'Fast Castle boom', '24 pop, Castle 14:00', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 10,  '3 to wood'),
@@ -222,9 +221,10 @@ BUILDS = [
    (13, 14, '2 hunt, one takes the second boar. Lure 3 deer'),
    (15, 18, '4 to berries, seed 3 farms off the hunt'),
    (19, 22, '4 to wood'),
-   (23, 24, '2 to gold'),
-   (25, 26, 'Click Feudal at 24 pop (10:30). 2 more to wood'),
-   (27, 99, 'Market and blacksmith, click Castle at 14:00')]),
+   (23, 23, '2 to gold'),
+   (24, 24, 'Second one to gold. Click Feudal, no loom (up at 10:30)'),
+   (25, 26, 'Feudal is in: 2 more to wood, market and blacksmith'),
+   (27, 99, 'Click Castle as soon as both are up (in at 14:00)')]),
  ('Fast Castle', 'Drush into Fast Castle', '31 pop, Castle 16:05', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 11,  '4 to wood'),
@@ -234,9 +234,10 @@ BUILDS = [
    (18, 18, 'Lure the second boar'),
    (19, 23, '5 to berries, build the mill'),
    (24, 27, '4 to wood on one camp, then loom'),
-   (28, 31, '4 to gold'),
-   (32, 33, 'Click Feudal at 31 pop (12:35). 2 more to gold'),
-   (34, 99, 'Range and blacksmith, keep the militia busy, Castle 16:05')]),
+   (28, 30, '4 to gold'),
+   (31, 31, 'Fourth one to gold. Click Feudal (up at 12:35)'),
+   (32, 33, 'Feudal is in: 2 more to gold, range and blacksmith'),
+   (34, 99, 'Click Castle, keep the militia busy (in at 16:05)')]),
  ('Fast Castle', 'Knight rush (easier)', '26 pop, Castle 16:05', [
    (2, 7,   '2 houses first, then 6 to sheep'),
    (8, 10,  '3 to wood'),
@@ -246,9 +247,9 @@ BUILDS = [
    (14, 14, 'Lure the second boar'),
    (15, 18, '4 to berries'),
    (19, 23, '5 to wood'),
-   (24, 26, 'A house, then 3 to gold'),
-   (27, 27, 'Click Feudal at 26 pop (11:45). Barracks and a house'),
-   (28, 99, 'Stable and market, 4 more to gold, Castle 16:05')]),
+   (24, 25, 'A house, then 3 to gold'),
+   (26, 26, 'Third one to gold. Loom, then click Feudal (up at 11:45). Barracks and a house'),
+   (27, 99, 'Stable and market, 4 more to gold, click Castle (in at 16:05)')]),
  ('Scouts', 'Scouts into skirms', '19 pop, Feudal 8:50', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
@@ -256,9 +257,9 @@ BUILDS = [
    (11, 11, '1 hunts under the TC'),
    (12, 12, 'House, then berries with the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 19, '6 hunt under the TC. Lure deer with the scout'),
-   (20, 20, 'Loom, then click Feudal at 19 pop (8:50)'),
-   (21, 99, '6 to wood until 8 on one camp, 4 berries, barracks and house')]),
+   (14, 18, '6 hunt under the TC. Lure deer with the scout'),
+   (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
+   (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks and house')]),
  ('Infantry', 'Double barracks eagles', '19 pop, Feudal 8:50', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
@@ -266,9 +267,9 @@ BUILDS = [
    (11, 11, '1 hunts under the TC'),
    (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 19, '6 hunt under the TC. Lure deer with the scout'),
-   (20, 20, 'Loom if Aztecs or Incas, then click Feudal at 19 pop (8:50)'),
-   (21, 99, '5 to wood for 7 on one camp, 2 gold, barracks and house, 3 berries')]),
+   (14, 18, '6 hunt under the TC. Lure deer with the scout'),
+   (19, 19, 'Sixth one hunts. Loom if Aztecs or Incas, then click Feudal (up at 8:50)'),
+   (20, 99, '5 to wood for 7 on one camp, 2 gold, barracks and house, 3 berries')]),
  ('Other', 'Tower rush, any civ', '18 pop, Feudal 8:25', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
@@ -276,9 +277,9 @@ BUILDS = [
    (11, 11, '1 hunts under the TC'),
    (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '5 hunt under the TC'),
-   (19, 19, 'Loom. Scout them first, then click Feudal at 18 pop (8:25)'),
-   (20, 99, '2 to stone with a camp, 5 forward, spears or skirms behind the towers')]),
+   (14, 17, '5 hunt under the TC'),
+   (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
+   (19, 99, '2 to stone with a camp, 5 forward, spears or skirms behind the towers')]),
  ('Other', 'Teuton tower rush', '18 pop, Feudal 8:25', [
    (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
@@ -286,9 +287,9 @@ BUILDS = [
    (11, 11, '1 hunts under the TC'),
    (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '5 hunt under the TC'),
-   (19, 19, 'Loom. Scout them first, then click Feudal at 18 pop (8:25)'),
-   (20, 99, '2 to stone with a camp, 10 forward, tower 8 tiles off their wood')]),
+   (14, 17, '5 hunt under the TC'),
+   (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
+   (19, 99, '2 to stone with a camp, 10 forward, tower 8 tiles off their wood')]),
 ]
 
 BUILD_GROUPS = ['Scouts', 'Archers', 'Infantry', 'Fast Castle', 'Other']
@@ -4992,6 +4993,153 @@ def flat_button(parent, text, command, accent=GOLDC, fill=False, hot=None):
 
 
 
+def _smooth_shape(w, h, bg, draw):
+    """A small shape drawn 4x with Pillow and shrunk, so curves come out smooth. draw(d, k)
+    gets the ImageDraw and the scale. None when Pillow is missing (callers fall back)."""
+    try:
+        from PIL import Image, ImageDraw, ImageTk
+    except Exception:
+        return None
+    k = 4
+    im = Image.new('RGB', (w * k, h * k), bg)
+    draw(ImageDraw.Draw(im), k)
+    return ImageTk.PhotoImage(im.resize((w, h), Image.LANCZOS))
+
+def Check(parent, text='', variable=None, bg=INK, **_ignored):
+    """A small switch and its sentence, in place of Tk's square tick box (which comes out as a
+    grey Windows 95 box). Click the switch or the words. Same arguments as tk.Checkbutton, so
+    the old calls carry over; colour arguments are ignored, it always matches the panel."""
+    import tkinter as tk
+    W, H = 24, 13
+    f = tk.Frame(parent, bg=bg, cursor='hand2')
+    sw = tk.Canvas(f, width=W, height=H, bg=bg, highlightthickness=0, bd=0, cursor='hand2')
+    sw.pack(side='left', padx=(0, 7), pady=3)
+    lab = tk.Label(f, text=text, fg=TXT, bg=bg, font=F_SMALL, anchor='w', cursor='hand2', justify='left')
+    lab.pack(side='left', fill='x')
+    st_ = {'hot': False, 'img': None}
+    def draw(*_):
+        on = bool(variable.get()) if variable is not None else False
+        track = (_mix(RIM, GOLDC, 0.35) if st_['hot'] else RIM) if on else (_mix(PANEL, EDGE, 0.8) if st_['hot'] else PANEL)
+        rim = GOLDC if on else (BRONZE if st_['hot'] else EDGE)
+        knob = GOLDD if on else (MUT if st_['hot'] else FAINT)
+        def paint(d, k):
+            d.rounded_rectangle((0, 0, W * k - 1, H * k - 1), radius=H * k // 2, fill=track, outline=rim, width=k)
+            r = (H - 5) * k / 2.0; cy = H * k / 2.0
+            cx = (W - H / 2.0) * k if on else (H / 2.0) * k
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=knob)
+        sw.delete('all')
+        st_['img'] = _smooth_shape(W, H, bg, paint)
+        if st_['img'] is not None:
+            sw.create_image(0, 0, image=st_['img'], anchor='nw')
+        else:
+            for x0_ in (0, W - H):
+                sw.create_oval(x0_, 0, x0_ + H - 1, H - 1, fill=track, outline=rim)
+            sw.create_rectangle(H / 2.0, 0, W - H / 2.0, H - 1, fill=track, outline='')
+            sw.create_line(H / 2.0, 0, W - H / 2.0, 0, fill=rim); sw.create_line(H / 2.0, H - 1, W - H / 2.0, H - 1, fill=rim)
+            x = W - H + 2 if on else 2
+            sw.create_oval(x, 2, x + H - 5, H - 3, fill=knob, outline=knob)
+        lab.config(fg=GOLDD if st_['hot'] else TXT)
+    def flip(_e=None):
+        if variable is not None: variable.set(not bool(variable.get()))
+    def hover(on):
+        st_['hot'] = on; draw()
+    for w_ in (f, sw, lab):
+        w_.bind('<Button-1>', flip, add='+')
+        w_.bind('<Enter>', lambda e: hover(True), add='+')
+        w_.bind('<Leave>', lambda e: hover(False), add='+')
+    if variable is not None:
+        variable.trace_add('write', draw)
+    draw()
+    return f
+
+def slim_scrollbar(parent, bg=INK):
+    """A thin bronze scroll thumb in place of the grey Windows bar. Works like tk.Scrollbar:
+    give it command=widget.yview and the widget yscrollcommand=bar.set."""
+    import tkinter as tk
+    class Slim(tk.Canvas):
+        def __init__(self):
+            tk.Canvas.__init__(self, parent, width=10, bg=bg, highlightthickness=0, bd=0)
+            self.lo, self.hi, self.hot, self.cmd, self.grab = 0.0, 1.0, False, None, None
+            self.bind('<Configure>', lambda e: self.draw())
+            self.bind('<Enter>', lambda e: self._hover(True))
+            self.bind('<Leave>', lambda e: self._hover(False))
+            self.bind('<Button-1>', self._press)
+            self.bind('<B1-Motion>', self._drag)
+            self.bind('<ButtonRelease-1>', lambda e: setattr(self, 'grab', None))
+        def config(self, **kw):
+            if 'command' in kw: self.cmd = kw.pop('command')
+            if kw: tk.Canvas.config(self, **kw)
+        configure = config
+        def set(self, lo, hi):
+            self.lo, self.hi = float(lo), float(hi); self.draw()
+        def _hover(self, on):
+            self.hot = on; self.draw()
+        def draw(self):
+            self.delete('all')
+            h = max(1, self.winfo_height())
+            if self.hi - self.lo >= 0.999: return
+            y0, y1 = self.lo * h, max(self.lo * h + 24, self.hi * h)
+            x0, x1 = (2, 8) if self.hot or self.grab is not None else (3, 7)
+            col = BRONZE if self.hot or self.grab is not None else RIM
+            self.create_line((x0 + x1) / 2.0, y0 + 3, (x0 + x1) / 2.0, y1 - 3, fill=col,
+                             width=x1 - x0, capstyle='round')
+        def _press(self, e):
+            h = max(1, self.winfo_height()); f = e.y / float(h)
+            if self.lo <= f <= self.hi: self.grab = f - self.lo
+            elif self.cmd: self.cmd('scroll', -1 if f < self.lo else 1, 'pages')
+        def _drag(self, e):
+            if self.grab is None or not self.cmd: return
+            h = max(1, self.winfo_height())
+            self.cmd('moveto', max(0.0, e.y / float(h) - self.grab)); self.draw()
+    return Slim()
+
+def build_list(parent, current, on_pick, bg=INK, width=330):
+    """The build orders as a tidy list: a small bronze heading per group, then one row per build
+    with its name on the left and what it lands on, in a chip, on the right. The one you have
+    gets a gold bar and gold name. on_pick(name or None)."""
+    import tkinter as tk
+    box = tk.Frame(parent, bg=bg)
+    rows = {}
+    def row(name, label, chip=None):
+        r = tk.Frame(box, bg=bg, cursor='hand2', width=width)
+        r.pack(fill='x', pady=1)
+        bar = tk.Frame(r, bg=bg, width=3); bar.pack(side='left', fill='y')
+        nm = tk.Label(r, text=label, fg=TXT, bg=bg, font=F_SMALL, anchor='w', padx=8, pady=4, cursor='hand2')
+        nm.pack(side='left')
+        ch = None
+        if chip:
+            ch = tk.Label(r, text=chip, fg=MUT, bg=PANEL, font=F_TINY, padx=6, pady=1, cursor='hand2')
+            ch.pack(side='right', padx=(10, 6))
+        parts = [w_ for w_ in (r, bar, nm, ch) if w_ is not None]
+        def paint(hot=False):
+            on = (current[0] or None) == name
+            back = PANEL if (hot or on) else bg
+            for w_ in (r, nm): w_.config(bg=back)
+            bar.config(bg=GOLDC if on else (RIM if hot else back))
+            nm.config(fg=GOLDD if on else (GOLDD if hot else (TXT if name else MUT)),
+                      font=(F_SMALL[0], F_SMALL[1], 'bold') if on else F_SMALL)
+            if ch is not None: ch.config(bg=INK if (hot or on) else PANEL, fg=TXT if on else MUT)
+        for w_ in parts:
+            w_.bind('<Enter>', lambda e: paint(True), add='+')
+            w_.bind('<Leave>', lambda e: paint(False), add='+')
+            w_.bind('<Button-1>', lambda e, n_=name: pick(n_), add='+')
+        rows[name] = paint; paint()
+    def pick(name):
+        current[0] = name
+        for p_ in rows.values(): p_()
+        on_pick(name)
+    last = None
+    for g, n, pop, _st in BUILDS:
+        if g != last:
+            hd = tk.Frame(box, bg=bg); hd.pack(fill='x', pady=(8 if last else 2, 2))
+            tk.Label(hd, text=g.upper(), fg=BRONZE, bg=bg, font=(F_TINY[0], F_TINY[1], 'bold')).pack(side='left')
+            tk.Frame(hd, bg=EDGE, height=1).pack(side='left', fill='x', expand=True, padx=(8, 0), pady=(2, 0))
+            last = g
+        row(n, n, pop.replace(', ', '  \u00b7  '))
+    tk.Frame(box, bg=EDGE, height=1).pack(fill='x', pady=(8, 3))
+    row(None, 'No build order')
+    return box
+
 # ---------------------------------------------------------------- small drawn icons
 # Simple vector marks, drawn on a canvas so they need no files and scale with the box.
 def draw_icon(c, kind, s, col):
@@ -5244,10 +5392,24 @@ def main():
     bo_x.grid(row=0, column=2, sticky='ne', padx=(6, 0))
     bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
                       anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP)
-    bo_now.grid(row=1, column=0, columnspan=2, sticky='w', pady=(2, 0))
+    bo_now.grid(row=2, column=0, columnspan=3, sticky='w', pady=(1, 0))
+    # how far through the build you are: one short bar per step, gold for the one you are on
+    bo_prog = tk.Canvas(bo_box, height=3, bg=PANEL, highlightthickness=0, bd=0)
+    bo_prog.grid(row=1, column=0, columnspan=3, sticky='we', pady=(3, 3))
+    def bo_prog_draw(_e=None):
+        bo_prog.delete('all')
+        found_ = build_by_name(bo['name'])
+        if not found_: return
+        n = len(found_[2]); w = max(1, bo_prog.winfo_width()); gap = 3
+        seg = (w - gap * (n - 1)) / float(n)
+        for k in range(n):
+            x0 = k * (seg + gap)
+            col = GOLDC if k == bo['i'] else (BRONZE if k < bo['i'] else EDGE)
+            bo_prog.create_rectangle(x0, 0, x0 + seg, 3, fill=col, outline='')
+    bo_prog.bind('<Configure>', bo_prog_draw, add='+')
     bo_next = tk.Label(bo_box, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
                        wraplength=BO_WRAP)
-    bo_next.grid(row=2, column=0, columnspan=2, sticky='w')
+    bo_next.grid(row=3, column=0, columnspan=3, sticky='w')
 
     def bo_wrap(e=None):
         # Long steps wrap to whatever width the overlay already is, never wider. The margin is
@@ -5270,6 +5432,7 @@ def main():
                 bo_at.config(text='')
                 bo_now.config(text='Pick one', font=(DISPLAY, 10, 'bold'))
                 bo_next.config(text=BUILD_SOURCE)
+                bo_prog.grid_remove()
                 bo_box.grid()
             else:
                 bo_box.grid_remove()
@@ -5283,7 +5446,8 @@ def main():
         bo_cap.config(text='%s  \u00b7  %s' % (name.upper(), pop))
         bo_at.config(text='pop %s' % span)
         bo_now.config(text=text)
-        bo_next.config(text=('next  ' + steps[i + 1][2]) if i + 1 < len(steps) else '')
+        bo_next.config(text=('next  ' + steps[i + 1][2]) if i + 1 < len(steps) else 'last step')
+        bo_prog.grid(); bo_prog_draw()
         bo_box.grid(); bo_open_sync(); foot_fit()
 
     def bo_open_sync():
@@ -5313,21 +5477,50 @@ def main():
         bo_pick(None)
 
     def bo_menu(anchor=None):
-        """A small list of the builds, right under the strip (or under the Build button)."""
-        m = tk.Menu(root, tearoff=0, bg=INK, fg=TXT, activebackground=PANEL,
-                    activeforeground=GOLDD, bd=0, font=F_SMALL)
-        m.add_command(label=BUILD_SOURCE, state='disabled')
-        last = None
-        for g, n, pop, _st in BUILDS:
-            if g != last:
-                m.add_separator(); last = g
-            m.add_command(label='%s  (%s)' % (n, pop), command=lambda n_=n: bo_pick(n_))
-        m.add_separator()
-        m.add_command(label='No build order', command=lambda: bo_pick(None))
+        """The builds in a small dark panel, right under the strip (or under the Build button).
+        Pick one and it closes; so does clicking away, Escape, or the mouse wandering off."""
+        old = st.get('bo_pop')
+        if old is not None:
+            try: old.destroy()
+            except tk.TclError: pass
+            st['bo_pop'] = None
+            return
+        pop_ = tk.Toplevel(root); st['bo_pop'] = pop_
+        pop_.overrideredirect(True); pop_.attributes('-topmost', True); pop_.configure(bg=RIM)
+        inner = tk.Frame(pop_, bg=INK, padx=10, pady=8); inner.pack(padx=1, pady=1)
+        hd = tk.Frame(inner, bg=INK); hd.pack(fill='x')
+        tk.Frame(hd, bg=GOLDC, width=3, height=14).pack(side='left', padx=(0, 7))
+        tk.Label(hd, text='Build order', fg=GOLDC, bg=INK, font=F_HEAD).pack(side='left')
+        tk.Label(hd, text=BUILD_SOURCE, fg=FAINT, bg=INK, font=F_TINY).pack(side='right', padx=(14, 0))
+        timer = {'id': None}
+        def close(_e=None):
+            if timer['id']:
+                try: root.after_cancel(timer['id'])
+                except Exception: pass
+            st['bo_pop'] = None
+            try: pop_.destroy()
+            except tk.TclError: pass
+        def chose(n_):
+            bo_pick(n_); close()
+        build_list(inner, [bo['name']], chose, bg=INK).pack(fill='x', pady=(4, 0))
+        def left(_e=None):
+            if timer['id']: root.after_cancel(timer['id'])
+            timer['id'] = root.after(2500, close)
+        def back(_e=None):
+            if timer['id']: root.after_cancel(timer['id']); timer['id'] = None
+        pop_.bind('<Leave>', left); pop_.bind('<Enter>', back)
+        pop_.bind('<Escape>', close); pop_.bind('<FocusOut>', lambda e: close() if e.widget is pop_ else None)
         at = anchor if anchor is not None or not bo_box.winfo_ismapped() else bo_box
         at = at if at is not None else bo_open
-        try: m.tk_popup(at.winfo_rootx(), at.winfo_rooty() + at.winfo_height())
-        finally: m.grab_release()
+        pop_.update_idletasks()
+        x = at.winfo_rootx(); y = at.winfo_rooty() + at.winfo_height() + 4
+        sw_, sh_ = pop_.winfo_screenwidth(), pop_.winfo_screenheight()
+        w_, h_ = pop_.winfo_reqwidth(), pop_.winfo_reqheight()
+        if y + h_ > sh_ - 40: y = max(0, at.winfo_rooty() - h_ - 4)     # no room below: open upwards
+        x = max(0, min(x, sw_ - w_ - 4))
+        pop_.geometry('+%d+%d' % (x, y))
+        try: pop_.focus_force()
+        except tk.TclError: pass
 
     def bo_step(by=1):
         if not bo['name']: return
@@ -6371,7 +6564,7 @@ def main():
         # and the Save row is pinned underneath where it can always be reached.
         shell_ = tk.Frame(win, bg=INK); shell_.pack(fill='both', expand=True, padx=1, pady=1)
         foot = tk.Frame(shell_, bg=INK, padx=18); foot.pack(side='bottom', fill='x', pady=(0, 14))
-        bar_ = tk.Scrollbar(shell_, orient='vertical', width=12)
+        bar_ = slim_scrollbar(shell_)
         board_ = tk.Canvas(shell_, bg=INK, highlightthickness=0, bd=0, yscrollcommand=bar_.set)
         bar_.config(command=board_.yview)
         board_.pack(side='left', fill='both', expand=True)
@@ -6597,7 +6790,7 @@ def main():
                 'Clicks go straight through the badge to the game.')
         tc_on = tk.BooleanVar(value=cfg.get('tc_alert', True))
         for var, txt in ((tc_on, 'Show the alert'),):
-            tk.Checkbutton(outer, text=txt, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
+            Check(outer, text=txt, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
                            activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
         section('Build order',
@@ -6606,23 +6799,10 @@ def main():
                 'click the step to move it on yourself. Pick one here or on the overlay itself. '
                 'The cross on it closes it; the small Build button at the top brings it back.\n'
                 'Steps in pop (villagers plus your scout), from ' + BUILD_SOURCE + '.')
-        bo_var = tk.StringVar(value=cfg.get('build_order') or '')
-        bo_row = tk.Frame(outer, bg=INK); bo_row.pack(fill='x', pady=(2, 0))
-        tk.Radiobutton(bo_row, text='None', variable=bo_var, value='',
-                       fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
-                       activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0,
-                       command=lambda: bo_pick(bo_var.get() or None)).pack(fill='x')
-        last_g = None
-        for g_, n_, pop_, _st in BUILDS:
-            if g_ != last_g:
-                tk.Label(bo_row, text=g_.upper(), fg=BRONZE, bg=INK, font=F_TINY,
-                         anchor='w').pack(fill='x', pady=(6, 1))
-                last_g = g_
-            tk.Radiobutton(bo_row, text='%s  (%s)' % (n_, pop_), variable=bo_var, value=n_,
-                           fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
-                           activeforeground=GOLDD, font=F_SMALL, anchor='w',
-                           highlightthickness=0,
-                           command=lambda: bo_pick(bo_var.get() or None)).pack(fill='x')
+        bo_cur = [cfg.get('build_order') or None]
+        bo_list = build_list(outer, bo_cur, lambda n_: bo_pick(n_), bg=INK)
+        bo_list.pack(fill='x', pady=(2, 0))
+        st['bo_settings'] = (bo_cur, bo_list)
 
         section('Go Live',
                 'The \u25cf Go Live button at the top: pauses the game, says the first line in chat, '
@@ -6717,7 +6897,7 @@ def main():
         section('Loading screen panels',
                 'Two panels over the loading screen with a cheat sheet for your civ and your opponent\'s. '
                 'Off by default. Your opponent\'s details are on the main overlay either way.')
-        tk.Checkbutton(outer, text='Show the two panels while the game loads', variable=lp_on, fg=TXT, bg=INK,
+        Check(outer, text='Show the two panels while the game loads', variable=lp_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
@@ -6725,7 +6905,7 @@ def main():
                 'If you are in another window when a match finishes loading, the overlay switches you to the '
                 'game. If Windows will not allow that, it puts up a banner and plays a sound instead.')
         fg_on = tk.BooleanVar(value=cfg.get('focus_game', True))
-        tk.Checkbutton(outer, text='Bring the game to the front when it starts', variable=fg_on, fg=TXT, bg=INK,
+        Check(outer, text='Bring the game to the front when it starts', variable=fg_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
         section('Reminders', 'A gold flash on the alert badge for a few seconds, once a game. '
@@ -6735,7 +6915,7 @@ def main():
         def reminder_row(var, before, value, after):
             """A tick box with a number you can change in the middle of its sentence."""
             line = tk.Frame(outer, bg=INK); line.pack(fill='x', pady=(2, 0))
-            tk.Checkbutton(line, text=before, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
+            Check(line, text=before, variable=var, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
                            activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(side='left')
             e = tk.Entry(line, width=4, justify='center'); style_entry(e)
             e.insert(0, value); e.pack(side='left', padx=6, ipady=1)
@@ -6750,7 +6930,7 @@ def main():
                                'older than that the app asks aoe2companion.com, a community site that keeps '
                                'the same public match history. Only your ladder profile number is sent.')
         cr_on = tk.BooleanVar(value=cfg.get('companion_results', True))
-        tk.Checkbutton(outer, text='Fill in older results from aoe2companion.com', variable=cr_on, fg=TXT, bg=INK,
+        Check(outer, text='Fill in older results from aoe2companion.com', variable=cr_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
@@ -6760,7 +6940,7 @@ def main():
                 'first %d minutes) the overlay shows CONCEDE AVAILABLE. It only tells you: it never resigns '
                 'or clicks for you.' % (round(CONCEDE_BEHIND * 100), CONCEDE_HOLD_S, CONCEDE_FROM_MIN))
         cf_on = tk.BooleanVar(value=cfg.get('concede_flag', True))
-        tk.Checkbutton(outer, text='Flag when a game looks gone', variable=cf_on, fg=TXT, bg=INK,
+        Check(outer, text='Flag when a game looks gone', variable=cf_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
@@ -6769,7 +6949,7 @@ def main():
                 '(scouts, archers, fast castle and so on), from the recorded games the official site '
                 'hands out. Past games only: nothing is read from the game you are in.')
         oo_on = tk.BooleanVar(value=cfg.get('opp_openings', True))
-        tk.Checkbutton(outer, text='Show how they have been opening', variable=oo_on, fg=TXT, bg=INK,
+        Check(outer, text='Show how they have been opening', variable=oo_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
@@ -6783,7 +6963,7 @@ def main():
         sp_on = tk.BooleanVar(value=cfg.get('scout_ping', True))
         for var, txt in ((sc_on, 'Call out opponents'),
                          (sp_on, 'Ring the spot on the minimap as well')):
-            tk.Checkbutton(outer, text=txt, variable=var, fg=TXT, bg=INK,
+            Check(outer, text=txt, variable=var, fg=TXT, bg=INK,
                            selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                            font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
         voice_row = tk.Frame(outer, bg=INK); voice_row.pack(fill='x', pady=(4, 0))
@@ -6810,7 +6990,7 @@ def main():
                 'programs that don\'t, so Wingman has to restart as admin to click it. Better still, stop the '
                 'game needing admin and neither of them will.')
         ad_on = tk.BooleanVar(value=cfg.get('admin_auto', False))
-        tk.Checkbutton(outer, text='When the game needs it, restart Wingman as admin without asking first',
+        Check(outer, text='When the game needs it, restart Wingman as admin without asking first',
                        variable=ad_on, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
                        activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
         ad_row = tk.Frame(outer, bg=INK); ad_row.pack(fill='x', pady=(6, 0))
