@@ -32,6 +32,25 @@ jobs:
         run: |
           if (!(Test-Path 'dist/Wingman.exe')) { throw 'Missing executable' }
           if ((Get-Item 'dist/Wingman.exe').Length -lt 1000000) { throw 'Unexpectedly small executable' }
+      - name: Smoke test Windows startup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'dist/Wingman.exe').Path
+          $proc = Start-Process -FilePath $exe -PassThru
+          try {
+            Start-Sleep -Seconds 12
+            $proc.Refresh()
+            if ($proc.HasExited) {
+              throw "Wingman exited during the 12-second startup smoke test with exit code $($proc.ExitCode)"
+            }
+            Write-Host "Wingman remained running for 12 seconds (PID $($proc.Id))."
+          }
+          finally {
+            if (!$proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: Wingman-Windows-experimental
