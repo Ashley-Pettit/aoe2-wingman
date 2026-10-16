@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v116'
+VERSION = 'v117'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
@@ -294,6 +294,124 @@ BUILDS = [
 
 BUILD_GROUPS = ['Scouts', 'Archers', 'Infantry', 'Fast Castle', 'Other']
 BUILDS.sort(key=lambda b: BUILD_GROUPS.index(b[0]) if b[0] in BUILD_GROUPS else 99)
+
+# ---- pictures for the build steps, drawn here so they need no files
+STEP_ICON_WORDS = [            # first word found in the step picks the picture
+    ('click feudal', 'age'), ('click castle', 'age'),
+    ('sheep', 'sheep'), ('boar', 'boar'), ('hunt', 'boar'), ('deer', 'deer'),
+    ('berries', 'berries'), ('farm', 'berries'), ('mill', 'berries'),
+    ('wood', 'wood'), ('gold', 'gold'), ('stone', 'stone'),
+    ('house', 'house'), ('tower', 'tower'),
+    ('militia', 'sword'), ('scouts', 'horse'), ('stable', 'horse'), ('knight', 'horse'),
+    ('range', 'bow'), ('archer', 'bow'), ('skirm', 'bow'),
+    ('barracks', 'sword'), ('loom', 'loom'), ('market', 'tower'), ('blacksmith', 'tower'),
+]
+
+def step_icon_kind(text):
+    t = (text or '').lower(); best = None
+    for word, kind in STEP_ICON_WORDS:
+        if word in ('click feudal', 'click castle') and word in t: return kind
+        i = t.find(word)
+        if i >= 0 and (best is None or i < best[0]): best = (i, kind)
+    return best[1] if best else None
+
+def draw_step_icon(kind, S, bg):
+    """kind drawn in an S x S square, 4x then shrunk. Returns a PIL RGB image."""
+    from PIL import Image, ImageDraw
+    k = 4; N = S * k; u = N / 32.0
+    im = Image.new('RGBA', (N, N), bg)
+    d = ImageDraw.Draw(im)
+    def P(*pts): return [(x * u, y * u) for x, y in pts]
+    def E(x0, y0, x1, y1, **kw): d.ellipse((x0 * u, y0 * u, x1 * u, y1 * u), **kw)
+    def R(x0, y0, x1, y1, r=0, **kw): d.rounded_rectangle((x0 * u, y0 * u, x1 * u, y1 * u), radius=r * u, **kw)
+    def L(pts, w, fill): d.line(P(*pts), fill=fill, width=max(1, int(w * u)), joint='curve')
+    if kind == 'sheep':
+        wool, face = '#efe6d2', '#3a3128'
+        for x, y in ((9, 16), (14, 12), (20, 12), (24, 16), (20, 20), (13, 20), (16, 16)):
+            E(x - 6, y - 6, x + 6, y + 6, fill=wool)
+        for x in (11, 15, 19, 23): R(x - 1.2, 21, x + 1.2, 28, 1, fill=face)
+        E(2, 11, 10, 20, fill=face); E(5, 9, 9, 12, fill=face)
+    elif kind == 'boar':
+        body, dark = '#9a6a45', '#5a3d28'
+        E(6, 10, 28, 24, fill=body)
+        d.polygon(P((8, 12), (1, 16), (2, 20), (9, 22)), fill=body)
+        E(0, 16, 4, 20, fill=dark)
+        L([(4, 19), (2, 14)], 1.6, '#efe6d2')
+        for x in (10, 15, 21, 25): R(x - 1.3, 21, x + 1.3, 28, 1, fill=dark)
+        d.polygon(P((14, 10), (18, 6), (22, 10)), fill=dark)
+    elif kind == 'deer':
+        body, dark = '#b98a55', '#6e4f2e'
+        E(8, 12, 27, 22, fill=body)
+        d.polygon(P((10, 15), (6, 7), (9, 6), (13, 13)), fill=body)
+        E(3, 5, 10, 10, fill=body)
+        L([(7, 6), (5, 1), (3, 2)], 1.4, dark); L([(8, 6), (10, 1), (12, 2)], 1.4, dark)
+        for x in (11, 15, 21, 25): R(x - 1, 20, x + 1, 29, 1, fill=dark)
+    elif kind == 'berries':
+        E(3, 8, 29, 29, fill='#3f6b33'); E(6, 5, 20, 19, fill='#4d7d3c')
+        for x, y in ((10, 14), (17, 12), (22, 18), (13, 21), (19, 24), (25, 23), (8, 22)):
+            E(x - 2.6, y - 2.6, x + 2.6, y + 2.6, fill='#c0485a')
+    elif kind == 'wood':
+        bark, end = '#7a5236', '#d9b07a'
+        for x, y in ((4, 17), (16, 17), (10, 7)):
+            R(x, y, x + 13, y + 11, 5, fill=bark)
+            E(x + 6, y + 1.5, x + 13, y + 9.5, fill=end)
+            E(x + 8.5, y + 4, x + 10.5, y + 7, fill=bark)
+    elif kind == 'gold':
+        for pts, c in ((((3, 27), (9, 15), (17, 20), (14, 28)), '#c99a2e'),
+                       (((12, 28), (17, 13), (27, 17), (29, 28)), '#e2b84a'),
+                       (((8, 18), (13, 6), (21, 10), (18, 19)), '#f0d27a')):
+            d.polygon(P(*pts), fill=c)
+    elif kind == 'stone':
+        for pts, c in ((((2, 28), (6, 16), (15, 13), (18, 28)), '#8d8a84'),
+                       (((13, 28), (17, 10), (27, 12), (30, 28)), '#b3afa7'),
+                       (((7, 17), (11, 7), (19, 8), (17, 16)), '#cfcac0')):
+            d.polygon(P(*pts), fill=c)
+    elif kind == 'house':
+        d.polygon(P((3, 15), (16, 4), (29, 15)), fill='#a0503a')
+        R(6, 14, 26, 29, 1, fill='#d9c39a'); R(13, 19, 19, 29, 1, fill='#5a3d28')
+    elif kind == 'tower':
+        R(9, 9, 23, 30, 1, fill='#b3afa7')
+        for x in (8, 14, 20): R(x, 4, x + 4, 10, 0.5, fill='#b3afa7')
+        R(14, 14, 18, 20, 2, fill='#3a3128')
+    elif kind == 'sword':
+        L([(6, 26), (25, 5)], 3.2, '#d9d4cc'); L([(8, 18), (14, 24)], 3, '#a9823c')
+        L([(4, 28), (8, 24)], 3.4, '#7a5236')
+    elif kind == 'bow':
+        d.arc((2 * u, 3 * u, 22 * u, 29 * u), 290, 70, fill='#b98a55', width=int(3 * u))
+        L([(9, 4), (9, 28)], 1, '#efe6d2'); L([(9, 16), (29, 16)], 1.6, '#d9d4cc')
+        d.polygon(P((29, 16), (25, 13.5), (25, 18.5)), fill='#d9d4cc')
+    elif kind == 'horse':
+        body = '#9a6a45'
+        E(9, 11, 28, 22, fill=body)
+        d.polygon(P((12, 14), (6, 4), (10, 2), (16, 13)), fill=body)
+        d.polygon(P((6, 4), (1, 9), (3, 11), (8, 8)), fill=body)
+        L([(9, 3), (14, 12)], 2, '#3a3128')
+        for x in (12, 16, 22, 26): R(x - 1.2, 20, x + 1.2, 29, 1, fill='#5a3d28')
+    elif kind == 'loom':
+        d.polygon(P((16, 3), (28, 7), (26, 19), (16, 29), (6, 19), (4, 7)), fill='#a9823c')
+        d.polygon(P((16, 7), (24, 10), (22, 18), (16, 25), (10, 18), (8, 10)), fill='#d8b253')
+    elif kind == 'age':
+        E(2, 2, 30, 30, fill='#d8b253'); E(4.5, 4.5, 27.5, 27.5, fill='#2a2116')
+        d.polygon(P((16, 7), (24, 16), (19, 16), (19, 25), (13, 25), (13, 16), (8, 16)), fill='#f0d796')
+    return im.resize((S, S), Image.LANCZOS).convert('RGB')
+
+STEP_ICONS = {}
+def step_icon(text, S, bg, pad=6):
+    """A small picture for a build step (a sheep for the sheep, logs for wood, the age arrow for
+    clicking up), with `pad` of panel colour on its right so it sits off the words. None when
+    nothing fits or Pillow is missing."""
+    kind = step_icon_kind(text)
+    if not kind: return None
+    key = (kind, S, bg, pad)
+    if key not in STEP_ICONS:
+        try:
+            from PIL import Image, ImageTk
+            im = Image.new('RGB', (S + pad, S), bg)
+            im.paste(draw_step_icon(kind, S, bg), (0, 0))
+            STEP_ICONS[key] = ImageTk.PhotoImage(im)
+        except Exception:
+            STEP_ICONS[key] = None
+    return STEP_ICONS[key]
 
 def build_by_name(name):
     for _g, n, pop, steps in BUILDS:
@@ -5391,7 +5509,7 @@ def main():
     bo_x.config(padx=4, pady=0)
     bo_x.grid(row=0, column=2, sticky='ne', padx=(6, 0))
     bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
-                      anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP)
+                      anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP - 26)
     bo_now.grid(row=2, column=0, columnspan=3, sticky='w', pady=(1, 0))
     # how far through the build you are: one short bar per step, gold for the one you are on
     bo_prog = tk.Canvas(bo_box, height=3, bg=PANEL, highlightthickness=0, bd=0)
@@ -5408,7 +5526,7 @@ def main():
             bo_prog.create_rectangle(x0, 0, x0 + seg, 3, fill=col, outline='')
     bo_prog.bind('<Configure>', bo_prog_draw, add='+')
     bo_next = tk.Label(bo_box, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
-                       wraplength=BO_WRAP)
+                       wraplength=BO_WRAP - 18)
     bo_next.grid(row=3, column=0, columnspan=3, sticky='w')
 
     def bo_wrap(e=None):
@@ -5416,8 +5534,8 @@ def main():
         # bigger than the box's own padding so the wrap can never push the box out a pixel and
         # set off another resize.
         w = max(BO_WRAP, bo_box.winfo_width() - 34)
-        if bo_now.cget('wraplength') != w:
-            bo_now.config(wraplength=w); bo_next.config(wraplength=w)
+        if bo_now.cget('wraplength') != w - 26:                     # room for the step pictures too
+            bo_now.config(wraplength=w - 26); bo_next.config(wraplength=w - 18)
             bo_cap.config(wraplength=max(BO_WRAP - 60, w - 60))
     bo_box.bind('<Configure>', bo_wrap, add='+')
 
@@ -5430,7 +5548,8 @@ def main():
             if waiting_now[0] and not bo['hidden']:
                 bo_cap.config(text='BUILD ORDER')
                 bo_at.config(text='')
-                bo_now.config(text='Pick one', font=(DISPLAY, 10, 'bold'))
+                bo_now.config(text='Pick one', font=(DISPLAY, 10, 'bold'), image='')
+                bo_next.config(image='')
                 bo_next.config(text=BUILD_SOURCE)
                 bo_prog.grid_remove()
                 bo_box.grid()
@@ -5445,8 +5564,13 @@ def main():
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
         bo_cap.config(text='%s  \u00b7  %s' % (name.upper(), pop))
         bo_at.config(text='pop %s' % span)
-        bo_now.config(text=text)
-        bo_next.config(text=('next  ' + steps[i + 1][2]) if i + 1 < len(steps) else 'last step')
+        img_ = step_icon(text, 18, PANEL, 7)
+        bo_now.config(text=text, image=img_ or '', compound='left')
+        bo_now.image = img_
+        nxt = steps[i + 1][2] if i + 1 < len(steps) else None
+        img2 = step_icon(nxt, 12, PANEL, 5) if nxt else None
+        bo_next.config(text=('next  ' + nxt) if nxt else 'last step', image=img2 or '', compound='left')
+        bo_next.image = img2
         bo_prog.grid(); bo_prog_draw()
         bo_box.grid(); bo_open_sync(); foot_fit()
 
