@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v101'
+VERSION = 'v102'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2676,15 +2676,49 @@ def discord_share_game():
         l = n.strip().lower()
         return l.startswith('stream') and 'age of empires' in l and c.ControlTypeName in BUTTONS
     gs = [c for c, n in everything if game_stream(c, n)]
+    live_now = lambda c, n: n.strip().lower() == 'stop streaming'
+    go_live_btn = named('Go Live', 'Go live')
+
+    def front():
+        """Discord did not take it from behind (it can stop drawing while the game covers it):
+        bring it up for the rest of the steps."""
+        if mode['bg']:
+            log('go live: Discord did not react from behind the game, bringing it up')
+            mode['bg'] = False
+        focus_window(d); time.sleep(0.4)
+
+    def press_go_live(wait=5):
+        """Find Go Live and press it, from behind first and then up front. True once live."""
+        go = _uia_wait(auto, go_live_btn, wait=wait)
+        if not go and mode['bg']:
+            front(); go = _uia_wait(auto, go_live_btn, wait=4)
+        if not go: return False
+        if not click(go): _uia_press(go)
+        if _uia_wait(auto, live_now, wait=3): return True
+        if mode['bg']:
+            front()
+            go = _uia_wait(auto, go_live_btn, wait=3)
+            if go and (_uia_click(go) or _uia_press(go)):
+                return bool(_uia_wait(auto, live_now, wait=4))
+        return False
+
+    # a Go Live button already up (a stream window left open by an earlier try): just press it
+    if any(go_live_btn(c, n) for c, n in everything):
+        log('go live: a Go Live button was already open, pressing it')
+        if press_go_live(wait=1):
+            log('go live: sharing Age of Empires II on Discord'); return
+
     if gs:
         log('go live: using Discord\'s own "%s" button' % gs[0].Name)
         if not click(gs[0]): _uia_press(gs[0])
-        go = _uia_wait(auto, named('Go Live', 'Go live'), wait=5)
-        if go:
-            if not click(go): _uia_press(go)
-            time.sleep(0.8)
-        if _uia_wait(auto, lambda c, n: n.strip().lower() == 'stop streaming', wait=3):
-            log('go live: sharing Age of Empires II on Discord'); return
+        if not _uia_wait(auto, lambda c, n: go_live_btn(c, n) or live_now(c, n), wait=4) and mode['bg']:
+            front()
+            g2 = [c for c, n in _uia_all(auto) if game_stream(c, n)]
+            if g2 and not _uia_wait(auto, go_live_btn, wait=1):
+                _uia_click(g2[0]) or _uia_press(g2[0])
+        if _uia_wait(auto, live_now, wait=1) or press_go_live(wait=5):
+            log('go live: sharing Age of Empires II on Discord (%s)'
+                % ('stayed in the game' if mode['bg'] else 'Discord came up')); return
         log('go live: the game stream button did not start a stream, trying the picker')
 
     # the share button: there can be more than one (the call view and the panel at the bottom
