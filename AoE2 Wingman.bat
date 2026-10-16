@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v97'
+VERSION = 'v98'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -2399,6 +2399,11 @@ def tap_key(vk):
     _send_keys([(vk, scan, 0x0008), (vk, scan, 0x0008 | 0x0002)])
     time.sleep(0.06)
 
+def combo_ok(spec):
+    """True when every part of 'CTRL+F3' style text is a key this knows."""
+    parts = [p.strip().upper() for p in re.split(r'[+\s]+', str(spec)) if p.strip()]
+    return bool(parts) and all(p in KEY_NAMES or (len(p) == 1 and p.isalnum()) for p in parts)
+
 def tap_combo(spec):
     """'CTRL+F3' and the like: hold the modifiers, tap the key, let go in reverse order."""
     ctypes, wintypes, u, _ = _win()
@@ -2429,18 +2434,31 @@ def game_chat(text):
     tap_key(0x0D); time.sleep(0.2)
 
 def find_discord_window():
+    """Discord's main window. Not its in-game overlay, which is also a Discord window, sits over
+    the whole game and is the biggest one it has, but is see-through and has no share button."""
     ctypes, wintypes, u, _ = _win()
+    u.GetWindowLongW.restype = ctypes.c_long
     hits = []
     proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def cb(h, l):
         if not u.GetWindow(h, 4) and (u.IsWindowVisible(h) or u.IsIconic(h)):
             pid = wintypes.DWORD(); u.GetWindowThreadProcessId(h, ctypes.byref(pid))
-            if _proc_name(pid.value) in DISCORD_EXES and u.GetWindowTextLengthW(h) > 0:
+            if _proc_name(pid.value) in DISCORD_EXES:
+                n = u.GetWindowTextLengthW(h)
+                b = ctypes.create_unicode_buffer(n + 1); u.GetWindowTextW(h, b, n + 1)
+                title = b.value.strip()
+                ex = u.GetWindowLongW(h, -20)                      # extended style
+                if not title or 'overlay' in title.lower(): return True
+                if ex & 0x80 or ex & 0x20: return True             # tool window, or click-through
                 r = wintypes.RECT(); u.GetWindowRect(h, ctypes.byref(r))
-                hits.append(((r.right - r.left) * (r.bottom - r.top), h))
+                main = title == 'Discord' or title.endswith(' - Discord')
+                hits.append((main, (r.right - r.left) * (r.bottom - r.top), h, title))
         return True
     u.EnumWindows(proto(cb), 0)
-    return max(hits)[1] if hits else None
+    if not hits: return None
+    best = max(hits)
+    log('go live: Discord window "%s"' % best[3])
+    return best[2]
 
 def ensure_pkg(mod, pip_name=None, why=''):
     """Import a module, installing it for this user the first time if it is missing."""
@@ -2519,7 +2537,16 @@ def discord_share_game():
     auto = ensure_pkg('uiautomation', why='the Go Live button')
     if not auto: raise LiveFail('could not load the Windows accessibility helper (pip install uiautomation)')
     d = find_discord_window()
-    if not d: raise LiveFail('Discord is not open (or is only in the tray). Open it and join a call first.')
+    if not d:
+        # closed to the tray: starting Discord again just brings its window back
+        up = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Discord', 'Update.exe')
+        if os.path.isfile(up):
+            import subprocess
+            subprocess.Popen([up, '--processStart', 'Discord.exe'], creationflags=0x08000000)
+            for _ in range(20):
+                time.sleep(0.4); d = find_discord_window()
+                if d: break
+    if not d: raise LiveFail('could not find the Discord window. Open Discord and join a call first.')
     focus_window(d); time.sleep(0.5)
     root = auto.ControlFromHandle(d)
     def named(*want):
@@ -5896,7 +5923,9 @@ def main():
             r_ = tk.Frame(lv_row, bg=INK); r_.pack(fill='x', pady=2)
             tk.Label(r_, text=label_, fg=TXT, bg=INK, font=F_SMALL, width=10, anchor='w').pack(side='left')
             e_ = tk.Entry(r_, width=30); style_entry(e_)
-            e_.insert(0, str(cfg.get(key_) or LIVE_DEFAULTS[key_])); e_.pack(side='left', fill='x', expand=True, ipady=2)
+            v_ = str(cfg.get(key_) or LIVE_DEFAULTS[key_])
+            if key_ == 'live_pause_key' and not combo_ok(v_): v_ = LIVE_DEFAULTS[key_]
+            e_.insert(0, v_); e_.pack(side='left', fill='x', expand=True, ipady=2)
             lv[key_] = e_
         lv_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
                           justify='left', wraplength=400)
@@ -6132,7 +6161,8 @@ def main():
                     'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
                     'loading_panels': bool(lp_on.get()), 'admin_auto': bool(ad_on.get()),
                     'friends': list(friends),
-                    'live_pause_key': lv['live_pause_key'].get().strip().upper() or 'CTRL+F3',
+                    'live_pause_key': (lv['live_pause_key'].get().strip().upper()
+                                       if combo_ok(lv['live_pause_key'].get()) else 'CTRL+F3'),
                     'live_before': lv['live_before'].get(), 'live_after': lv['live_after'].get(),
                     'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
         def save():
