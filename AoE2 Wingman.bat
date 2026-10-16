@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v111'
+VERSION = 'v112'
 APP_NAME = 'AoE2 Wingman'
 HOME = os.path.expanduser('~')
 GAMES = os.path.join(HOME, 'Games', 'Age of Empires 2 DE')
@@ -4453,6 +4453,40 @@ def top_openings(rows, n=2):
         tops = [t for t in tops if t[1] > 1]
     return tops
 
+_INTEL = {}
+
+def _intel():
+    """The opponent intelligence module (opponent_intelligence.py), when it sits beside this copy.
+    It lives on dev for now, so a Prod copy without it just goes without the extra line."""
+    if 'mod' in _INTEL: return _INTEL['mod']
+    mod = None
+    try:
+        here = os.path.dirname(os.path.abspath(self_path()))
+        if os.path.isfile(os.path.join(here, 'opponent_intelligence.py')):
+            if here not in sys.path: sys.path.insert(0, here)
+            import opponent_intelligence as mod
+            log('opponent intelligence: loaded from %s' % here)
+    except Exception as e:
+        log('opponent intelligence: could not load it: %r' % (e,)); mod = None
+    _INTEL['mod'] = mod
+    return mod
+
+def intel_line(rows, civ=None):
+    """'Past openings: Scouts (4/6) | Feudal ~9:40 | Castle ~17:10' from their public games, or None.
+    Grouped by the opening move, and narrowed to the civ they are playing when there are enough
+    games on it. History only: what they did before, never what they are doing now."""
+    oi = _intel()
+    if not oi or not rows: return None
+    try:
+        recs = [{'opening': short_opening(r['o'], parts=1), 'civ': str(r.get('civ')),
+                 'feudal_seconds': r.get('f') or None, 'castle_seconds': r.get('c') or None}
+                for r in rows if r.get('o')]
+        pred = oi.predict_opening(recs, civ=str(civ) if civ is not None else None, min_samples=3)
+        return oi.format_brief(pred) if pred else None
+    except Exception as e:
+        log('opponent intelligence: %r' % (e,))
+        return None
+
 def openings_lines(rows, civ=None, strings=None):
     """Two short lines: what they open with most, then how those games went."""
     if not rows: return []
@@ -4470,6 +4504,8 @@ def openings_lines(rows, civ=None, strings=None):
         if mine:
             bits.append('as %s: %s' % (civ_name(civ, strings), ', '.join(k for k, _ in mine.most_common(2))))
     out.append('  ·  '.join(bits))
+    extra = intel_line(rows, civ)
+    if extra: out.append(extra)
     return out
 
 # ---------------------------------------------------------------- ratings (public, from the game's own ladder service)
