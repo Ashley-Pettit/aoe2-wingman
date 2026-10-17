@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v134'
+VERSION = 'v135'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -415,6 +415,17 @@ def draw_step_icon(kind, S, bg):
     elif kind == 'loom':
         d.polygon(P((16, 3), (28, 7), (26, 19), (16, 29), (6, 19), (4, 7)), fill='#a9823c')
         d.polygon(P((16, 7), (24, 10), (22, 18), (16, 25), (10, 18), (8, 10)), fill='#d8b253')
+    elif kind in ('sound_on', 'sound_off'):      # the build order's voice: a speaker, waves or a cross
+        on = kind == 'sound_on'
+        col = '#d8b253' if on else '#7d7466'
+        R(3, 12, 10, 20, 1, fill=col)
+        d.polygon(P((9, 12), (17, 5), (17, 27), (9, 20)), fill=col)
+        if on:
+            for r in (6, 11):
+                d.arc(((17 - r) * u, (16 - r) * u, (17 + r) * u, (16 + r) * u), -48, 48,
+                      fill=col, width=max(1, int(2.6 * u)))
+        else:
+            L([(21, 11), (29, 21)], 2.6, col); L([(29, 11), (21, 21)], 2.6, col)
     elif kind == 'age':
         E(2, 2, 30, 30, fill='#d8b253'); E(4.5, 4.5, 27.5, 27.5, fill='#2a2116')
         d.polygon(P((16, 7), (24, 16), (19, 16), (19, 25), (13, 25), (13, 16), (8, 16)), fill='#f0d796')
@@ -449,6 +460,79 @@ def build_step_at(steps, pop):
     for i, (lo, _hi, _t) in enumerate(steps):
         if pop >= lo: at = i
     return at
+
+# ---------------------------------------------------------------- the build order read out loud
+VOICE_START_S = 10      # seconds into a game before the first step is read out
+# Windows' own speech, in one quiet PowerShell that stays open for the whole session and reads a
+# line at a time from Wingman, so each step is spoken straight away rather than after a slow start.
+# An Australian voice if Windows has one, then British, then whatever the default is.
+VOICE_PS = r"""
+Add-Type -AssemblyName System.Speech
+$s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+try { $s.SetOutputToDefaultAudioDevice() } catch {}
+$v = @($s.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo })
+foreach ($c in 'en-AU', 'en-GB', 'en-US') {
+  $m = $v | Where-Object { $_.Culture.Name -eq $c } | Select-Object -First 1
+  if ($m) { try { $s.SelectVoice($m.Name) } catch {}; break }
+}
+$s.Rate = 1
+while ($true) {
+  $l = [Console]::In.ReadLine()
+  if ($l -eq $null) { break }
+  $s.SpeakAsyncCancelAll()
+  if ($l.Trim()) { [void]$s.SpeakAsync($l) }
+}
+"""
+
+def spoken_step(text):
+    """A build step as something to say: '6 to sheep under the TC' becomes 'Send 6 to sheep under
+    the T C', '5 hunt to wood' becomes 'Move 5 from hunt to wood', and so on."""
+    t = text or ''
+    for pat, to in ((r'^(\d+) (more )?hunts? to ', r'Move \1 \2from hunt to '),
+                    (r'^(\d+) (more )?hunts?\b', r'Send \1 \2to hunt'),
+                    (r'^(\d+) (more )?to ', r'Send \1 \2to '),
+                    (r'^(\d+) houses\b', r'Build \1 houses')):
+        t2 = re.sub(pat, to, t)
+        if t2 != t: t = t2; break
+    t = re.sub(r'\bTC\b', 'T C', t)
+    return re.sub(r'\s*\(', ', ', t).replace(')', '')
+
+class Voice:
+    """Says one line at a time. A new line cuts off the one before, so it never falls behind."""
+    def __init__(self):
+        self.p = None
+        self.lock = threading.Lock()
+    def _start(self):
+        import subprocess, base64
+        ps = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'WindowsPowerShell',
+                          'v1.0', 'powershell.exe')
+        if not os.path.exists(ps): ps = 'powershell'
+        enc = base64.b64encode(VOICE_PS.encode('utf-16-le')).decode('ascii')
+        self.p = subprocess.Popen([ps, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                                   '-EncodedCommand', enc], stdin=subprocess.PIPE,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  creationflags=0x08000000, env=clean_env())
+    def _send(self, line):
+        with self.lock:
+            for _ in range(2):
+                try:
+                    if self.p is None or self.p.poll() is not None: self._start()
+                    if line is None: return                    # just warming up
+                    self.p.stdin.write((line + '\n').encode('ascii', 'replace'))
+                    self.p.stdin.flush()
+                    return
+                except Exception as e:
+                    log('voice: %r' % (e,)); self.p = None
+    def say(self, text):
+        line = re.sub(r'\s+', ' ', str(text or '')).strip()
+        threading.Thread(target=self._send, args=(line,), daemon=True).start()
+    def warm(self):
+        """Start the speech engine ahead of time, so the first line is not late."""
+        threading.Thread(target=self._send, args=(None,), daemon=True).start()
+    def stop(self):
+        if self.p is not None: self.say('')
+
+VOICE = Voice()
 
 # ---------------------------------------------------------------- replay lobby settings
 def _ds(h, p):
@@ -5809,7 +5893,7 @@ def main():
             except NameError: pass         # the very first call, before it exists
 
     # the build order strip: one step at a time, because mid game you have no time for a list
-    bo = {'name': None, 'i': 0, 'pop': 0, 'hidden': False}
+    bo = {'name': None, 'i': 0, 'pop': 0, 'hidden': False, 'voice': False, 'said': -1, 'voice_at': None}
     BO_WRAP = 260                               # the narrowest the strip wraps to
     bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=5)
     bo_box.grid(row=3, column=0, columnspan=4, sticky='we', pady=(6, 0)); bo_box.grid_remove()
@@ -5819,15 +5903,30 @@ def main():
     bo_cap.grid(row=0, column=0, sticky='w')
     bo_at = tk.Label(bo_box, text='', fg=MUT, bg=PANEL, font=F_TINY, anchor='e')
     bo_at.grid(row=0, column=1, sticky='e')
+    bo_snd = icon_button(bo_box, '', PANEL, size=9)                   # reads the steps out loud, or not
+    bo_snd.config(padx=3, pady=0)
+    bo_snd.grid(row=0, column=2, sticky='ne', padx=(6, 0))
+    bo_snd_img = {}
+    try:
+        from PIL import ImageTk
+        for k_ in ('sound_on', 'sound_off'):
+            bo_snd_img[k_] = ImageTk.PhotoImage(draw_step_icon(k_, 15, PANEL))
+    except Exception:
+        pass
+    def bo_voice_draw():
+        k_ = 'sound_on' if bo['voice'] else 'sound_off'
+        if bo_snd_img.get(k_): bo_snd.config(image=bo_snd_img[k_], text='')
+        else: bo_snd.config(image='', text='\U0001F50A' if bo['voice'] else '\U0001F507')
+    bo_voice_draw()
     bo_x = icon_button(bo_box, '\u2715', PANEL, hot=REDC, size=9)     # closes the build order
     bo_x.config(padx=4, pady=0)
-    bo_x.grid(row=0, column=2, sticky='ne', padx=(6, 0))
+    bo_x.grid(row=0, column=3, sticky='ne', padx=(2, 0))
     bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
                       anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP - 30)
-    bo_now.grid(row=2, column=0, columnspan=3, sticky='w', pady=(1, 0))
+    bo_now.grid(row=2, column=0, columnspan=4, sticky='w', pady=(1, 0))
     # how far through the build you are: one short bar per step, gold for the one you are on
     bo_prog = tk.Canvas(bo_box, height=3, bg=PANEL, highlightthickness=0, bd=0)
-    bo_prog.grid(row=1, column=0, columnspan=3, sticky='we', pady=(3, 3))
+    bo_prog.grid(row=1, column=0, columnspan=4, sticky='we', pady=(3, 3))
     def bo_prog_draw(_e=None):
         bo_prog.delete('all')
         found_ = build_by_name(bo['name'])
@@ -5840,7 +5939,7 @@ def main():
             bo_prog.create_rectangle(x0, 0, x0 + seg, 3, fill=col, outline='')
     bo_prog.bind('<Configure>', bo_prog_draw, add='+')
     bo_nrow = tk.Frame(bo_box, bg=PANEL)
-    bo_nrow.grid(row=3, column=0, columnspan=3, sticky='w', pady=(1, 0))
+    bo_nrow.grid(row=3, column=0, columnspan=4, sticky='w', pady=(1, 0))
     bo_ntag = tk.Label(bo_nrow, text='NEXT', fg=BRONZE, bg=PANEL, font=(F_TINY[0], F_TINY[1], 'bold'), anchor='nw')
     bo_ntag.pack(side='left', anchor='n', padx=(0, 6), pady=(1, 0))
     bo_next = tk.Label(bo_nrow, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
@@ -5872,7 +5971,7 @@ def main():
                 bo_next.config(image='')
                 bo_next.config(text=BUILD_SOURCE); bo_ntag.pack_forget()
                 bo_box.config(highlightbackground=EDGE)
-                bo_prog.grid_remove()
+                bo_prog.grid_remove(); bo_snd.grid_remove()
                 bo_box.grid()
             else:
                 bo_box.grid_remove()
@@ -5897,7 +5996,7 @@ def main():
         # the moment to click up gets a gold edge, so it stands out from the villager steps
         up_ = any(k in text.lower() for k in ('click feudal', 'click castle'))
         bo_box.config(highlightbackground=GOLDC if up_ else EDGE)
-        bo_prog.grid(); bo_prog_draw()
+        bo_prog.grid(); bo_prog_draw(); bo_snd.grid()
         bo_box.grid(); bo_open_sync(); foot_fit()
 
     def bo_open_sync():
@@ -5916,7 +6015,7 @@ def main():
 
     def bo_pick(name):
         bo['name'] = name or None
-        bo['i'] = 0; bo['pop'] = 0
+        bo['i'] = 0; bo['pop'] = 0; bo['said'] = -1
         if bo['name']: bo['hidden'] = False
         cfg_ = load_settings(); cfg_['build_order'] = bo['name'] or ''
         cfg_['build_order_hidden'] = bo['hidden']
@@ -6023,6 +6122,47 @@ def main():
         bo['pop'] = pop
         if new_game or i > bo['i']:
             bo['i'] = i; bo_draw()
+
+    def bo_voice_set(on):
+        """The speaker on the strip. On, it reads each step out as you reach it."""
+        bo['voice'] = bool(on)
+        cfg_ = load_settings(); cfg_['build_voice'] = bo['voice']; save_settings(cfg_)
+        bo_voice_draw()
+        if not on: VOICE.stop(); return
+        bo['said'] = -1                                   # say the step you are on now
+        if waiting_now[0] or not bo['voice_at'] or time.time() < bo['voice_at']:
+            VOICE.say('Voice on')                          # so you know the sound works
+
+    def bo_voice_tick():
+        """Twice a second: read the step out the first time you reach it."""
+        if not bo['voice'] or bo['hidden'] or waiting_now[0]: return
+        if not bo['voice_at'] or time.time() < bo['voice_at']: return
+        found = build_by_name(bo['name'])
+        if not found: return
+        i = max(0, min(bo['i'], len(found[2]) - 1))
+        if i == bo['said']: return
+        bo['said'] = i
+        VOICE.say(spoken_step(found[2][i][2]))
+
+    def bo_game_start(f):
+        """A new game: the build starts again, and the voice waits until the clock has run a bit."""
+        bo['i'] = 0; bo['pop'] = 0; bo['said'] = -1; bo['voice_at'] = None
+        if bo['voice'] and bo['name']: VOICE.warm()
+        def work():
+            try:
+                fresh = time.time() - os.path.getctime(f) <= 40       # not opened part way through
+                if fresh:
+                    size0 = os.path.getsize(f)
+                    for _ in range(120):              # the recording grows once the game clock runs
+                        if os.path.getsize(f) > size0: break
+                        time.sleep(0.25)
+                at = time.time() + (VOICE_START_S if fresh else 3)
+            except OSError:
+                at = time.time() + VOICE_START_S
+            def go():
+                if st.get('last') == f: bo['voice_at'] = at
+            root.after(0, go)
+        threading.Thread(target=work, daemon=True).start()
 
     rec_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w')
     rec_line.grid(row=4, column=0, columnspan=4, sticky='w', pady=(3, 0)); rec_line.grid_remove()
@@ -6183,6 +6323,8 @@ def main():
         try:
             if tcw.pop: bo_follow(tcw.pop[0])
         except Exception: pass
+        try: bo_voice_tick()
+        except Exception as e_: log('build voice: %r' % (e_,))
         root.after(450, tc_pulse)
 
     def tc_note(text, seconds=8):
@@ -6881,7 +7023,7 @@ def main():
     for w in (root, frame, head, badge, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_cap, bo_at, bo_x, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, live_btn, bo_open): bind_all(w)
+              bo_box, bo_cap, bo_at, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, live_btn, bo_open): bind_all(w)
     st['actions'][bo_prog] = bo_menu
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
     # a click anywhere on the build strip opens the list; a right click on the step moves it on
@@ -6893,6 +7035,7 @@ def main():
     st['actions'][bo_nrow] = bo_menu
     st['actions'][bo_ntag] = bo_menu
     st['actions'][bo_x] = bo_close
+    st['actions'][bo_snd] = lambda: bo_voice_set(not bo['voice'])
     st['actions'][bo_open] = bo_reopen
 
     def live_start(in_game=True, report=None):
@@ -8410,6 +8553,7 @@ def main():
                         log('back in the same game: counts kept')
                     else:
                         watcher.reset(); st['extra'] = 0; st['castle_note'] = False; st['feudal_note'] = False
+                        bo_game_start(f); bo_draw()
                     game_started(f)
                     st['first'], st['herd'] = desc, herd
                     watcher.active = herd is not None
@@ -8438,6 +8582,7 @@ def main():
         root.after(POLL_MS, tick)
     bo['name'] = load_settings().get('build_order') or None
     bo['hidden'] = bool(load_settings().get('build_order_hidden'))
+    bo['voice'] = bool(load_settings().get('build_voice')); bo_voice_draw()
     bo_draw()                                     # after foot_fit exists, so the card can resize
 
     tick(); fast(); root.mainloop()
