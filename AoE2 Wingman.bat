@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v137'
+VERSION = 'v138'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -183,7 +183,7 @@ BUILD_SOURCE = "Hera's strategy guide, Dec 2025"
 # villagers plus the scout, plus any militia, which is how players and the in-game counter count.
 BUILDS = [
  ('Scouts', 'Scouts, one stable', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, 'House, then berries with the mill'),
@@ -192,7 +192,7 @@ BUILDS = [
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Barracks then stable, 3 scouts, double bit axe')]),
  ('Scouts', 'Scouts, two stables', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, 'House, then berries with the mill'),
@@ -201,7 +201,7 @@ BUILDS = [
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Barracks, then two stables, double bit axe')]),
  ('Scouts', 'Scouts into archers', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 hunts under the TC'),
@@ -211,7 +211,7 @@ BUILDS = [
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks, double bit axe')]),
  ('Archers', 'Archers, one range', '20 pop, Feudal 9:15', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'House, then berries with the mill'),
@@ -220,7 +220,7 @@ BUILDS = [
    (20, 20, 'Second one to wood. Loom, then click Feudal (up at 9:15)'),
    (21, 99, '5 hunt to a second lumber camp, 2 berries, 3 gold, range up')]),
  ('Infantry', 'Men-at-arms', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 10,  '3 to wood, one builds a house in the wall'),
    (11, 11, 'Lure the first boar. Lure 2 deer, not optional'),
    (12, 16, '5 hunt under the TC, take the second boar'),
@@ -229,7 +229,7 @@ BUILDS = [
    (19, 19, 'Second one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '5 hunt to wood, 2 gold camp, 1 berries, 3 militia out')]),
  ('Infantry', 'Men-at-arms into skirms', '20 pop, Feudal 9:15', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'House, then the mill on chickens, or berries'),
@@ -241,7 +241,7 @@ BUILDS = [
    (20, 20, 'Second one hunts. Loom, then click Feudal (up at 9:15)'),
    (21, 99, 'Militia out, skirms behind them')]),
  ('Infantry', 'Feudal drush', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'House, then back to the hunt'),
@@ -251,7 +251,7 @@ BUILDS = [
    (19, 19, '1 to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Militia out, 1 to berries with the mill')]),
  ('Fast Castle', 'Fast Castle boom', '24 pop, Castle 14:00', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'House, then berries with the mill'),
@@ -263,7 +263,7 @@ BUILDS = [
    (25, 26, 'Feudal is in: 2 more to wood, market and blacksmith'),
    (27, 99, 'Click Castle as soon as both are up (in at 14:00)')]),
  ('Fast Castle', 'Drush into Fast Castle', '31 pop, Castle 16:05', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 11,  '4 to wood'),
    (12, 12, 'Lure the first boar'),
    (13, 13, '2 houses, then a barracks'),
@@ -288,7 +288,7 @@ BUILDS = [
    (26, 26, 'Third one to gold. Loom, then click Feudal (up at 11:45). Barracks and a house'),
    (27, 99, 'Stable and market, 4 more to gold, click Castle (in at 16:05)')]),
  ('Scouts', 'Scouts into skirms', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 hunts under the TC'),
@@ -298,7 +298,7 @@ BUILDS = [
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks and house')]),
  ('Infantry', 'Double barracks eagles', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 hunts under the TC'),
@@ -308,7 +308,7 @@ BUILDS = [
    (19, 19, 'Sixth one hunts. Loom if Aztecs or Incas, then click Feudal (up at 8:50)'),
    (20, 99, '5 to wood for 7 on one camp, 2 gold, barracks and house, 3 berries')]),
  ('Other', 'Tower rush, any civ', '18 pop, Feudal 8:25', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 hunts under the TC'),
@@ -318,7 +318,7 @@ BUILDS = [
    (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
    (19, 99, '2 to stone with a camp, 5 forward, spears or skirms behind the towers')]),
  ('Other', 'Teuton tower rush', '18 pop, Feudal 8:25', [
-   (2, 7,   '6 to sheep under the TC'),
+   (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 hunts under the TC'),
@@ -533,8 +533,8 @@ while ($true) {
 """
 
 def spoken_step(text):
-    """A build step as something to say: '6 to sheep under the TC' becomes 'Send 6 to sheep under
-    the T C', '5 hunt to wood' becomes 'Move 5 from hunt to wood', and so on."""
+    """A build step as something to say: '6 to sheep' becomes 'Send 6 to sheep',
+    '5 hunt to wood' becomes 'Move 5 from hunt to wood', and so on."""
     t = text or ''
     for pat, to in ((r'^(\d+) (more )?hunts? to ', r'Move \1 \2from hunt to '),
                     (r'^(\d+) (more )?hunts?\b', r'Send \1 \2to hunt'),
@@ -7135,7 +7135,10 @@ def main():
         boxes.append(win)
 
     def show_boxes(rect, phys_w, lines):
-        if not load_settings().get('loading_panels', False):
+        cfg_b = load_settings()
+        want_map = cfg_b.get('map_tips_loading', True)          # the map tips panel, up top
+        want_civ = cfg_b.get('civ_panel_loading', False)        # your opponent's civ, under it
+        if not (want_map or want_civ):
             st['boxes_ok'] = True; return          # the panels are switched off: nothing to draw or read
         st['boxes_ok'] = False                     # set once the panels are up with real players
         def go():
@@ -7176,13 +7179,13 @@ def main():
                     mname, mdesc = map_name_desc(maps, strings, lob['resolved'])
             if not mname and lines:
                 mname, mdesc = map_from_screen(maps, strings, lines)
-            st['boxes_ok'] = bool(me_p) and bool(mname)
-            if mname:
+            st['boxes_ok'] = (not want_civ or bool(me_p)) and (not want_map or bool(mname))
+            if mname and want_map:
                 map_rec = short_record([g for g in load_stats()['games'] if g.get('map') == mname])
                 tips_ = map_tips(mname)
                 make_box(green, GOLDC, mname, map_sections(mname, mdesc), tag='MAP', letter='M',
                          meta=[('Your record here: ' + map_rec) if map_rec else ''])
-            if opps:
+            if opps and want_civ:
                 team_game = len(players) > 2
                 def draw_red(elos):
                     for b_ in list(boxes):
@@ -8003,7 +8006,7 @@ def main():
             if src and src.get('steps'):
                 for p_, t_ in src['steps']: add_row(p_, t_)
             else:
-                add_row(2, '6 to sheep under the TC'); add_row(8, '')
+                add_row(2, '6 to sheep'); add_row(8, '')
             add_ = tk.Label(body_, text='+ Add a step', fg=GOLDC, bg=INK, font=F_SMALL, anchor='w', cursor='hand2')
             add_.pack(fill='x', pady=(6, 0)); hover(add_, GOLDC, GOLDD)
             def more(_e=None):
@@ -8106,7 +8109,8 @@ def main():
             except ValueError: cap20 = cfg.get('house_cap20', HOUSE_CAP20)
             return out, grace, cap20
 
-        lp_on = tk.BooleanVar(value=cfg.get('loading_panels', False))
+        mt_on = tk.BooleanVar(value=cfg.get('map_tips_loading', True))
+        cp_on = tk.BooleanVar(value=cfg.get('civ_panel_loading', False))
         field('Reminders')
         cn_on = tk.BooleanVar(value=cfg.get('castle_note', True))
         fn_on = tk.BooleanVar(value=cfg.get('feudal_note', True))
@@ -8176,9 +8180,8 @@ def main():
         ss_on.trace_add('write', ss_apply)
         Check(outer, text='Show Wingman in screenshots and streams', variable=ss_on).pack(fill='x')
 
-        Check(outer, text='Show map tips and your opponent while the game loads', variable=lp_on, fg=TXT, bg=INK,
-                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
-                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        Check(outer, text='Show map tips while the game loads', variable=mt_on).pack(fill='x')
+        Check(outer, text="Show your opponent's civ while the game loads", variable=cp_on).pack(fill='x')
 
         fg_on = tk.BooleanVar(value=cfg.get('focus_game', True))
         Check(outer, text='Bring the game to the front when it starts', variable=fg_on, fg=TXT, bg=INK,
@@ -8333,7 +8336,8 @@ def main():
                     'feudal_note': bool(fn_on.get()), 'companion_results': bool(cr_on.get()),
                     'castle_food': int(typed_number(cm_e.get(), cfg.get('castle_food', CASTLE_NOTE_FOOD), 100, 5000)),
                     'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
-                    'loading_panels': bool(lp_on.get()), 'admin_auto': bool(ad_on.get()),
+                    'map_tips_loading': bool(mt_on.get()), 'civ_panel_loading': bool(cp_on.get()),
+                    'admin_auto': bool(ad_on.get()),
                     'friends': list(friends), 'friend_discord': dict(fdisc),
                     'live_pause_key': (lv['live_pause_key'].get().strip().upper()
                                        if combo_ok(lv['live_pause_key'].get()) else 'CTRL+F3'),
@@ -9234,9 +9238,7 @@ def main():
     bo['name'] = load_settings().get('build_order') or None
     bo['hidden'] = bool(load_settings().get('build_order_hidden'))
     bo['voice'] = bool(load_settings().get('build_voice')); bo_voice_draw()
-    cfg_m = load_settings()
-    if not cfg_m.get('map_tips_on'):          # once: the loading panels now lead with map tips, so switch them on
-        cfg_m['map_tips_on'] = True; cfg_m['loading_panels'] = True; save_settings(cfg_m)
+
     bo_draw()                                     # after foot_fit exists, so the card can resize
 
     tick(); fast(); root.mainloop()
