@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v138'
+VERSION = 'v139'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -947,6 +947,49 @@ def map_text(maps, strings, sel, res, size=None, players=2):
                         group=facts.get('herd_group') or 2,
                         span=hm.span() if hm else None, word=hm.group(1) if hm else 'Herd')
     return name, first, herd
+
+# The hunt comes in many skins from map to map. For reading at a glance they are two things: what runs
+# away (deer) and what fights back (boar). Herdables (sheep, cows and the rest) are left exactly as they are.
+HUNT_KIND = {}
+for _w in ('deer', 'zebra', 'zebras', 'ostrich', 'ostriches', 'ibex', 'gazelle', 'gazelles', 'chicken',
+           'chickens', 'wild camel', 'wild camels', 'camel', 'camels'):
+    HUNT_KIND[_w] = 'Deer'
+for _w in ('boar', 'boars', 'wild boar', 'javelina', 'javelinas', 'elephant', 'elephants', 'wild elephant',
+           'wild elephants', 'rhino', 'rhinos', 'rhinoceros', 'rhinoceroses', 'hippo', 'hippos',
+           'hippopotamus'):
+    HUNT_KIND[_w] = 'Boar'
+
+def _hunt_bit(t):
+    """('Deer', lo, hi) for 'Zebra 3-4' or '4 Ostriches', else None."""
+    t = t.strip()
+    m = re.fullmatch(r'([A-Za-z][A-Za-z ]*?)\s+(\d+)(?:\s*-\s*(\d+))?', t)
+    if m: name, lo, hi = m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))
+    else:
+        m = re.fullmatch(r'(\d+)(?:\s*-\s*(\d+))?\s+([A-Za-z][A-Za-z ]*)', t)
+        if not m: return None
+        name, lo, hi = m.group(3), int(m.group(1)), int(m.group(2) or m.group(1))
+    kind = HUNT_KIND.get(name.strip().lower())
+    return (kind, lo, hi) if kind else None
+
+def merge_hunt(chips):
+    """'Chickens 6-8 OR Deer 3-4' -> 'Deer 3-8'; 'Deer 2', 'Zebra 2' -> 'Deer 4'. Anything that is
+    not deer or boar like (sheep, cows, relics...) comes back untouched, in its place."""
+    out, at = [], {}
+    def span(lo, hi): return '%d' % lo if lo == hi else '%d-%d' % (lo, hi)
+    for ch in chips:
+        alts = [a_.strip() for a_ in re.split(r'\s+OR\s+', ch)]
+        got = [_hunt_bit(a_) for a_ in alts]
+        if not all(got) or len({g[0] for g in got}) != 1:
+            out.append(ch); continue
+        kind = got[0][0]; lo = min(g[1] for g in got); hi = max(g[2] for g in got)
+        num_first = alts[0][:1].isdigit()                # keep '4 Boar' or 'Boar 4', whichever it was
+        fmt = (lambda k_, sp: '%s %s' % (sp, k_)) if num_first else (lambda k_, sp: '%s %s' % (k_, sp))
+        if kind in at:                                   # a second lot of the same kind: add them up
+            k_, plo, phi, f_ = at[kind]
+            at[kind] = (k_, plo + lo, phi + hi, f_); out[k_] = f_(kind, span(plo + lo, phi + hi))
+        else:
+            at[kind] = (len(out), lo, hi, fmt); out.append(fmt(kind, span(lo, hi)))
+    return out
 
 def herd_count(herd, notices):
     """The game shows one 'Sheep Found' message per herd found, not per animal. The first one is the
@@ -6160,6 +6203,8 @@ def main():
                     self.prose.append(n)
                     if not self.show_prose: n.pack_forget()
                 row, used = None, 0
+                try: chips = merge_hunt(chips)                       # deer-like and boar-like as one each
+                except Exception: pass
                 for ch in chips:
                     ch = ch.replace(' OR ', ' / ')
                     w = self.font.measure(ch) + 18                    # the words, the chip around them, the gap after
