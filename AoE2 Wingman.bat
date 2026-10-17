@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v135'
+VERSION = 'v136'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -22,9 +22,27 @@ def clean_env():
     tmp = getattr(sys, '_MEIPASS', None)
     for k in list(env):
         v = env[k]
-        if k.startswith('_PYI') or k.startswith('_MEIPASS') or (tmp and tmp.lower() in str(v).lower()):
+        if k.upper() == 'PATH' and tmp:                  # keep the path, minus this exe's temp folder
+            env[k] = os.pathsep.join(p_ for p_ in str(v).split(os.pathsep) if tmp.lower() not in p_.lower())
+        elif k.startswith('_PYI') or k.startswith('_MEIPASS') or (tmp and tmp.lower() in str(v).lower()):
             env.pop(k, None)
+    env['PYINSTALLER_RESET_ENVIRONMENT'] = '1'           # tell the new exe it is a fresh start, not a child
     return env
+
+def start_fresh_exe(path_, *args):
+    """Start another Wingman.exe as its own program, sharing nothing with this one. The exe's loader
+    points Windows' DLL search at its temp folder, and a program started from it inherits that: the
+    new copy then loads files out of the old one's temp folder, and the old one cannot clear it up
+    when it closes (that is the error box after an update). So undo that first."""
+    import subprocess
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetDllDirectoryW(None)
+    except Exception:
+        pass
+    return subprocess.Popen([path_] + list(args), close_fds=True, env=clean_env(),
+                            cwd=os.path.dirname(path_) or None,
+                            creationflags=0x00000008 | 0x00000200)     # DETACHED_PROCESS, new process group
 
 if FROZEN:
     # A certificate path that points nowhere (left over from another exe's temp folder, say) makes
@@ -1270,7 +1288,7 @@ class TCWatcher(threading.Thread):
         self.pause_fn = lambda: False
         self.fail_log = 0
         self.was_active = False
-        self.pop = self.pop_last = None
+        self.pop = self.pop_last = None; self.pop_t = 0
         self.want, self.seen = 'off', 0
         self.items, self.empty = [], False
         self.age, self.age_t, self.t0 = 1, 0, time.time()
@@ -1352,15 +1370,23 @@ class TCWatcher(threading.Thread):
         while True:
             time.sleep(0.7)
             r = getattr(self, 'rect', None)
-            if not self.active or not r: continue
+            # The pop counter is read whenever the game is in front, game seen or not: the build order
+            # follows it, and that should not hang on the recording being found and read.
+            on_screen = time.time() - getattr(self, 'fg_t', 0) < 3
+            if not r or not (self.active or on_screen): continue
             try:
                 x, y, w, hh = r; s = hh / 2160.0; now = time.time()
                 a = dict(px=x + w / 2.0, cy=y + 81 * s, s=s,
                          box=(int(x + w / 2.0 - 20 * s), int(y + 51 * s), int(320 * s), int(60 * s)))
                 p = self.read_pop(read, grab, a)
                 if p and self.pop_ok(p):
-                    if p == self.pop_last: self.pop = p          # the same reading twice running
+                    if p == self.pop_last:                       # the same reading twice running
+                        if p != self.pop and (self.pop is None or abs(p[0] - self.pop[0]) > 0):
+                            if not getattr(self, 'pop_logged', 0) or now - self.pop_logged > 60:
+                                self.pop_logged = now; log('pop %d/%d' % p)
+                        self.pop = p; self.pop_t = now
                     self.pop_last = p
+                if not self.active: continue                     # the rest is for a game we know about
                 if now - self.clock_t > 3:
                     self.clock_t = now
                     g = self.read_clock(read, grab, x, y, w, s)
@@ -1453,8 +1479,20 @@ class TCWatcher(threading.Thread):
         ctypes, wintypes, u, _ = _win()
         threading.Thread(target=self.slow_loop, daemon=True).start()
         last_shot = 0
+        last_fg = 0
         while True:
             time.sleep(0.08)
+            now_ = time.time()
+            if now_ - last_fg > 0.8:                     # where the game is, for the pop reader, game seen or not
+                last_fg = now_
+                try:
+                    fg_ = u.GetForegroundWindow()
+                    pid_ = wintypes.DWORD(); u.GetWindowThreadProcessId(fg_, ctypes.byref(pid_))
+                    if fg_ and _proc_name(pid_.value).startswith('aoe2de') and not self.pause:
+                        r_ = client_rect(fg_)
+                        if r_[2] >= 400 and r_[3] >= 300: self.rect = r_; self.fg_t = now_
+                except Exception:
+                    pass
             if self.active != self.was_active:
                 self.was_active = self.active
                 log('idle TC watch %s%s' % ('on' if self.active else 'off', ' (%s)' % self.civ if self.active and self.civ else ''))
@@ -2356,7 +2394,7 @@ def update_from_github(branch, me_=None, running=None):
 # like exe-v114). The exe cannot update itself from git the way the .bat does, so it checks
 # that page instead and swaps itself for the newer one.
 NUDGE_AFTER = 20                           # seconds after start before checking for a release
-RELEASES_API = 'https://api.github.com/repos/%s/releases/latest' % REPO
+RELEASES_API = 'https://api.github.com/repos/%s/releases?per_page=8' % REPO
 DOWNLOAD_PAGE = 'https://ashley-pettit.github.io/aoe2-wingman/'
 _REL = {}
 
@@ -2372,12 +2410,21 @@ def latest_release(fresh=False):
         import urllib.request
         req = urllib.request.Request(RELEASES_API, headers={'User-Agent': 'AoE2-Wingman',
                                                             'Accept': 'application/vnd.github+json'})
-        d = json.loads(urllib.request.urlopen(req, timeout=15).read().decode('utf-8'))
-        assets = {a.get('name', ''): a.get('browser_download_url') for a in d.get('assets', [])}
-        rel = {'ver': 'v%d' % ver_num(d.get('tag_name')), 'tag': d.get('tag_name'),
-               'exe': assets.get('Wingman.exe'),
-               'bat': next((u for n, u in assets.items() if n.lower().endswith('.bat')), None),
-               'page': d.get('html_url')}
+        got = json.loads(urllib.request.urlopen(req, timeout=15).read().decode('utf-8'))
+        # The newest release that has its Wingman.exe up. Each publish makes the release first and
+        # the exe lands a couple of minutes later, so the very newest one can still be empty.
+        best = None
+        for d in (got if isinstance(got, list) else [got]):
+            if d.get('draft'): continue
+            assets = {a.get('name', ''): a.get('browser_download_url') for a in d.get('assets', [])}
+            if not assets.get('Wingman.exe'): continue
+            if best is None or ver_num(d.get('tag_name')) > ver_num(best[0].get('tag_name')): best = (d, assets)
+        if best:
+            d, assets = best
+            rel = {'ver': 'v%d' % ver_num(d.get('tag_name')), 'tag': d.get('tag_name'),
+                   'exe': assets.get('Wingman.exe'),
+                   'bat': next((u for n, u in assets.items() if n.lower().endswith('.bat')), None),
+                   'page': d.get('html_url')}
     except Exception as e:
         log('release check: %r' % (e,))
         if FROZEN and not _REL.get('traced'):           # once: where it broke, to fix the exe build by
@@ -2413,8 +2460,8 @@ def update_exe(rel, progress=lambda t: None):
             raise RuntimeError('the download was not a working Wingman.exe')
     try:
         if os.path.exists(old): os.remove(old)
-    except OSError:
-        pass
+    except OSError:                                    # the last old one is still closing: pick another name
+        old = os.path.join(here, 'Wingman.old.%d.exe' % int(time.time()))
     os.replace(me, old)
     os.replace(new, me)
     log('updated the exe to %s' % rel['ver'])
@@ -2424,17 +2471,22 @@ def clear_old_exe():
     """Tidy away the exe this one replaced. The old copy is usually still closing when the new one
     starts (and Windows won't delete a running exe), so keep trying for a minute in the background."""
     if not FROZEN: return
-    old = os.path.join(os.path.dirname(sys.executable), 'Wingman.old.exe')
-    if not os.path.exists(old): return
+    here = os.path.dirname(sys.executable)
+    olds = glob.glob(os.path.join(here, 'Wingman.old*.exe')) + glob.glob(os.path.join(here, 'Wingman.new.exe'))
+    if not olds: return
     def work():
+        left = list(olds)
         for _ in range(40):
-            try:
-                os.remove(old); log('removed Wingman.old.exe'); return
-            except FileNotFoundError:
-                return
-            except OSError:
-                time.sleep(2)
-        log('could not remove Wingman.old.exe yet, will try next start')
+            for old in list(left):
+                try:
+                    os.remove(old); log('removed %s' % os.path.basename(old)); left.remove(old)
+                except FileNotFoundError:
+                    left.remove(old)
+                except OSError:
+                    pass
+            if not left: return
+            time.sleep(2)
+        log('could not remove %s yet, will try next start' % ', '.join(os.path.basename(o) for o in left))
     threading.Thread(target=work, daemon=True).start()
 
 APP_ICON_PNG = (  # the Wingman crest (64 and 32 px PNG), for the title bars and the taskbar
@@ -2673,6 +2725,15 @@ def mention(name):
     if re.fullmatch(r'\d{15,21}', n): return '<@%s>' % n            # a Discord user ID pings them
     if re.fullmatch(r'<@!?\d+>', n): return n
     return '@' + n.lstrip('@')
+
+def discord_tags(cfg, only=None):
+    """Who to tag in Discord: each friend on the party list with a Discord ID (or name) set, or just
+    the ones in `only`. Older settings kept a separate tag list; that is used if no friend has one."""
+    dmap = {k.lower(): v for k, v in (cfg.get('friend_discord') or {}).items() if str(v).strip()}
+    names = [f for f in (only if only is not None else cfg.get('friends', [])) if f.strip()]
+    tags = [dmap[f.lower()] for f in names if f.lower() in dmap]
+    if not dmap and only is None: tags = [p_ for p_ in cfg.get('pings', []) if p_.strip()]
+    return tags
 
 def invite_message(link, gid, friends):
     who = ' '.join(mention(f) for f in friends if f.strip())
@@ -2975,7 +3036,7 @@ def find_discord_window():
                 b = ctypes.create_unicode_buffer(n + 1); u.GetWindowTextW(h, b, n + 1)
                 title = b.value.strip()
                 ex = u.GetWindowLongW(h, -20)                      # extended style
-                if not title or 'overlay' in title.lower(): return True
+                if not title or 'overlay' in title.lower() or 'updater' in title.lower(): return True
                 if ex & 0x80 or ex & 0x20: return True             # tool window, or click-through
                 r = wintypes.RECT(); u.GetWindowRect(h, ctypes.byref(r))
                 main = title == 'Discord' or title.endswith(' - Discord')
@@ -3190,6 +3251,36 @@ def _visible(c):
     except Exception:
         return True
 
+def discord_channel_link(text):
+    """(server, channel) from a Discord channel link, or None."""
+    m = re.search(r'channels/(\d{5,25})/(\d{5,25})', str(text or ''))
+    return (m.group(1), m.group(2)) if m else None
+
+def discord_join_channel(auto):
+    """Not in a call? Join the voice channel picked in Settings, so there is something to stream to.
+    In a call already (Discord shows a Disconnect button), or no channel picked: leave it be."""
+    link = discord_channel_link(load_settings().get('live_channel'))
+    if not link: return False
+    if _uia_fast_wait(auto, ['Disconnect'], wait=1.5):
+        log('go live: already in a call, not joining the set channel'); return False
+    log('go live: not in a call, joining the set voice channel')
+    try:
+        os.startfile('discord://-/channels/%s/%s' % link)          # Discord opens the channel itself
+    except Exception as e:
+        log('go live, open channel: %r' % (e,)); return False
+    joined = _uia_fast_wait(auto, ['Disconnect'], wait=3)           # some versions join straight away
+    if not joined:
+        btn = _uia_fast_wait(auto, ['Join Voice', 'Join Voice Channel', 'Join Call'], wait=6)
+        if btn:
+            for fn in (_uia_click, _uia_press):
+                try:
+                    if fn(btn) and _uia_fast_wait(auto, ['Disconnect'], wait=4): joined = True; break
+                except Exception as e:
+                    log('go live, join: %r' % (e,))
+    log('go live: %s the voice channel' % ('joined' if joined else 'could not join'))
+    if joined: time.sleep(1.0)                                    # the call panel and its buttons settle
+    return bool(joined)
+
 def discord_share_game():
     """In Discord: Share Your Screen, the Applications tab, Age of Empires II, Go Live. Works off
     the call you are already in, whether that is a server voice channel or a DM call; Discord
@@ -3238,6 +3329,7 @@ def discord_share_game():
             if b_.value.strip(): game_title = b_.value.strip()
     except Exception:
         pass
+    discord_join_channel(auto)
     # the quick way: Discord's own button for streaming the game, by its exact name
     if _uia_fast(auto, ['Stop Streaming']):
         log('go live: already streaming, nothing to start'); return
@@ -3333,7 +3425,9 @@ def discord_share_game():
     cands.sort(key=lambda c: not _visible(c))
     if not cands:
         log('go live: no share button. Names Discord showed: %s' % ' | '.join(_uia_names(auto)[:400]))
-        raise LiveFail('no Share Your Screen button in Discord. Join a voice channel or call first.')
+        raise LiveFail('no Share Your Screen button in Discord. Join a voice channel or call first'
+                       + ('.' if discord_channel_link(load_settings().get('live_channel'))
+                          else ', or pick a channel to join in Settings.'))
     for c in cands:
         try: r = c.BoundingRectangle; where = '%d,%d %dx%d' % (r.left, r.top, r.right - r.left, r.bottom - r.top)
         except Exception: where = '?'
@@ -3685,7 +3779,7 @@ class HostInvite(threading.Thread):
                 # ranked parties have no join link, so post a heads-up instead
                 url = self.cfg.get('webhook', '').strip()
                 if not url: self.say('No lobby link on screen (ranked has none). Add your Discord link in settings.'); return False
-                who = ' '.join(mention(f) for f in (self.cfg.get('pings') or self.cfg.get('friends', [])) if f.strip())
+                who = ' '.join(mention(f) for f in discord_tags(self.cfg))
                 post_discord(url, (who + ' ' if who else '') + 'Jumping on ranked now, come online and accept my party invite.')
                 self.say('Ranked has no lobby link, so I posted a heads-up to #%s instead.' % (self.cfg.get('channel') or 'discord'))
                 return True
@@ -3694,7 +3788,7 @@ class HostInvite(threading.Thread):
         url = self.cfg.get('webhook', '').strip()
         if not url:
             self.say('Lobby %s is up. Add your Discord link in settings to post it.' % gid); return True
-        post_discord(url, invite_message(link, gid, self.cfg.get('pings') or self.cfg.get('friends', [])))
+        post_discord(url, invite_message(link, gid, discord_tags(self.cfg)))
         self.say('Lobby %s is up and posted to #%s.' % (gid, self.cfg.get('channel') or 'discord'))
         return True
 
@@ -4039,8 +4133,8 @@ class RankedParty(threading.Thread):
         self.say(('; '.join(parts) or 'Nobody to invite') + '.')
         url = self.cfg.get('webhook', '').strip()
         if url and invited:
-            who = ' '.join(mention(f) for f in (self.cfg.get('pings') or invited) if f.strip())
-            try: post_discord(url, '%s Ranked party invite sent in game, accept it in AoE2.' % who)
+            who = ' '.join(mention(f) for f in discord_tags(self.cfg, only=invited))
+            try: post_discord(url, ('%s ' % who if who else '') + 'Ranked party invite sent in game, accept it in AoE2.')
             except Exception as e: log('discord failed: %r' % (e,))
         return bool(invited)
 
@@ -5204,6 +5298,7 @@ class LoadWatcher(threading.Thread):
         self.ended, self.in_game = ended, in_game or (lambda: False)
         self.needs_text = lambda: True
         self.started = lambda: True        # a game this PC has actually begun recording
+        self.gone = lambda: None           # the loading screen has just made way for the game
         self.still_running = lambda: False # is the game on screen still being recorded?
         self.fake_log = 0
         # the end-of-game statistics screen has these tabs; Victory!/Defeat! banners too
@@ -5290,6 +5385,8 @@ class LoadWatcher(threading.Thread):
                     self.misses += 1
                     if self.misses >= 2:                       # two quick misses in a row: the game is up
                         self.showing = False; self.hide(); log('loading screen gone')
+                        try: self.gone()
+                        except Exception as e_: log('loading gone: %r' % (e_,))
                 elif loading:
                     self.misses = 0
                 # a game is on: every few seconds look for the end-of-game screen, and reset when it shows
@@ -5664,9 +5761,144 @@ def icon_for(head):
     h = head.lower()
     for key, kind in (('bonus', 'shield'), ('opening', 'clock'), ('beat', 'swords'), ('counter', 'swords'),
                       ('watch', 'eye'), ('unique', 'sword'), ('plays as', 'banner'), ('record', 'crown'),
-                      ('cavalry', 'horse'), ('archer', 'bow'), ('castle', 'castle')):
+                      ('cavalry', 'horse'), ('archer', 'bow'), ('castle', 'castle'),
+                      ('starts', 'banner'), ('map tips', 'eye'), ('plans', 'clock')):
         if key in h: return kind
     return 'diamond'
+
+
+# ---------------------------------------------------------------- map tips for the loading screen
+# What makes each map different from a normal start, then what to do about it. Only what anyone can
+# see in the lobby: the map's name and its well known layout, never where things are this game.
+STANDARD = 'Standard start: a Town Center, 3 villagers and a scout.'
+MAP_TIPS = {
+ 'Arabia': dict(start=[STANDARD, 'Open land with hills and thin wood lines.'],
+     tips=['Fight on the hills: units on high ground do 25% more damage.',
+           'Your wood lines are exposed. A wall or palisade around them stops early raids.'],
+     plans=['An aggressive map: Scouts, Archers, or a drush into Archers.',
+            'Going to Castle Age? Wall up in Feudal first.']),
+ 'Arena': dict(start=['Your base starts walled in with stone walls.'],
+     tips=['Build a gate in your wall to get your army out.',
+           'Early rushes rarely land here, so expect a boom.'],
+     plans=['Fast Castle is standard: Knights, Monks with siege, or a boom to Imperial.']),
+ 'Black Forest': dict(start=[STANDARD, 'Thick forest everywhere, with only a few paths through it.'],
+     tips=['Wall the few openings early and you are safe for a long time.',
+           'Siege Onagers and Trebuchets can cut new paths through the trees.'],
+     plans=['Boom behind walls, then a Castle or Imperial army.']),
+ 'Nomad': dict(start=['No Town Center and no scout. Your villagers start spread out.',
+                      'Extra wood and stone to pay for your Town Center. Water all around the land.'],
+     tips=['Settle fast near wood and the shore. Every second without a Town Center costs you.',
+           'Docks and fishing ships pay off early.'],
+     plans=['Town Center, houses, then a dock. Whoever wins the water usually wins.']),
+ 'Land Nomad': dict(start=['No Town Center and no scout. Your villagers start spread out.',
+                           'No water anywhere.'],
+     tips=['Pick a spot with wood, food and gold close together, and settle fast.'],
+     plans=['Once you are settled it plays like Arabia.']),
+ 'Islands': dict(start=['You start alone on your own island.'],
+     tips=['You cannot reach anyone without ships.',
+           'Fish and the empty islands hold the extra resources.'],
+     plans=['Docks first: fishing ships, then Galleys and Fire Ships to win the water. Transports come later.']),
+ 'Team Islands': dict(start=['Each team shares its own island.'],
+     tips=['The water decides the game. Lose it and your shore is open to attack.'],
+     plans=['Docks and fishing early. One player can take the navy while the other booms.']),
+ 'MegaRandom': dict(start=['Anything goes: land, water, forest, walls or no Town Center.'],
+     tips=['Scout early and work out what you got before you commit to a build.'],
+     plans=['Pick your build after the first minute of scouting.']),
+ 'Michi': dict(start=[STANDARD, 'A thick forest separates the two sides.'],
+     tips=['No early rushes: the forest closes your side off.',
+           'Siege Onagers and Trebuchets break through the trees.'],
+     plans=['Boom hard and go to Imperial. Trebuchets and Siege Onagers open it up.']),
+ 'Hideout': dict(start=['Your base starts inside a palisade wall.'],
+     tips=['The palisade slows early raids but will not hold a real push.'],
+     plans=['Fast Castle is common, but towers and Feudal pressure still work.']),
+ 'Hill Fort': dict(start=['Your base sits on a hill inside fortified palisade walls, with a moat below.',
+                         'No berries, one big gold and one big stone.'],
+     tips=['You will have to leave the hill for more resources, so guard what you take below.',
+           'Units on high ground do 25% more damage.'],
+     plans=['Fast Castle, then expand with Town Centers or a Castle.']),
+ 'Golden Pit': dict(start=[STANDARD, 'A ravine full of gold sits between you.'],
+     tips=['The middle gold is the prize. Towers or a Castle near it let you hold it.'],
+     plans=['Fight for the middle in Feudal, or Fast Castle and claim it with a Castle.']),
+ 'Acropolis': dict(start=['Your base is up on a big hill, with few resources around it.'],
+     tips=['Hold the ramps up to your hill. Units on high ground do 25% more damage.',
+           'The resources down below are worth fighting for.'],
+     plans=['Fast Castle is common. Push down with siege and Castles.']),
+ 'Fortress': dict(start=['You start walled in, with gates and buildings already up.'],
+     tips=['Rushes struggle to get through the walls.'],
+     plans=['Fast Castle or a straight boom. Siege decides the late game.']),
+ 'Gold Rush': dict(start=[STANDARD, 'A big pile of gold in the middle, guarded by wolves.'],
+     tips=['Send soldiers to clear the wolves before your villagers go in.'],
+     plans=['Fight for the middle gold. A Castle there pays for itself.']),
+ 'Four Lakes': dict(start=[STANDARD, 'A lake in each corner, full of fish.'],
+     tips=['The lakes hold most of the fish. Lose yours and you lose a lot of food.'],
+     plans=['Docks and fishing early, with Galleys to guard your lake.']),
+ 'Steppe': dict(start=[STANDARD, 'Open ground with few trees.'],
+     tips=['Lots of deer on the open ground: push them to your Town Center with the scout.',
+           'Wood is scarce and exposed, so guard your lumber camps.'],
+     plans=['A cavalry map: Scouts into Knights, or horse archers.']),
+ 'Valley': dict(start=[STANDARD, 'A dry riverbed runs between you.'],
+     tips=['Animals gather in the riverbed. That food is worth taking but leaves villagers exposed.'],
+     plans=['Scouts are strong early for holding the middle hunt.']),
+ 'Atacama': dict(start=[STANDARD, 'Dry desert near you; the trees are further out.'],
+     tips=['Your wood is further than usual, so lumber camps sit out in the open.'],
+     plans=['Guard your wood lines and raid theirs.']),
+ 'Kawasan': dict(start=[STANDARD, 'Lots of food on this map.'],
+     tips=['A big cluster of berry bushes in the middle.',
+           'Plenty of relics around the ponds: Monks pay off.'],
+     plans=['Get Monks out in Castle Age for the relics.']),
+ 'African Clearing': dict(start=[STANDARD, 'A forest clearing with sparse resources.'],
+     tips=['Expand early to claim what is there before they do.'],
+     plans=['Early pressure works, since everyone is short.']),
+ 'Ghost Lake': dict(start=[STANDARD, 'A frozen lake in the middle that you can walk across.'],
+     tips=['No fishing: the lake is ice.'],
+     plans=['Plays as an open land map.']),
+ 'Baltic': dict(start=[STANDARD, 'You start on the coast of a sea in the middle.'],
+     tips=['Fish is a big part of your food. Lose the water and your coast is open.'],
+     plans=['Docks early, then Galleys. Land armies decide it once the water is settled.']),
+ 'Mediterranean': dict(start=[STANDARD, 'A sea in the middle with land all around.'],
+     tips=['Fish is a big part of your food. Lose the water and your coast is open.'],
+     plans=['Docks early, then Galleys. Land armies decide it once the water is settled.']),
+ 'Coastal': dict(start=[STANDARD, 'Land with a long coast.'],
+     tips=['Fish along the shore is extra food.', 'Ships can hit anything near the coast.'],
+     plans=['Usually won on land, but do not hand them the water.']),
+ 'Continental': dict(start=[STANDARD, 'One big continent with sea around it.'],
+     tips=['Fish along the shore is extra food.'],
+     plans=['A land map with some water play.']),
+}
+
+def map_name_desc(maps, strings, res):
+    """(name, the game's own one line description) for a map id."""
+    m = maps.get(res)
+    if not m: return None, ''
+    name = strings.get(str(m.get('name_string_id')), m.get('const_name', ''))
+    desc = clean(strings.get(str(m.get('rollover_string_id')), ''))
+    if desc.lower().startswith(name.lower()): desc = desc[len(name):].lstrip(' -\u2013')
+    return name, desc.split('\n')[0].strip()
+
+def map_from_screen(maps, strings, lines):
+    """The map named on the loading screen, when there is no recording to read it from."""
+    seen = _norm(' '.join(t for t, _ in lines))
+    best = None
+    for res in maps:
+        nm, ds = map_name_desc(maps, strings, res)
+        k = _norm(nm or '')
+        if len(k) >= 4 and k in seen and (best is None or len(k) > len(_norm(best[0]))): best = (nm, ds)
+    return best or (None, '')
+
+def map_tips(name):
+    """The tips for a map by its name, or None."""
+    n = _norm(name or '')
+    for k, v in MAP_TIPS.items():
+        if _norm(k) == n: return v
+    return None
+
+def map_sections(name, desc=''):
+    """The loading screen panel for the map: what is different about how it starts, what to watch,
+    and the plans that usually work."""
+    t = map_tips(name)
+    if not t:
+        return [('About this map', [desc or 'No notes for this map yet. Scout early.'])]
+    return [('How it starts', t['start']), ('Map tips', t['tips']), ('Plans that work', t['plans'])]
 
 # ---------------------------------------------------------------- window
 def single_instance():
@@ -5746,6 +5978,7 @@ def main():
             self.create_polygon(m, y - 4, m + 5, y, m, y + 4, m - 5, y, fill=RIM, outline=BRONZE)
 
     # header: accent stripe, the map name as the headline, state pill, then the window controls
+    PANEL_W = 440                     # the overlay is always this wide inside; anything longer wraps
     head = tk.Frame(frame, bg=BG)
     head.grid(row=0, column=0, columnspan=4, sticky='we')
     head.columnconfigure(1, weight=1)
@@ -5755,7 +5988,9 @@ def main():
     except Exception:
         badge = tk.Label(head, text='', bg=BG)
     badge.grid(row=0, column=0, sticky='w', padx=(0, 6))
-    title = tk.Label(head, text=APP_NAME, fg=GOLDC, bg=BG, font=F_HEADLINE, anchor='w', cursor='hand2')
+    HEAD_NAME = 'Wingman'             # the crest already says AoE2; the short name keeps the header in one row
+    title = tk.Label(head, text=HEAD_NAME, fg=GOLDC, bg=BG, font=F_HEADLINE, anchor='w', cursor='hand2',
+                     justify='left', wraplength=PANEL_W - 170)
     title.grid(row=0, column=1, sticky='w', padx=(2, 0))
     state = tk.Label(head, text='WAITING', fg=MUT, bg=PANEL, font=F_TINY, padx=7, pady=3,
                      highlightthickness=1, highlightbackground=RIM)
@@ -5783,7 +6018,7 @@ def main():
     # the map's facts, laid out as chips rather than one run-on line
     class Facts(object):
         """Stands in for the old body label: same .config(text=...) in, a tidy chip strip out."""
-        WIDTH = 400                         # the room there is inside the panel
+        WIDTH = PANEL_W                     # the room there is inside the panel
 
         def __init__(self, parent):
             import tkinter.font as tkfont
@@ -5875,7 +6110,7 @@ def main():
     def idle_size(waiting):
         was = waiting_now[0]
         waiting_now[0] = waiting
-        pin.config(width=0 if waiting else 400)
+        pin.config(width=PANEL_W)                     # one width in and out of a game
         if waiting:                                   # pull everything in: there is nothing to show
             body.config(text=''); body.grid_remove()
             sep.grid_remove(); footsep.grid_remove()   # no dividers, nothing to divide
@@ -5893,7 +6128,9 @@ def main():
             except NameError: pass         # the very first call, before it exists
 
     # the build order strip: one step at a time, because mid game you have no time for a list
-    bo = {'name': None, 'i': 0, 'pop': 0, 'hidden': False, 'voice': False, 'said': -1, 'voice_at': None}
+    # i is where your pop says you are (live); view is a step you clicked to look at, None for live
+    bo = {'name': None, 'i': 0, 'view': None, 'pop': 0, 'hidden': False, 'voice': False, 'said': -1,
+          'voice_at': None, 'game_t': 0}
     BO_WRAP = 260                               # the narrowest the strip wraps to
     bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=5)
     bo_box.grid(row=3, column=0, columnspan=4, sticky='we', pady=(6, 0)); bo_box.grid_remove()
@@ -5933,9 +6170,11 @@ def main():
         if not found_: return
         n = len(found_[2]); w = max(1, bo_prog.winfo_width()); gap = 3
         seg = (w - gap * (n - 1)) / float(n)
+        v = bo['view']
         for k in range(n):
             x0 = k * (seg + gap)
             col = GOLDC if k == bo['i'] else (BRONZE if k < bo['i'] else EDGE)
+            if v is not None and k == v and v != bo['i']: col = '#efe6d2'      # the step you are looking at
             bo_prog.create_rectangle(x0, 0, x0 + seg, 3, fill=col, outline='')
     bo_prog.bind('<Configure>', bo_prog_draw, add='+')
     bo_nrow = tk.Frame(bo_box, bg=PANEL)
@@ -5945,6 +6184,9 @@ def main():
     bo_next = tk.Label(bo_nrow, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
                        wraplength=BO_WRAP - 36)
     bo_next.pack(side='left', anchor='n')
+    bo_live = tk.Label(bo_box, text='', fg=GREEN, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
+                       cursor='hand2', wraplength=BO_WRAP - 36)
+    bo_live.grid(row=4, column=0, columnspan=4, sticky='w', pady=(4, 0)); bo_live.grid_remove()
 
     def bo_wrap(e=None):
         # Long steps wrap to whatever width the overlay already is, never wider. The margin is
@@ -5952,7 +6194,7 @@ def main():
         # set off another resize.
         w = max(BO_WRAP, bo_box.winfo_width() - 34)
         if bo_now.cget('wraplength') != w - 30:                     # room for the step pictures too
-            bo_now.config(wraplength=w - 30); bo_next.config(wraplength=w - 36)
+            bo_now.config(wraplength=w - 30); bo_next.config(wraplength=w - 36); bo_live.config(wraplength=w - 10)
             bo_cap.config(wraplength=max(BO_WRAP - 60, w - 60))
     bo_box.bind('<Configure>', bo_wrap, add='+')
 
@@ -5971,21 +6213,30 @@ def main():
                 bo_next.config(image='')
                 bo_next.config(text=BUILD_SOURCE); bo_ntag.pack_forget()
                 bo_box.config(highlightbackground=EDGE)
-                bo_prog.grid_remove(); bo_snd.grid_remove()
+                bo_prog.grid_remove(); bo_snd.grid_remove(); bo_live.grid_remove()
                 bo_box.grid()
             else:
                 bo_box.grid_remove()
             bo_open_sync(); foot_fit(); return
         bo_now.config(font=(DISPLAY, 12, 'bold'))
         name, pop, steps = found
-        i = max(0, min(bo['i'], len(steps) - 1))
-        bo['i'] = i
+        live = max(0, min(bo['i'], len(steps) - 1))
+        bo['i'] = live
+        if bo['view'] is not None:
+            bo['view'] = max(0, min(bo['view'], len(steps) - 1))
+            if bo['view'] == live: bo['view'] = None
+        i = live if bo['view'] is None else bo['view']          # the step on show
         lo, hi, text = steps[i]
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
         bo_cap.config(text='%s  \u00b7  %s' % (name.upper(), pop))
-        bo_at.config(text='pop %s' % span)
+        bo_at.config(text='pop %s' % span, fg=MUT if i == live else '#efe6d2')
+        if i != live:                                  # looking ahead (or back): where you really are, to go back to
+            bo_live.config(text='\u25c2 Back to live:  %s' % steps[live][2]); bo_live.grid()
+        else:
+            bo_live.grid_remove()
         img_ = step_icon(text, 22, PANEL, 8)
-        bo_now.config(text=text, image=img_ or '', compound='left')
+        bo_now.config(text=text, image=img_ or '', compound='left',
+                      fg=GOLDD if i == live else '#cfc8b6')        # a step you are only looking at is paler
         bo_now.image = img_
         nxt = steps[i + 1][2] if i + 1 < len(steps) else None
         bo_next.config(text=nxt or 'Last step. Over to you.', image='')
@@ -6015,7 +6266,7 @@ def main():
 
     def bo_pick(name):
         bo['name'] = name or None
-        bo['i'] = 0; bo['pop'] = 0; bo['said'] = -1
+        bo['i'] = 0; bo['pop'] = 0; bo['said'] = -1; bo['view'] = None
         if bo['name']: bo['hidden'] = False
         cfg_ = load_settings(); cfg_['build_order'] = bo['name'] or ''
         cfg_['build_order_hidden'] = bo['hidden']
@@ -6101,9 +6352,18 @@ def main():
         pop_.after(300, watch)
 
     def bo_step(by=1):
+        """Look at the step after (or before) the one on show. Where you really are stays put, and
+        the strip goes back to it by itself the moment your pop moves you on."""
         if not bo['name']: return
-        bo['i'] = max(0, bo['i'] + by)          # following still carries on from here
+        found = build_by_name(bo['name'])
+        if not found: return
+        cur = bo['i'] if bo['view'] is None else bo['view']
+        v = max(0, min(len(found[2]) - 1, cur + by))
+        bo['view'] = None if v == bo['i'] else v
         bo_draw()
+
+    def bo_live_again():
+        bo['view'] = None; bo_draw()
 
     def bo_follow(pop):
         """Move with the pop counter the Town Center watcher already reads off your screen.
@@ -6121,7 +6381,7 @@ def main():
         new_game = pop < bo['pop'] - 3
         bo['pop'] = pop
         if new_game or i > bo['i']:
-            bo['i'] = i; bo_draw()
+            bo['i'] = i; bo['view'] = None; bo_draw()      # ticked over: back to live
 
     def bo_voice_set(on):
         """The speaker on the strip. On, it reads each step out as you reach it."""
@@ -6135,7 +6395,8 @@ def main():
 
     def bo_voice_tick():
         """Twice a second: read the step out the first time you reach it."""
-        if not bo['voice'] or bo['hidden'] or waiting_now[0]: return
+        if not bo['voice'] or bo['hidden']: return
+        if waiting_now[0] and time.time() - getattr(tcw, 'pop_t', 0) > 10: return     # no game on
         if not bo['voice_at'] or time.time() < bo['voice_at']: return
         found = build_by_name(bo['name'])
         if not found: return
@@ -6144,10 +6405,26 @@ def main():
         bo['said'] = i
         VOICE.say(spoken_step(found[2][i][2]))
 
+    def bo_fresh(at=None):
+        """Back to the first step for a new game. Called by the recording turning up and by the loading
+        screen going, whichever is first: the second one within a couple of minutes changes nothing."""
+        now = time.time()
+        if now - bo['game_t'] < 120:
+            if at and not bo['voice_at']: bo['voice_at'] = at
+            return
+        bo['game_t'] = now
+        bo['i'] = 0; bo['pop'] = 0; bo['said'] = -1; bo['view'] = None; bo['voice_at'] = at
+        if bo['voice'] and bo['name']: VOICE.warm()
+        try: bo_draw()
+        except Exception: pass
+
+    def bo_loaded():
+        """The loading screen has gone, so the game clock is running now."""
+        bo_fresh(time.time() + VOICE_START_S)
+
     def bo_game_start(f):
         """A new game: the build starts again, and the voice waits until the clock has run a bit."""
-        bo['i'] = 0; bo['pop'] = 0; bo['said'] = -1; bo['voice_at'] = None
-        if bo['voice'] and bo['name']: VOICE.warm()
+        bo_fresh()
         def work():
             try:
                 fresh = time.time() - os.path.getctime(f) <= 40       # not opened part way through
@@ -6160,11 +6437,11 @@ def main():
             except OSError:
                 at = time.time() + VOICE_START_S
             def go():
-                if st.get('last') == f: bo['voice_at'] = at
+                if st.get('last') == f and not bo['voice_at']: bo['voice_at'] = at
             root.after(0, go)
         threading.Thread(target=work, daemon=True).start()
 
-    rec_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w')
+    rec_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w', justify='left', wraplength=PANEL_W)
     rec_line.grid(row=4, column=0, columnspan=4, sticky='w', pady=(3, 0)); rec_line.grid_remove()
 
     # the card that goes up once the service confirms how the last game went
@@ -6175,10 +6452,12 @@ def main():
     card_word.grid(row=0, column=0, sticky='w')
     card_elo = tk.Label(card, text='', fg=MUT, bg=PANEL, font=F_SMALL, anchor='e')
     card_elo.grid(row=0, column=1, sticky='e')
-    card_line = tk.Label(card, text='', fg=TXT, bg=PANEL, font=F_SMALL, anchor='w', justify='left')
+    card_line = tk.Label(card, text='', fg=TXT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
+                         wraplength=PANEL_W - 24)
     card_line.grid(row=1, column=0, columnspan=2, sticky='w', pady=(3, 0))
     # the score line: how your side's total compares, and the flag when the game looks gone
-    score_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w', pady=1)
+    score_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w', pady=1,
+                          justify='left', wraplength=PANEL_W)
     score_line.grid(row=5, column=0, columnspan=4, sticky='we', pady=(3, 0)); score_line.grid_remove()
     opp_area = tk.Frame(frame, bg=BG)
     opp_area.grid(row=6, column=0, columnspan=4, sticky='we')
@@ -6198,13 +6477,13 @@ def main():
     host_btn.pack()
     host_btn.bind('<Enter>', lambda e: host_btn.cget('bg') == GOLD and host_btn.config(bg=GOLDD), add='+')
     host_btn.bind('<Leave>', lambda e: host_btn.cget('bg') == GOLDD and host_btn.config(bg=GOLD), add='+')
-    btn_plate.grid(row=0, column=2, sticky='e', padx=(10, 2))
+    btn_plate.grid(row=0, column=2, sticky='e', padx=(8, 2))
     state.grid_remove()                                          # the app opens with no game on
     hint = tk.Label(host_row, text='drag to move  \u00b7  click the name to roll up  \u00b7  W/L for your record', fg=FAINT, bg=BG,
-                    font=F_TINY, anchor='e')
+                    font=F_TINY, anchor='e', justify='right', wraplength=PANEL_W - 20)
     hint.grid(row=0, column=1, sticky='e', padx=(12, 2)); hint.grid_remove()
     host_msg = tk.Label(host_row, text='', fg='#b8b19f', bg=BG, font=F_SMALL, anchor='w',
-                        justify='left', wraplength=430)
+                        justify='left', wraplength=PANEL_W)
     host_msg.grid(row=1, column=0, columnspan=2, sticky='w')
     admin_box = tk.Frame(host_row, bg=BG)                        # the admin buttons, only when they're needed
     admin_box.grid(row=2, column=0, columnspan=2, sticky='w', pady=(6, 0)); admin_box.grid_remove()
@@ -6248,6 +6527,9 @@ def main():
     except Exception as e:
         log('window setup: %r' % (e,))
     try:
+        try:
+            if os.path.getsize(LOG) > 0: shutil.copyfile(LOG, LOG[:-4] + '.previous.log')   # the run before this one
+        except OSError: pass
         with open(LOG, 'w', encoding='utf-8') as f: f.write('%s %s started from %s\n' % (APP_NAME, VERSION, self_path()))
     except OSError: pass
     watcher = HerdWatcher(strings); watcher.start()
@@ -6659,8 +6941,8 @@ def main():
             if isinstance(ln, (tuple, list)):          # ('their name', their colour)
                 ln, fg_ = ln[0], ln[1] or MUT
             if ln:
-                tk.Label(who, text=ln, fg=fg_, bg=PANEL, font=F_SMALL, anchor='w',
-                         justify='left').pack(fill='x', anchor='w', pady=(3, 0))
+                tk.Label(who, text=ln, fg=fg_, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
+                         wraplength=max(200, bw - 150)).pack(fill='x', anchor='w', pady=(3, 0))
         r_ = Rule(inner); r_.configure(bg=BOXBG); r_.pack(fill='x', pady=(6, 0))
 
         txt = tk.Text(inner, bg=BOXBG, fg=TXT, bd=0, highlightthickness=0, wrap='word', cursor='arrow',
@@ -6773,20 +7055,24 @@ def main():
             s_ = hh / 1079.0; cx = x + w / 2
             # where the two panels sit on the loading screen, as a fraction of its 1079 tall layout
             # your panel is the small one up top, theirs is the big one you actually read
-            BW, YOURS, YH, THEIRS, TH = 760, 106, 334, 452, 434
+            BW, YOURS, YH, THEIRS, TH = 760, 106, 380, 496, 434      # the map panel up top, theirs under it
             green = (int(cx - BW / 2 * s_), int(y + YOURS * s_), int(BW * s_), int(YH * s_))
             red = (int(cx - BW / 2 * s_), int(y + THEIRS * s_), int(BW * s_), int(TH * s_))
-            map_now = (st.get('game') or {}).get('map', '')
-            if me_p:
-                nm, secs, extra = my_civ_sections(me_p['civ'], strings, icons)
-                hexc, cname = player_colour(me_p.get('colour'))
-                mine_rec = short_record([g for g in load_stats()['games'] if g.get('civ') == nm])
-                map_rec = short_record([g for g in load_stats()['games'] if g.get('map') == map_now])
-                bits = [b for b in (('%s %s' % (nm, mine_rec)) if mine_rec else '',
-                                    ('%s %s' % (map_now, map_rec)) if map_rec else '') if b]
-                make_box(green, GREEN, nm, secs, tag='YOU',
-                         meta=[extra['kind'], '   \u00b7   '.join(bits)],
-                         emblem=emblem_path(nm), footer=extra['team'], edge=hexc, edge_name=cname)
+            # the top panel: the map, and what is different about it (it used to be your own civ)
+            mname, mdesc = None, ''
+            if lob:
+                if lob['selected'] != lob['resolved']:
+                    mname, mdesc = 'Hidden map', 'Hidden in the lobby. Scout early to work out what you got.'
+                else:
+                    mname, mdesc = map_name_desc(maps, strings, lob['resolved'])
+            if not mname and lines:
+                mname, mdesc = map_from_screen(maps, strings, lines)
+            st['boxes_ok'] = bool(me_p) and bool(mname)
+            if mname:
+                map_rec = short_record([g for g in load_stats()['games'] if g.get('map') == mname])
+                tips_ = map_tips(mname)
+                make_box(green, GOLDC, mname, map_sections(mname, mdesc), tag='MAP', letter='M',
+                         meta=[('Your record here: ' + map_rec) if map_rec else ''])
             if opps:
                 team_game = len(players) > 2
                 def draw_red(elos):
@@ -6964,7 +7250,7 @@ def main():
             watcher.active = False
             tcw.active = False
             scout.active = False; scout.stop_game(); score_off()
-            title.config(text=APP_NAME); idle_size(True)
+            title.config(text=HEAD_NAME); idle_size(True)
             state.config(text='WAITING', fg=MUT)           # or the tag goes on saying IN GAME at the menu
             rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
             stats_btn.grid()
@@ -6982,6 +7268,7 @@ def main():
                         lambda: st.get('last') is not None)
     loadw.needs_text = boxes_pending
     loadw.still_running = lambda: bool(st.get('last')) and recording_growing(st['last'])
+    loadw.gone = lambda: root.after(0, bo_loaded)        # the build order starts its clock off the screen too
     tcw.pause_fn = lambda: loadw.showing or bool(st.get('hosting'))
     scout.pause_fn = lambda: loadw.showing or bool(st.get('hosting'))
 
@@ -7023,17 +7310,22 @@ def main():
     for w in (root, frame, head, badge, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_cap, bo_at, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, live_btn, bo_open): bind_all(w)
+              bo_box, bo_cap, bo_at, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
+              live_btn, bo_open): bind_all(w)
     st['actions'][bo_prog] = bo_menu
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
     # a click anywhere on the build strip opens the list; a right click on the step moves it on
     st['actions'][bo_now] = bo_menu
     st['actions'][bo_box] = bo_menu
     st['actions'][bo_at] = bo_menu
-    bo_now.bind('<Button-3>', lambda e: bo_step(1), add='+')
-    st['actions'][bo_next] = bo_menu
-    st['actions'][bo_nrow] = bo_menu
-    st['actions'][bo_ntag] = bo_menu
+    bo_now.bind('<Button-3>', lambda e: bo_step(-1), add='+')
+    st['actions'][bo_next] = lambda: bo_step(1)       # the next step: look at it
+    st['actions'][bo_nrow] = lambda: bo_step(1)
+    st['actions'][bo_ntag] = lambda: bo_step(1)
+    st['actions'][bo_live] = bo_live_again            # and back to where you are
+    for w_ in (bo_next, bo_nrow, bo_ntag): w_.config(cursor='hand2')
+    hover(bo_next, FAINT, TXT)
+    hover(bo_live, GREEN, '#9fe0a0')
     st['actions'][bo_x] = bo_close
     st['actions'][bo_snd] = lambda: bo_voice_set(not bo['voice'])
     st['actions'][bo_open] = bo_reopen
@@ -7260,8 +7552,7 @@ def main():
             def swap():
                 try:
                     if FROZEN:
-                        import subprocess
-                        subprocess.Popen([path_, '--wait-turn'], close_fds=True, env=clean_env())
+                        start_fresh_exe(path_, '--wait-turn')
                     else:
                         restart_app(path_)
                 except Exception as e:
@@ -7282,7 +7573,7 @@ def main():
                     if branch == 'exe':
                         rel = latest_release(fresh=True)
                         if not rel or not rel.get('exe'):
-                            ok_, text_ = False, 'Could not find a Wingman.exe on the Releases page.'
+                            ok_, text_ = False, "The new version is still being built. Try again in a couple of minutes."
                         elif ver_num(rel['ver']) <= ver_num(VERSION):
                             ok_, text_ = True, 'You have the newest one (%s).' % VERSION
                         else:
@@ -7384,17 +7675,31 @@ def main():
         wh_btns = tk.Frame(outer, bg=INK); wh_btns.pack(fill='x', pady=(8, 0))   # its test button goes here
 
         section('Ranked party')
-        field('Friends to invite')
+        field('Friends to invite, and their Discord if you want them tagged')
         friends = [f for f in cfg.get('friends', []) if f.strip()]
+        fdisc = {k.lower(): v for k, v in (cfg.get('friend_discord') or {}).items() if str(v).strip()}
+        if not fdisc:                     # older settings had a separate tag list: carry over any that match
+            for p_ in cfg.get('pings', []):
+                nm_, uid_ = tag_parts(p_)
+                for f_ in friends:
+                    if f_.lower() == nm_.lower(): fdisc[f_.lower()] = uid_ or nm_
         fr_list = tk.Frame(outer, bg=INK); fr_list.pack(fill='x')
         fr_add = tk.Frame(outer, bg=INK); fr_add.pack(fill='x', pady=(6, 0))
+        fr_add.columnconfigure(0, weight=3); fr_add.columnconfigure(1, weight=2)
         fr_msg = tk.Label(outer, text='', fg=GREEN, bg=INK, font=F_TINY, anchor='w')
         fr_msg.pack(fill='x')
 
         def friends_saved(note):
-            merged = load_settings(); merged['friends'] = list(friends); save_settings(merged)
+            merged = load_settings(); merged['friends'] = list(friends); merged['friend_discord'] = dict(fdisc)
+            save_settings(merged)
             fr_msg.config(text=note, fg=GREEN)
             win.after(2000, lambda: fr_msg.cget('text') == note and fr_msg.config(text=''))
+
+        def disc_text(v):
+            v = str(v or '').strip()
+            if not v: return ''
+            if re.fullmatch(r'<?@?!?\d{15,21}>?', v): return 'Discord \u2026' + re.sub(r'\D', '', v)[-4:]
+            return '@' + v.lstrip('@')
 
         def draw_friends():
             for w in fr_list.winfo_children(): w.destroy()
@@ -7403,36 +7708,52 @@ def main():
                          font=F_SMALL, anchor='w').pack(fill='x', pady=(2, 0))
                 return
             for nm in list(friends):
-                row = tk.Frame(fr_list, bg=PANEL, highlightthickness=1, highlightbackground=EDGE)
+                row = tk.Frame(fr_list, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, cursor='hand2')
                 row.pack(fill='x', pady=2)
-                tk.Label(row, text=nm, fg=TXT, bg=PANEL, font=F_BODY, anchor='w',
-                         padx=9, pady=4).pack(side='left')
+                lab = tk.Label(row, text=nm, fg=TXT, bg=PANEL, font=F_BODY, anchor='w', padx=9, pady=4, cursor='hand2')
+                lab.pack(side='left')
                 x = tk.Label(row, text='\u2715', fg=MUT, bg=PANEL, font=F_SMALL, padx=10, pady=4,
                              cursor='hand2')
                 x.pack(side='right')
+                dl = tk.Label(row, text=disc_text(fdisc.get(nm.lower())) or 'no Discord tag', bg=PANEL,
+                              fg=MUT if fdisc.get(nm.lower()) else FAINT, font=F_TINY, padx=4, cursor='hand2')
+                dl.pack(side='right')
                 hover(x, MUT, REDC)
                 def drop(_e=None, who=nm):
                     if who in friends: friends.remove(who)
+                    fdisc.pop(who.lower(), None)
                     draw_friends(); friends_saved('Removed %s.' % who)
                 x.bind('<Button-1>', drop)
+                def edit(_e=None, who=nm):          # click a friend to change their Discord
+                    fr_entry.delete(0, 'end'); fr_entry.insert(0, who)
+                    fd_entry.delete(0, 'end'); fd_entry.insert(0, fdisc.get(who.lower(), ''))
+                    fd_entry.focus_set()
+                for w_ in (row, lab, dl): w_.bind('<Button-1>', edit)
 
-        fr_entry = tk.Entry(fr_add); style_entry(fr_entry)
-        fr_entry.pack(side='left', fill='x', expand=True, ipady=3)
+        tk.Label(fr_add, text='AoE2 name', fg=FAINT, bg=INK, font=F_TINY, anchor='w').grid(row=0, column=0, sticky='w')
+        tk.Label(fr_add, text='Discord ID (optional)', fg=FAINT, bg=INK, font=F_TINY, anchor='w'
+                 ).grid(row=0, column=1, sticky='w', padx=(8, 0))
+        fr_entry = tk.Entry(fr_add, width=18); style_entry(fr_entry)
+        fr_entry.grid(row=1, column=0, sticky='we', ipady=3)
+        fd_entry = tk.Entry(fr_add, width=14); style_entry(fd_entry)
+        fd_entry.grid(row=1, column=1, sticky='we', ipady=3, padx=(8, 0))
         def add_friend(_e=None):
-            nm = fr_entry.get().strip()
+            nm = fr_entry.get().strip(); dv = fd_entry.get().strip()
             if not nm: return
-            if nm.lower() in [f.lower() for f in friends]:
-                fr_msg.config(text='%s is already on the list.' % nm, fg=GOLDC)
-                fr_entry.delete(0, 'end'); return
-            friends.append(nm); fr_entry.delete(0, 'end')
-            draw_friends(); friends_saved('Added %s.' % nm)
-        fr_entry.bind('<Return>', add_friend)
-        flat_button(fr_add, 'Add', add_friend).pack(side='left', padx=(8, 0))
+            known = next((f for f in friends if f.lower() == nm.lower()), None)
+            if known:
+                if dv: fdisc[known.lower()] = dv
+                else: fdisc.pop(known.lower(), None)
+                note = 'Updated %s.' % known
+            else:
+                friends.append(nm)
+                if dv: fdisc[nm.lower()] = dv
+                note = 'Added %s.' % nm
+            fr_entry.delete(0, 'end'); fd_entry.delete(0, 'end')
+            draw_friends(); friends_saved(note)
+        fr_entry.bind('<Return>', add_friend); fd_entry.bind('<Return>', add_friend)
+        ab_ = flat_button(fr_add, 'Add', add_friend); ab_.grid(row=1, column=2, padx=(8, 0))
         draw_friends()
-
-        field('People to tag in Discord (optional, one per line)')
-        pg = tk.Text(outer, width=46, height=4); style_entry(pg)
-        pg.insert('1.0', '\n'.join(cfg.get('pings', []))); pg.pack(fill='x')
 
         section('Go Live')
         lv_row = tk.Frame(outer, bg=INK); lv_row.pack(fill='x', pady=(2, 0))
@@ -7446,6 +7767,13 @@ def main():
             if key_ == 'live_pause_key' and not combo_ok(v_): v_ = LIVE_DEFAULTS[key_]
             e_.insert(0, v_); e_.pack(side='left', fill='x', expand=True, ipady=2)
             lv[key_] = e_
+        r_ = tk.Frame(lv_row, bg=INK); r_.pack(fill='x', pady=(2, 0))
+        tk.Label(r_, text='Join channel', fg=TXT, bg=INK, font=F_SMALL, width=10, anchor='w').pack(side='left')
+        lv_chan = tk.Entry(r_, width=30); style_entry(lv_chan)
+        lv_chan.insert(0, cfg.get('live_channel', '')); lv_chan.pack(side='left', fill='x', expand=True, ipady=2)
+        tk.Label(lv_row, text="Only used when you're not in a call. In Discord, right-click the voice channel, "
+                              "Copy Link, and paste it here.", fg=FAINT, bg=INK, font=F_TINY, anchor='w',
+                 justify="left", wraplength=430).pack(fill="x", pady=(2, 0))
         lv_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
                           justify='left', wraplength=400)
         def lv_test():
@@ -7567,7 +7895,7 @@ def main():
         ss_on.trace_add('write', ss_apply)
         Check(outer, text='Show Wingman in screenshots and streams', variable=ss_on).pack(fill='x')
 
-        Check(outer, text='Show the two panels while the game loads', variable=lp_on, fg=TXT, bg=INK,
+        Check(outer, text='Show map tips and your opponent while the game loads', variable=lp_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
@@ -7690,11 +8018,11 @@ def main():
                     'castle_food': int(typed_number(cm_e.get(), cfg.get('castle_food', CASTLE_NOTE_FOOD), 100, 5000)),
                     'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
                     'loading_panels': bool(lp_on.get()), 'admin_auto': bool(ad_on.get()),
-                    'friends': list(friends),
+                    'friends': list(friends), 'friend_discord': dict(fdisc),
                     'live_pause_key': (lv['live_pause_key'].get().strip().upper()
                                        if combo_ok(lv['live_pause_key'].get()) else 'CTRL+F3'),
                     'live_before': lv['live_before'].get(), 'live_after': lv['live_after'].get(),
-                    'pings': [l.strip() for l in pg.get('1.0', 'end').splitlines() if l.strip()]}
+                    'live_channel': lv_chan.get().strip()}
         def save():
             c = collect()
             if c['webhook'] and not re.match(r'https://(\w+\.)?discord(app)?\.com/api/webhooks/', c['webhook']):
@@ -7702,13 +8030,13 @@ def main():
             merged = load_settings(); merged.update(c); save_settings(merged)
             tc_settings(); tc_draw()
             scorew.enabled = merged.get('concede_flag', True)
-            msg.config(text='Saved.', fg=GREEN)
+            close_win()
         def test():
             c = collect()
             if not c['webhook']: msg.config(text='Paste the webhook link first.', fg=REDC); return
             try:
                 post_discord(c['webhook'], 'Test from %s. Invites will look like this:\n' % APP_NAME +
-                             invite_message('aoe2de://0/123456789', '123456789', c['pings'] or c['friends']))
+                             invite_message('aoe2de://0/123456789', '123456789', discord_tags(dict(load_settings(), **c))))
                 msg.config(text='Sent a test message to #%s.' % (c['channel'] or 'discord'), fg=GREEN)
             except Exception as e:
                 msg.config(text='Discord said no: %s' % e, fg=REDC)
@@ -7740,7 +8068,8 @@ def main():
             try: st['stats_win'].lift(); return
             except tk.TclError: st['stats_win'] = None
         cfg_ = load_settings()
-        st.setdefault('scope', cfg_.get('stats_mode', 'all'))
+        st.setdefault('scope', cfg_.get('stats_mode', '1v1'))
+        if st['scope'] not in ('1v1', 'TG'): st['scope'] = '1v1'
         st.setdefault('days', cfg_.get('stats_days', 0))
         st.setdefault('ranked', cfg_.get('stats_ranked', False))
         win = tk.Toplevel(root); st['stats_win'] = win
@@ -7751,8 +8080,6 @@ def main():
 
         hd = tk.Frame(outer, bg=INK); hd.pack(fill='x')
         tk.Label(hd, text='Record', fg=GOLDC, bg=INK, font=F_HEADLINE).pack(side='left')
-        rating = tk.Label(hd, text='', fg=MUT, bg=INK, font=F_SMALL)
-        rating.pack(side='right')
 
         # filter bar: 1v1 / team games, time window, ranked only
         bar_ = tk.Frame(outer, bg=INK); bar_.pack(fill='x', pady=(10, 0))
@@ -7781,7 +8108,7 @@ def main():
             save_settings(merged)
             build()
 
-        segment(bar_, 'scope', (('all', 'All'), ('1v1', '1v1'), ('TG', 'Team games'))).pack(side='left')
+        segment(bar_, 'scope', (('1v1', '1v1'), ('TG', 'Team games'))).pack(side='left')
         segment(bar_, 'days', ((0, 'All time'), (30, '30 days'), (7, '7 days'))).pack(side='left', padx=(10, 0))
         segment(bar_, 'ranked', ((False, 'Any'), (True, 'Ranked'))).pack(side='right')
 
@@ -7868,17 +8195,6 @@ def main():
                 c.create_line(*xy, fill=GOLDC, width=2)
                 c.create_oval(xy[-2] - 3, xy[-1] - 3, xy[-2] + 3, xy[-1] + 3, fill=GOLDD, outline=INK)
             c.bind('<Configure>', draw)
-
-        def show_rating():
-            def work():
-                e = fetch_elo(me) if me else {}
-                def put():
-                    if not e: rating.config(text=''); return
-                    team = st.get('scope') == 'TG'
-                    rating.config(text=elo_text(e, team) and 'Rating  ' + elo_text(e, team))
-                try: root.after(0, put)
-                except Exception: pass
-            threading.Thread(target=work, daemon=True).start()
 
         def build():
             paint_chips()
@@ -8000,7 +8316,6 @@ def main():
                 tk.Label(recent, text=word, fg=col, bg=PANEL, font=F_TINY, padx=5, pady=2,
                          width=8, highlightthickness=1,
                          highlightbackground=RIM).grid(row=i, column=5, sticky='e', padx=(8, 0))
-            show_rating()
 
         r1 = Rule(outer); r1.configure(bg=INK); r1.pack(fill='x', pady=(10, 0))
         btns = tk.Frame(outer, bg=INK); btns.pack(fill='x', pady=(10, 0))
@@ -8254,8 +8569,7 @@ def main():
                 try:
                     if FROZEN:
                         path_ = update_exe(rel)
-                        import subprocess
-                        subprocess.Popen([path_, '--wait-turn'], close_fds=True, env=clean_env())
+                        start_fresh_exe(path_, '--wait-turn')
                     else:
                         ok_, text_, path_ = update_from_github('Prod')
                         if not path_:
@@ -8540,20 +8854,23 @@ def main():
                     st['last'] = None; st['first'] = None; st['herd'] = None; watcher.active = False
                     tcw.active = False
                     scout.active = False; scout.stop_game(); score_off()
-                    title.config(text=APP_NAME); idle_size(True)
+                    title.config(text=HEAD_NAME); idle_size(True)
                     state.config(text='WAITING', fg=MUT)
                     rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
                     stats_btn.grid()
                     show_opponents([])
             elif f != st['last']:
-                lob = read_lobby(f); st['last'] = f
+                try: lob = read_lobby(f)
+                except Exception as e_: lob = None; log('could not read the recording: %r' % (e_,))
+                st['last'] = f
+                log('game seen: %s, %s' % (os.path.basename(f), ('%d players' % len(lob['players'])) if lob else 'settings unreadable'))
                 if lob:
                     name, desc, herd = map_text(maps, strings, lob['selected'], lob['resolved'], lob.get('size'), len(lob['players']))
                     if f == st.get('was'):                 # the same game carrying on (unpaused, or called over too soon)
                         log('back in the same game: counts kept')
                     else:
                         watcher.reset(); st['extra'] = 0; st['castle_note'] = False; st['feudal_note'] = False
-                        bo_game_start(f); bo_draw()
+                        bo_game_start(f)
                     game_started(f)
                     st['first'], st['herd'] = desc, herd
                     watcher.active = herd is not None
@@ -8568,6 +8885,7 @@ def main():
                     except OSError: began = None
                     tcw.reset(civ_name(mine_p['civ'], strings) if mine_p else None, began)
                     tc['snooze'] = False; tcw.active = mine_p is not None   # not while watching someone else
+                    if mine_p is None: log('you are not in the player list (profile %s), so the in-game alerts stay off' % me)
                     start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')), recording=f)
                     scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
                                  [p['name'] for p in lob['players'] if p is not mine_p], len(lob['players']),
@@ -8583,6 +8901,9 @@ def main():
     bo['name'] = load_settings().get('build_order') or None
     bo['hidden'] = bool(load_settings().get('build_order_hidden'))
     bo['voice'] = bool(load_settings().get('build_voice')); bo_voice_draw()
+    cfg_m = load_settings()
+    if not cfg_m.get('map_tips_on'):          # once: the loading panels now lead with map tips, so switch them on
+        cfg_m['map_tips_on'] = True; cfg_m['loading_panels'] = True; save_settings(cfg_m)
     bo_draw()                                     # after foot_fit exists, so the card can resize
 
     tick(); fast(); root.mainloop()
