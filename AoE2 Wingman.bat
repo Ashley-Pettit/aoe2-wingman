@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v155'
+VERSION = 'v156'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6917,7 +6917,8 @@ def main():
     host_btn.pack()
     host_btn.bind('<Enter>', lambda e: host_btn.cget('bg') == GOLD and host_btn.config(bg=GOLDD), add='+')
     host_btn.bind('<Leave>', lambda e: host_btn.cget('bg') == GOLDD and host_btn.config(bg=GOLD), add='+')
-    btn_plate.grid(row=0, column=2, sticky='e', padx=(6, 2))
+    # on its own line under the header, so the name and the header buttons always fit beside each other
+    btn_plate.grid(row=1, column=0, columnspan=8, sticky='w', pady=(7, 1))
     state.grid_remove()                                          # the app opens with no game on
     hint = tk.Label(host_row, text='drag to move  \u00b7  click the name to roll up  \u00b7  W/L for your record', fg=FAINT, bg=BG,
                     font=F_TINY, anchor='e', justify='right', wraplength=PANEL_W - 20)
@@ -8002,26 +8003,59 @@ def main():
         out.pack(fill='x', pady=(10, 0))
         fade_in(win)
 
-    def fade_in(w_, to=1.0, wait=30, ms=60):
-        """Show a window that is already built without it drawing itself in bits (or as a grey
-        box while Windows catches up): it goes on screen fully see-through, every part of it is
-        drawn while nobody can see it, and only then does it come up, quickly."""
+    def fade_in(w_, to=1.0, then=None, **_):
+        """Show a window that is already built, at once and in one piece: it goes on screen fully
+        see-through, every part of it is drawn while nobody can see it (a few hundredths of a
+        second), then it is made solid in one step. `then` runs once it is showing."""
         try: w_.attributes('-alpha', 0.0)
         except tk.TclError: pass
-        try: w_.deiconify()
-        except tk.TclError: return
-        n_ = 4
-        def step(k):
+        try:
+            w_.deiconify(); w_.update()
+        except tk.TclError:
+            return
+        def up():
             try:
-                w_.attributes('-alpha', to * k / float(n_))
-                if k < n_: w_.after(max(10, ms // n_), lambda: step(k + 1))
+                w_.update_idletasks(); w_.attributes('-alpha', to)
             except tk.TclError: pass
-        def painted():
+            if then:
+                try: then()
+                except Exception: pass
+        w_.after(10, up)
+
+    def settings_shell(geo=None):
+        """The Settings window's frame, on screen the moment the gear is pressed: its own title,
+        border and heading, with a spinner where the cards will be. Settings itself replaces it
+        as soon as it is drawn, in the same place and at the same size."""
+        w_ = tk.Toplevel(root)
+        w_.title(APP_NAME + ' settings'); w_.configure(bg=BORDER); w_.attributes('-topmost', True)
+        w_.resizable(False, False)
+        geo = geo or st.get('settings_geo')
+        if not geo:
+            gw, gh = min(1500, w_.winfo_screenwidth() - 80), min(900, w_.winfo_screenheight() - 120)
+            geo = (gw, gh, (w_.winfo_screenwidth() - gw) // 2, max(0, (w_.winfo_screenheight() - gh) // 2 - 24))
+        w_.geometry('%dx%d+%d+%d' % geo)
+        DEEP_ = '#0f0c07'
+        sh_ = tk.Frame(w_, bg=DEEP_); sh_.pack(fill='both', expand=True, padx=1, pady=1)
+        hd_ = tk.Frame(sh_, bg=DEEP_, padx=16); hd_.pack(fill='x', pady=(12, 0))
+        try:
+            im_ = tk.PhotoImage(data=APP_ICON_PNG[1]); l_ = tk.Label(hd_, image=im_, bg=DEEP_); l_.image = im_
+            l_.pack(side='left', padx=(0, 10))
+        except Exception: pass
+        tk.Label(hd_, text='Settings', fg=GOLD, bg=DEEP_, font=F_HEADLINE).pack(side='left')
+        mid_ = tk.Frame(sh_, bg=DEEP_); mid_.place(relx=0.5, rely=0.45, anchor='center')
+        c_ = tk.Canvas(mid_, width=22, height=22, bg=DEEP_, highlightthickness=0); c_.pack(side='left')
+        tk.Label(mid_, text='Loading\u2026', fg=MUT, bg=DEEP_, font=F_SMALL).pack(side='left', padx=(10, 0))
+        arc = c_.create_arc(3, 3, 19, 19, start=0, extent=270, style='arc', outline=GOLDC, width=2)
+        live_ = {'a': 0}
+        def spin():
             try:
-                w_.update()                                  # all of it drawn, still invisible
-                w_.after(25, lambda: (w_.update(), step(1)))  # and once more for anything late
+                live_['a'] = (live_['a'] - 30) % 360; c_.itemconfigure(arc, start=live_['a'])
+                w_.after(50, spin)
             except tk.TclError: pass
-        w_.after(wait, painted)
+        try: w_.update()
+        except tk.TclError: pass
+        spin()
+        return w_
 
     def bring_up(w_):
         """Put one of our windows in front and give it the keyboard. The overlay never takes focus
@@ -8039,12 +8073,22 @@ def main():
     def reveal_settings(w_):
         """Put a built Settings window on screen, in the middle, ready to use."""
         w_.update_idletasks()
-        w_.geometry('+%d+%d' % (max(0, (w_.winfo_screenwidth() - w_.winfo_reqwidth()) // 2),
-                                max(0, (w_.winfo_screenheight() - w_.winfo_reqheight()) // 2 - 24)))
-        fade_in(w_, wait=40, ms=110)                 # painted while see-through, then up in one piece
-        try: w_.focus_force()
-        except tk.TclError: pass
-        w_.after(60, lambda: bring_up(w_))
+        geo = (w_.winfo_reqwidth(), w_.winfo_reqheight(),
+               max(0, (w_.winfo_screenwidth() - w_.winfo_reqwidth()) // 2),
+               max(0, (w_.winfo_screenheight() - w_.winfo_reqheight()) // 2 - 24))
+        st['settings_geo'] = geo                       # the loading frame opens at this size next time
+        w_.geometry('+%d+%d' % geo[2:])
+        shell_ = st.pop('settings_shell', None)
+        def swap():
+            try: w_.lift()
+            except tk.TclError: pass
+            if shell_ is not None:
+                try: shell_.destroy()
+                except tk.TclError: pass
+            try: w_.focus_force()
+            except tk.TclError: pass
+            w_.after(40, lambda: bring_up(w_))
+        fade_in(w_, then=swap)                         # drawn unseen, then solid over the loading frame
 
     def prebuild_settings():
         """Build Settings ahead of time, out of sight, so the gear opens it straight away."""
@@ -8926,6 +8970,12 @@ def main():
         win.bind('<Escape>', lambda e: close_win())        # Esc does the same as Cancel
         win.protocol('WM_DELETE_WINDOW', close_win)
         if show: reveal_settings(win)
+        else:
+            try:                                           # so the loading frame opens at the right size
+                st['settings_geo'] = (win.winfo_reqwidth(), win.winfo_reqheight(),
+                                      max(0, (win.winfo_screenwidth() - win.winfo_reqwidth()) // 2),
+                                      max(0, (win.winfo_screenheight() - win.winfo_reqheight()) // 2 - 24))
+            except tk.TclError: pass
     def busy_spinner(text):
         """A small gold spinner by the overlay while something takes a moment to build.
         Returns a function that takes it away."""
@@ -8953,13 +9003,20 @@ def main():
 
     def open_settings_soon():
         """The gear: a spinner straight away, then Settings, which takes a moment to build."""
-        if st.get('settings_win') is not None or st.get('settings_pre') is not None:
-            open_settings(); return                        # already built: on screen straight away
-        done_ = busy_spinner('Opening settings\u2026')
+        if st.get('settings_win') is not None:
+            open_settings(); return                        # already open: bring it to the front
+        if st.get('settings_shell') is not None: return    # on its way
+        # the frame with a spinner straight away, then Settings drops into it
+        st['settings_shell'] = settings_shell()
         def go():
             try: open_settings()
-            finally: root.after(150, done_)
-        root.after(30, go)
+            except Exception as e:
+                log('settings open: %r' % (e,))
+            sh_ = st.pop('settings_shell', None)            # if Settings never took its place
+            if sh_ is not None:
+                try: sh_.destroy()
+                except tk.TclError: pass
+        root.after(15, go)
     st['actions'][gear] = open_settings_soon
     root.after(4000, prebuild_settings)
 
