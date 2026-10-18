@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v144'
+VERSION = 'v145'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -1713,7 +1713,7 @@ class TCWatcher(threading.Thread):
         last_shot = 0
         last_fg = 0
         while True:
-            time.sleep(0.08)
+            time.sleep(0.15)                       # six or seven looks a second is plenty for an idle TC
             now_ = time.time()
             if now_ - last_fg > 0.8:                     # where the game is, for the pop reader, game seen or not
                 last_fg = now_
@@ -5604,7 +5604,9 @@ class LoadWatcher(threading.Thread):
             log('loading screen watch off: %r' % (e,)); return
         ctypes, wintypes, u, _ = _win()
         while True:
-            time.sleep(0.18 if self.showing else 0.35)         # quick off the mark, quicker to clear
+            # quick off the mark at the menu, quicker to clear; in a game there is no loading screen
+            # to catch, only the end screen (checked every few seconds), so it looks far less often
+            time.sleep(0.18 if self.showing else (1.2 if self.in_game() else 0.35))
             if self.pause: continue
             try:
                 fg = u.GetForegroundWindow()
@@ -6421,8 +6423,7 @@ def main():
     bo_cap.pack(side='left')
     bo_goal = tk.Label(bo_caprow, text='', fg=FAINT, bg=PANEL, font=F_TINY, anchor='w', cursor='hand2')
     bo_goal.pack(side='left', padx=(7, 0))
-    bo_at = tk.Label(bo_box, text='', fg=GOLDD, bg=INK, font=(DISPLAY, 10, 'bold'), anchor='e', padx=7, pady=1,
-                     highlightthickness=1, highlightbackground=RIM)
+    bo_at = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 10, 'bold'), anchor='e', padx=2, pady=0)
     bo_at.grid(row=0, column=1, sticky='e')
     # back and forward through the steps; your pop moving on brings it back to where you are
     bo_navf = tk.Frame(bo_box, bg=PANEL)
@@ -6677,8 +6678,7 @@ def main():
         """The gold box: your pop as the game shows it, and the pop the step on show is for when you
         are not there yet ('POP 7 \u203a 8'). Without a reading it falls back to the step's own pop."""
         lo, span = bo.get('span') or (0, '')
-        p_ = bo['pop'] if (bo['pop'] and time.time() - getattr(tcw, 'pop_t', 0) < 20) else 0
-        t_ = ('POP %d' % p_) if p_ else ('POP %s' % span)      # your pop, as the game shows it
+        t_ = 'POP %s' % span                                    # the pops this step is for
         kw = {'text': t_}
         if fg: kw['fg'] = fg
         if bo_at.cget('text') != t_ or fg: bo_at.config(**kw)
@@ -6698,15 +6698,14 @@ def main():
         if pop != bo['pop']:
             # Only a pop back at a starting count is a new game. Losing villagers mid game is not,
             # and neither is a misread, so the build never starts again part way through.
-            if pop <= 5 and bo['pop'] >= 12: bo_fresh(force=True)
+            if pop <= 5 and bo['pop'] >= 8: bo_fresh(force=True)      # back to a starting pop: a new game
             bo['pop'] = pop; bo['pop_t'] = now
-            if not bo['done']:
-                try: bo_pop_text()
-                except Exception: pass
+
         if bo['done']: return                                # finished: stays that way until the next game
-        # The strip shows the step for the pop you are on, straight off your pop counter. The
-        # heads-up for the next one is the voice's job (bo_voice_tick) and the NEXT line's.
-        i = build_step_at(steps, pop)
+        # Straight off your pop counter. The step on show is the one for the villager your Town
+        # Centre is training now (your pop + 1): at pop 7 the 8th villager is on its way, so it shows
+        # (and says) 'Send 2 to wood' while there is still time to get ready.
+        i = build_step_at(steps, pop + 1)
         if i > bo['i']:
             bo['i'] = i; bo['view'] = None; bo_draw()      # ticked over: back to live
             if i == len(steps) - 1 and not bo['done_t']: bo['done_t'] = now
@@ -6724,6 +6723,7 @@ def main():
         bo['said_set'] = set()                                   # say the step you are on now
         if waiting_now[0] or not bo['voice_at'] or time.time() < bo['voice_at']:
             VOICE.say('Voice on')                          # so you know the sound works
+            bo['said_set'] = {bo['i']}                     # and the step is read when the game gets to it
 
     def bo_voice_tick():
         """Twice a second: read the step out the first time you reach it."""
@@ -6738,15 +6738,8 @@ def main():
         steps = found[2]
         said = bo.setdefault('said_set', set())
         i = max(0, min(bo['i'], len(steps) - 1))
-        if i not in said:                                  # reached it without a heads-up: say it now
-            said.add(i); VOICE.say(spoken_step(steps[i][2])); return
-        # The heads-up: the moment your pop reaches the one before the next step, the Town Centre
-        # starts training the villager that step is for. That is when it is read out: pop 7, the
-        # 8th villager starts training, you hear 'Send 2 to wood' (a villager takes 25 game seconds,
-        # about 15 real ones, so this lands well before you need it).
-        n_ = i + 1
-        if n_ < len(steps) and n_ not in said and bo['pop'] and steps[n_][0] == bo['pop'] + 1:
-            said.add(n_); VOICE.say(spoken_step(steps[n_][2]))
+        if i not in said:                                  # the step on the strip, read out as it comes up
+            said.add(i); VOICE.say(spoken_step(steps[i][2]))
 
     def bo_fresh(at=None, force=False):
         """Back to the first step for a new game. Called by the recording turning up and by the loading
@@ -6772,7 +6765,7 @@ def main():
 
     def bo_game_start(f):
         """A new game: the build starts again, and the voice waits until the clock has run a bit."""
-        bo_fresh()
+        bo_fresh(force=True)
         def work():
             try:
                 fresh = time.time() - os.path.getctime(f) <= 40       # not opened part way through
@@ -8457,7 +8450,7 @@ def main():
                         m_ = tk.Menu(win, tearoff=0, bg=INK, fg=TXT, activebackground=PANEL, activeforeground=GOLDD, bd=0)
                         def choose(nm):
                             c_ = load_settings(); c_['voice_name'] = nm; save_settings(c_)
-                            VOICE.set_voice(nm); VOICE.say('Send 6 to sheep')
+                            VOICE.set_voice(nm); VOICE.say('This is your build order voice')
                             vo_lab.config(text='Build order voice: %s' % (nm or 'automatic'))
                         m_.add_command(label='Automatic (an Australian voice if there is one)', command=lambda: choose(''))
                         for nm, lang in eng + rest:
@@ -9457,6 +9450,7 @@ def main():
                 if st['last'] is not None:
                     st['was'] = st['last']                 # a pause can look like the end: remember which game it was
                     st['last'] = None; st['first'] = None; st['herd'] = None; watcher.active = False
+                    bo['voice_at'] = None                  # nothing more to say until the next game starts
                     tcw.active = False
                     scout.active = False; scout.stop_game(); score_off()
                     title.config(text=HEAD_NAME); idle_size(True)
@@ -9473,6 +9467,7 @@ def main():
                     name, desc, herd = map_text(maps, strings, lob['selected'], lob['resolved'], lob.get('size'), len(lob['players']))
                     if f == st.get('was'):                 # the same game carrying on (unpaused, or called over too soon)
                         log('back in the same game: counts kept')
+                        if not bo['voice_at']: bo['voice_at'] = time.time()
                     else:
                         watcher.reset(); st['extra'] = 0; st['castle_note'] = False; st['feudal_note'] = False
                         bo_game_start(f)
