@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v160'
+VERSION = 'v161'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -186,8 +186,8 @@ BUILDS = [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, 'Build a house, then a mill at the berries and pick them'),
-   (12, 17, '6 hunt, one takes the second boar'),
+   (11, 11, 'Build a house, then a mill at the berries'),
+   (12, 17, '6 to the boar, one lures the second'),
    (18, 18, '2 to wood. Lure deer with the scout'),
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Barracks then stable, 3 scouts, double bit axe')]),
@@ -195,8 +195,8 @@ BUILDS = [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, 'Build a house, then a mill at the berries and pick them'),
-   (12, 17, '6 hunt. Lure deer with the scout'),
+   (11, 11, 'Build a house, then a mill at the berries'),
+   (12, 17, '6 to the boar. Lure deer with the scout'),
    (18, 18, '2 to wood'),
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Barracks, then two stables, double bit axe')]),
@@ -204,18 +204,18 @@ BUILDS = [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 to hunt'),
-   (12, 12, 'Build a house, then a mill at the berries and pick them'),
+   (11, 11, '1 more to the boar'),
+   (12, 12, 'Build a house, then a mill at the berries'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '6 hunt'),
+   (14, 18, '6 to the boar'),
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks, double bit axe')]),
  ('Archers', 'Archers, one range', '20 pop, Feudal 9:15', [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, 'Build a house, then a mill at the berries and pick them'),
-   (13, 18, '6 hunt, one takes the second boar'),
+   (12, 12, 'Build a house, then a mill at the berries'),
+   (13, 18, '6 to the boar, one lures the second'),
    (19, 19, '2 to wood. Lure deer with the scout'),
    (20, 20, 'Second one to wood. Loom, then click Feudal (up at 9:15)'),
    (21, 99, '5 hunt to a second lumber camp, 2 berries, 3 gold, range up')]),
@@ -223,9 +223,9 @@ BUILDS = [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 10,  '3 to wood, one builds a house in the wall'),
    (11, 11, 'Lure the first boar. Lure 2 deer, not optional'),
-   (12, 16, '5 hunt, take the second boar'),
+   (12, 16, '5 to the boar, lure the second one'),
    (17, 17, 'Barracks, then a house at the front. No mill yet'),
-   (18, 18, '2 more hunt'),
+   (18, 18, '2 more to the boar'),
    (19, 19, 'Second one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '5 hunt to wood, 2 gold camp, 1 berries, 3 militia out')]),
  ('Infantry', 'Men-at-arms into skirms', '20 pop, Feudal 9:15', [
@@ -235,9 +235,9 @@ BUILDS = [
    (12, 12, 'Build a house, then a mill at the chickens or berries and gather'),
    (13, 14, '2 more to the berries. Lure a deer or two if you can'),
    (15, 15, 'Lure the second boar'),
-   (16, 17, '2 hunt'),
+   (16, 17, '2 to the boar'),
    (18, 18, 'Barracks, then a house at the front'),
-   (19, 19, '2 more hunt'),
+   (19, 19, '2 more to the boar'),
    (20, 20, 'Second one hunts. Loom, then click Feudal (up at 9:15)'),
    (21, 99, 'Militia out, skirms behind them')]),
  ('Infantry', 'Feudal drush', '19 pop, Feudal 8:50', [
@@ -245,17 +245,17 @@ BUILDS = [
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'House, then back to the hunt'),
-   (13, 16, '4 hunt, take the second boar'),
+   (13, 16, '4 to the boar, lure the second one'),
    (17, 17, 'Barracks out front, house beside it. No mill yet'),
-   (18, 18, '1 more hunt'),
+   (18, 18, '1 more to the boar'),
    (19, 19, '1 to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Militia out, 1 more to the berries')]),
  ('Fast Castle', 'Fast Castle boom', '24 pop, Castle 14:00', [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, 'Build a house, then a mill at the berries and pick them'),
-   (13, 14, '2 hunt, one takes the second boar. Lure 3 deer'),
+   (12, 12, 'Build a house, then a mill at the berries'),
+   (13, 14, '2 to the boar, one lures the second. Lure 3 deer'),
    (15, 18, '4 to berries, seed 3 farms off the hunt'),
    (19, 22, '4 to wood'),
    (23, 23, '2 to gold'),
@@ -279,8 +279,8 @@ BUILDS = [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, 'Build 2 houses, then a mill at the berries and pick them'),
-   (13, 13, '1 to hunt'),
+   (12, 12, 'Build 2 houses, then a mill at the berries'),
+   (13, 13, '1 more to the boar'),
    (14, 14, 'Lure the second boar'),
    (15, 18, '4 to berries'),
    (19, 23, '5 to wood'),
@@ -291,40 +291,40 @@ BUILDS = [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 to hunt'),
-   (12, 12, 'Build a house, then a mill at the berries and pick them'),
+   (11, 11, '1 more to the boar'),
+   (12, 12, 'Build a house, then a mill at the berries'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '6 hunt. Lure deer with the scout'),
+   (14, 18, '6 to the boar. Lure deer with the scout'),
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks and house')]),
  ('Infantry', 'Double barracks eagles', '19 pop, Feudal 8:50', [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 to hunt'),
-   (12, 12, 'Build a house, then a mill at the berries and pick them'),
+   (11, 11, '1 more to the boar'),
+   (12, 12, 'Build a house, then a mill at the berries'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '6 hunt. Lure deer with the scout'),
+   (14, 18, '6 to the boar. Lure deer with the scout'),
    (19, 19, 'Sixth one hunts. Loom if Aztecs or Incas, then click Feudal (up at 8:50)'),
    (20, 99, '5 to wood for 7 on one camp, 2 gold, barracks and house, 3 berries')]),
  ('Other', 'Tower rush, any civ', '18 pop, Feudal 8:25', [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 to hunt'),
-   (12, 12, 'Build a house, then a mill at the berries and pick them'),
+   (11, 11, '1 more to the boar'),
+   (12, 12, 'Build a house, then a mill at the berries'),
    (13, 13, 'Lure the second boar'),
-   (14, 17, '5 hunt'),
+   (14, 17, '5 to the boar'),
    (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
    (19, 99, '2 to stone with a camp, 5 forward, spears or skirms behind the towers')]),
  ('Other', 'Teuton tower rush', '18 pop, Feudal 8:25', [
    (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 to hunt'),
-   (12, 12, 'Build a house, then a mill at the berries and pick them'),
+   (11, 11, '1 more to the boar'),
+   (12, 12, 'Build a house, then a mill at the berries'),
    (13, 13, 'Lure the second boar'),
-   (14, 17, '5 hunt'),
+   (14, 17, '5 to the boar'),
    (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
    (19, 99, '2 to stone with a camp, 10 forward, tower 8 tiles off their wood')]),
 ]
@@ -454,8 +454,11 @@ def draw_step_icon(kind, S, bg):
         for x in (8, 14, 20): R(x, 4, x + 4, 10, 0.5, fill='#b3afa7')
         R(14, 14, 18, 20, 2, fill='#3a3128')
     elif kind == 'sword':
-        L([(6, 26), (25, 5)], 3.2, '#d9d4cc'); L([(8, 18), (14, 24)], 3, '#a9823c')
-        L([(4, 28), (8, 24)], 3.4, '#7a5236')
+        d.polygon(P((10, 19.5), (25.5, 4), (28.5, 3.5), (28, 6.5), (12.5, 22)), fill='#cfc9bf')   # blade
+        L([(11.2, 20.8), (27, 5)], 1.0, '#f4f1ea')                                                  # its edge
+        L([(6.5, 16), (16, 25.5)], 3.2, '#c99a2e')                                                  # crossguard
+        L([(5, 27), (10, 22)], 3.4, '#7a5236')                                                      # grip
+        E(2, 26, 6.6, 30.6, fill='#c99a2e')                                                         # pommel
     elif kind == 'bow':
         d.arc((2 * u, 3 * u, 22 * u, 29 * u), 290, 70, fill='#b98a55', width=int(3 * u))
         L([(9, 4), (9, 28)], 1, '#efe6d2'); L([(9, 16), (29, 16)], 1.6, '#d9d4cc')
@@ -606,20 +609,34 @@ function Pick($want) {
     [Console]::Error.WriteLine("voice: $name ($mode)")
   } catch { [Console]::Error.WriteLine("could not pick $name : $_") }
 }
+$cache = @{}
+function Make($t) {
+  $st = $asTask.Invoke($null, @($syn.SynthesizeTextToStreamAsync($t))).Result
+  $ns = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($st)
+  $ms = New-Object System.IO.MemoryStream
+  $ns.CopyTo($ms); $ns.Dispose(); $st.Dispose()
+  return ,$ms.ToArray()
+}
+function Prep($t) {
+  if ($mode -ne 'winrt' -or $cache.ContainsKey($t)) { return }
+  if ($cache.Count -gt 40) { $cache.Clear() }
+  $cache[$t] = Make $t
+}
 function Say($t) {
   if ($mode -eq 'winrt') {
-    $st = $asTask.Invoke($null, @($syn.SynthesizeTextToStreamAsync($t))).Result
-    $ns = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($st)
-    $pl = New-Object System.Media.SoundPlayer($ns)
-    $pl.PlaySync(); $pl.Dispose(); $ns.Dispose(); $st.Dispose()
+    if ($cache.ContainsKey($t)) { $b = $cache[$t] } else { $b = Make $t }
+    $ms = New-Object System.IO.MemoryStream(,$b)
+    $pl = New-Object System.Media.SoundPlayer($ms)
+    $pl.PlaySync(); $pl.Dispose(); $ms.Dispose()
   } else { $sp.Speak($t) }
 }
 Pick $env:WINGMAN_VOICE
 while ($true) {
   $l = [Console]::In.ReadLine()
   if ($l -eq $null) { break }
-  if ($l.StartsWith('#voice:')) { Pick $l.Substring(7); continue }
+  if ($l.StartsWith('#voice:')) { Pick $l.Substring(7); $cache.Clear(); continue }
   if ($l.StartsWith('#list:')) { try { Voices | Set-Content -Path $l.Substring(6) -Encoding UTF8 } catch {}; continue }
+  if ($l.StartsWith('#prep:')) { try { Prep $l.Substring(6) } catch { [Console]::Error.WriteLine("prep failed: $_") }; continue }
   if ($l.Trim()) { try { Say $l } catch { [Console]::Error.WriteLine("say failed: $_") } }
 }
 """
@@ -638,7 +655,7 @@ def spoken_step(text):
     t = re.sub(r'\s*\((?:up|in) at [\d:]+\)', '', t)         # the clock times are for reading, not for hearing
     t = re.sub(r'\bTC\b', 'town centre', t)
     t = re.sub(r'\bMAA\b', 'men at arms', t)
-    t = re.sub(r'\b[Ll]ure\b', lambda m: 'Loor' if m.group(0)[0] == 'L' else 'loor', t)   # said the way players say it
+    t = re.sub(r'\b([Ll])ure(s|d)?\b', lambda m: ('Loor' if m.group(1) == 'L' else 'loor') + (m.group(2) or ''), t)   # said the way players say it
     t = re.sub(r'\s*\(', ', ', t).replace(')', '')
     return t.strip()
 
@@ -686,6 +703,10 @@ class Voice:
     def warm(self):
         """Start the speech engine ahead of time, so the first line is not late."""
         self._put(None)
+    def prep(self, text):
+        """Have a line spoken into memory ahead of time, so when it is said it plays at once."""
+        line = re.sub(r'\s+', ' ', str(text or '')).strip()
+        if line: self._put('#prep:' + line)
     def stop(self):
         pass                                   # lines are short; the one being read just finishes
     def set_voice(self, name):
@@ -1594,7 +1615,7 @@ class TCWatcher(threading.Thread):
         except Exception as e:
             log('pop / clock reading off: %r' % (e,)); return
         while True:
-            time.sleep(0.7)
+            time.sleep(0.3)                  # quick: the build order moves the moment a villager starts
             r = getattr(self, 'rect', None)
             # The pop counter is read whenever the game is in front, game seen or not: the build order
             # follows it, and that should not hang on the recording being found and read.
@@ -1606,11 +1627,18 @@ class TCWatcher(threading.Thread):
                          box=(int(x + w / 2.0 - 20 * s), int(y + 51 * s), int(320 * s), int(60 * s)))
                 p = self.read_pop(read, grab, a)
                 if p and self.pop_ok(p):
-                    if p == self.pop_last:                       # the same reading twice running
+                    # one more villager than last time, same cap: that is the next one starting, take
+                    # it at once. Anything else has to read the same twice running first.
+                    step_up = bool(self.pop) and p[0] == self.pop[0] + 1 and p[1] == self.pop[1]
+                    if p == self.pop_last or step_up:
                         if p != self.pop and (self.pop is None or abs(p[0] - self.pop[0]) > 0):
                             if not getattr(self, 'pop_logged', 0) or now - self.pop_logged > 60:
                                 self.pop_logged = now; log('pop %d/%d' % p)
+                        changed_ = p != self.pop
                         self.pop = p; self.pop_t = now
+                        if changed_ and getattr(self, 'on_pop', None):
+                            try: self.on_pop()
+                            except Exception: pass
                     self.pop_last = p
                 if not self.active: continue                     # the rest is for a game we know about
                 if now - self.clock_t > 3:
@@ -6704,7 +6732,7 @@ def main():
         bo['name'] = name or None
         bo['i'] = 0; bo['pop'] = 0; bo['said_set'] = set(); bo['view'] = None
         bo['done'] = False; bo['done_t'] = 0; bo['said_done'] = False
-        if bo['name']: bo['hidden'] = False
+        bo['hidden'] = not bo['name']          # 'No build order': the strip goes, the B badge brings the list back
         cfg_ = load_settings(); cfg_['build_order'] = bo['name'] or ''
         cfg_['build_order_hidden'] = bo['hidden']
         save_settings(cfg_)
@@ -6812,7 +6840,7 @@ def main():
         t_ = 'POP %s' % span                                    # the pops this step is for
         # A step that covers several villagers ('6 hunt' for pops 12 to 17): which of them is the one
         # training now, so you can tell where you are in it.
-        v_ = (bo['pop'] or 0) + 1
+        v_ = bo['pop'] or 0                           # the game counts a villager the moment it starts training
         cnt_ = ('%d/%d' % (v_ - lo + 1, hi - lo + 1)) if (live_ and bo['pop'] and hi < 99 and hi > lo
                                                            and lo <= v_ <= hi) else ''
         if bo_cnt.cget('text') != cnt_:
@@ -6845,10 +6873,10 @@ def main():
                 except Exception: pass
 
         if bo['done']: return                                # finished: stays that way until the next game
-        # Straight off your pop counter. The step on show is the one for the villager your Town
-        # Centre is training now (your pop + 1): at pop 7 the 8th villager is on its way, so it shows
-        # (and says) 'Send 2 to wood' while there is still time to get ready.
-        i = build_step_at(steps, pop + 1)
+        # Straight off your pop counter. The game adds a villager to it the moment it starts
+        # training, so the pop on screen is the villager in the Town Centre now: the step for it
+        # shows (and is said) as it starts training, and it is that villager's job when it walks out.
+        i = build_step_at(steps, pop)
         if i > bo['i']:
             bo['i'] = i; bo['view'] = None; bo_draw()      # ticked over: back to live
             if i == len(steps) - 1 and not bo['done_t']: bo['done_t'] = now
@@ -6857,6 +6885,13 @@ def main():
                 and pop >= steps[-1][0] + 6):
             bo['done'] = True; bo['view'] = None; bo_draw(); log('build order done')
 
+    def pop_now():
+        """The pop just changed: move the build order and say the step now, not at the next tick."""
+        try:
+            if tcw.pop: bo_follow(tcw.pop[0])
+            bo_voice_tick()
+        except Exception as e_:
+            log('build follow: %r' % (e_,))
     def bo_voice_set(on):
         """The speaker on the strip. On, it reads each step out as you reach it."""
         bo['voice'] = bool(on)
@@ -6883,6 +6918,7 @@ def main():
         i = max(0, min(bo['i'], len(steps) - 1))
         if i not in said:                                  # the step on the strip, read out as it comes up
             said.add(i); VOICE.say(spoken_step(steps[i][2]))
+            if i + 1 < len(steps): VOICE.prep(spoken_step(steps[i + 1][2]))   # the next one, ready to go
 
     def bo_fresh(at=None, force=False):
         """Back to the first step for a new game. Called by the recording turning up and by the loading
@@ -6894,7 +6930,12 @@ def main():
         bo['game_t'] = now
         bo['i'] = 0; bo['pop'] = 0; bo['said_set'] = set(); bo['view'] = None; bo['voice_at'] = at
         bo['done'] = False; bo['done_t'] = 0; bo['said_done'] = False; bo['pop_t'] = now
-        if bo['voice'] and bo['name']: VOICE.warm()
+        if bo['voice'] and bo['name']:
+            VOICE.warm()
+            try:
+                found_ = build_by_name(bo['name'])
+                if found_: VOICE.prep(spoken_step(found_[2][0][2]))      # the first line, ready
+            except Exception: pass
         try: bo_draw()
         except Exception: pass
 
@@ -6994,13 +7035,38 @@ def main():
         px, py = 20, 120
     root.geometry('+%d+%d' % (px, py))
     OV_W = PANEL_W + 2 * 12 + 2 + 4        # the panel, its padding, its edge and the bronze rim
-    def hold_now():
+    _hold = {'hwnd': None, 'short': 0.0, 'said': 0.0}
+    def repaint():
+        """Have Windows draw the whole overlay now, every part of it, so a resize never leaves a
+        black strip or a part still drawn where it used to be."""
         try:
-            h_ = root.winfo_reqheight()
-            if root.winfo_width() != OV_W or root.winfo_height() != h_:
-                root.geometry('%dx%d' % (OV_W, h_))
-        except tk.TclError:
+            import ctypes as _ct
+            u_ = _ct.windll.user32
+            if not _hold['hwnd']:
+                u_.GetAncestor.restype = _ct.c_void_p
+                _hold['hwnd'] = u_.GetAncestor(root.winfo_id(), 2)
+            u_.RedrawWindow(_ct.c_void_p(_hold['hwnd']), None, None, 0x0001 | 0x0004 | 0x0080 | 0x0100 | 0x0400)
+        except Exception:
             pass
+    def hold_now():
+        # the height everything inside asks for: the panel's own request (plus its 2px margin),
+        # or the window's, whichever is more
+        h_ = max(root.winfo_reqheight(), frame.winfo_reqheight() + 4)
+        if root.winfo_width() != OV_W or root.winfo_height() != h_:
+            root.geometry('%dx%d' % (OV_W, h_))
+            root.update_idletasks()
+            repaint()
+        # anything still squeezed for more than a second gets written down, to find out why
+        now_ = time.time()
+        if frame.winfo_height() + 1 < frame.winfo_reqheight():
+            if not _hold['short']: _hold['short'] = now_
+            elif now_ - _hold['short'] > 1 and now_ - _hold['said'] > 60:
+                _hold['said'] = now_
+                log('overlay squeezed: window %dx%d (asks %d), panel %d (asks %d)' % (
+                    root.winfo_width(), root.winfo_height(), root.winfo_reqheight(),
+                    frame.winfo_height(), frame.winfo_reqheight()))
+        else:
+            _hold['short'] = 0.0
     # Changes in one piece. When a part of the overlay is rebuilt (the opponents, the build order
     # step, a section opening or closing), the new layout and the new window size are worked out
     # and applied together, straight away, rather than the size catching up a moment later. That
@@ -7013,7 +7079,7 @@ def main():
             try:
                 r_ = fn(*a, **k)
                 try: root.update_idletasks(); hold_now(); root.update_idletasks()
-                except tk.TclError: pass
+                except Exception: pass
             finally:
                 _calm['n'] -= 1
             return r_
@@ -7024,12 +7090,11 @@ def main():
         # Straight to the new height in one go: every resize makes Windows redraw the whole
         # see-through window, so it happens once, not over several frames.
         try:
-            h_ = root.winfo_reqheight()
-            if root.winfo_width() != OV_W or root.winfo_height() != h_:
-                root.geometry('%dx%d' % (OV_W, h_))
-        except tk.TclError:
-            return
-        root.after(16, hold_size)
+            hold_now()
+        except Exception as e:
+            if not _hold.get('err'): _hold['err'] = 1; log('overlay size: %r' % (e,))
+        try: root.after(16, hold_size)              # never stops, whatever happened above
+        except Exception: pass
     root.geometry('%dx%d' % (OV_W, root.winfo_reqheight()))
     root.after(20, hold_size)
     bo_draw = calm(bo_draw); idle_size = calm(idle_size)
@@ -7273,6 +7338,7 @@ def main():
     tcw = TCWatcher(strings, tc_notify)
     tcw.enabled = True
     tc_settings()
+    tcw.on_pop = lambda: root.after(0, pop_now)       # the build order moves the moment the pop does
     tcw.start(); tc_pulse()
     watcher.on_lines = tcw.message_lines
 
@@ -8072,6 +8138,62 @@ def main():
                 except Exception: pass
         w_.after(10, up)
 
+    _SPIN = {}
+    def spinner_frames(S, bg_):
+        """A smooth loading ring: a faint track and a gold arc with a fading tail, drawn large and
+        shrunk so it is clean at any size. 24 frames, made once."""
+        key = (S, bg_)
+        if key in _SPIN: return _SPIN[key]
+        out = []
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+            k = 6; N = S * k; w = max(2, int(S * 0.13)) * k; pad = w / 2 + k
+            box = (pad, pad, N - pad, N - pad)
+            def mix(a, b, t):
+                a = [int(a[i:i + 2], 16) for i in (1, 3, 5)]; b = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+                return '#%02x%02x%02x' % tuple(int(a[j] + (b[j] - a[j]) * t) for j in range(3))
+            track = mix(bg_, BRONZE, 0.22)
+            for f in range(24):
+                im = Image.new('RGB', (N, N), bg_)
+                d = ImageDraw.Draw(im)
+                d.ellipse(box, outline=track, width=w)
+                head = f * 15
+                for n_ in range(40):                       # the tail fades out behind the head
+                    t = n_ / 39.0
+                    a0 = head - 200 + n_ * 5
+                    d.arc(box, a0, a0 + 6, fill=mix(track, GOLDC, t ** 1.6), width=w)
+                r_ = w / 2.0                               # a round cap on the leading end
+                import math
+                cx, cy, R = N / 2.0, N / 2.0, (N - 2 * pad) / 2.0 - w / 2.0   # PIL draws the stroke inside the box
+                ang = math.radians(head)
+                hx, hy = cx + R * math.cos(ang), cy + R * math.sin(ang)
+                d.ellipse((hx - r_, hy - r_, hx + r_, hy + r_), fill=GOLDC)
+                out.append(ImageTk.PhotoImage(im.resize((S, S), Image.LANCZOS)))
+        except Exception:
+            out = []
+        _SPIN[key] = out
+        return out
+    def spinner(parent, S, bg_):
+        """A label that turns through the ring's frames until it is destroyed."""
+        fr = spinner_frames(S, bg_)
+        if not fr:
+            c_ = tk.Canvas(parent, width=S, height=S, bg=bg_, highlightthickness=0)
+            arc = c_.create_arc(2, 2, S - 2, S - 2, start=0, extent=270, style='arc', outline=GOLDC, width=2)
+            st_ = {'a': 0}
+            def turn():
+                try:
+                    st_['a'] = (st_['a'] - 30) % 360; c_.itemconfigure(arc, start=st_['a']); c_.after(50, turn)
+                except tk.TclError: pass
+            turn(); return c_
+        l_ = tk.Label(parent, image=fr[0], bg=bg_, bd=0)
+        st_ = {'i': 0}
+        def turn():
+            try:
+                st_['i'] = (st_['i'] + 1) % len(fr); l_.config(image=fr[st_['i']]); l_.after(40, turn)
+            except tk.TclError: pass
+        l_.after(40, turn)
+        return l_
+
     def settings_shell(geo=None):
         """The Settings window's frame, on screen the moment the gear is pressed: its own title,
         border and heading, with a spinner where the cards will be. Settings itself replaces it
@@ -8093,18 +8215,10 @@ def main():
         except Exception: pass
         tk.Label(hd_, text='Settings', fg=GOLD, bg=DEEP_, font=F_HEADLINE).pack(side='left')
         mid_ = tk.Frame(sh_, bg=DEEP_); mid_.place(relx=0.5, rely=0.45, anchor='center')
-        c_ = tk.Canvas(mid_, width=22, height=22, bg=DEEP_, highlightthickness=0); c_.pack(side='left')
-        tk.Label(mid_, text='Loading\u2026', fg=MUT, bg=DEEP_, font=F_SMALL).pack(side='left', padx=(10, 0))
-        arc = c_.create_arc(3, 3, 19, 19, start=0, extent=270, style='arc', outline=GOLDC, width=2)
-        live_ = {'a': 0}
-        def spin():
-            try:
-                live_['a'] = (live_['a'] - 30) % 360; c_.itemconfigure(arc, start=live_['a'])
-                w_.after(50, spin)
-            except tk.TclError: pass
+        spinner(mid_, 40, DEEP_).pack()
+        tk.Label(mid_, text='Loading settings', fg=MUT, bg=DEEP_, font=F_SMALL).pack(pady=(10, 0))
         try: w_.update()
         except tk.TclError: pass
-        spin()
         return w_
 
     def bring_up(w_):
@@ -9712,9 +9826,14 @@ def main():
             # (no coloured dot: the name is already in their colour)
             who = tk.Label(top, text='', fg=tone, bg=PANEL, font=F_HEAD, anchor='w', cursor='hand2')
             who.grid(row=0, column=1, sticky='w')
-            civl = tk.Label(top, text=name.upper(), fg=TXT, bg=PANEL, font=(DISPLAY, 9, 'bold'),
+            # the civ's name opens the notes on that civ, with a small arrow to say it does
+            civf = tk.Frame(top, bg=PANEL, cursor='hand2')
+            civf.grid(row=0, column=2, sticky='w', padx=(8, 0), pady=(2, 0))
+            civl = tk.Label(civf, text=name.upper(), fg=TXT, bg=PANEL, font=(DISPLAY, 9, 'bold'),
                             anchor='w', cursor='hand2')
-            civl.grid(row=0, column=2, sticky='w', padx=(8, 0), pady=(2, 0))
+            civl.pack(side='left')
+            u3 = tk.Label(civf, text='\u25be', fg=MUT, bg=PANEL, font=F_SMALL, cursor='hand2', padx=3)
+            u3.pack(side='left')
             opn = tk.Frame(top, bg=PANEL)
             opn.grid(row=0, column=3, sticky='w', padx=(8, 0))
             elo1 = tk.Label(top, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 11, 'bold'), anchor='e')
@@ -9742,14 +9861,18 @@ def main():
                 bind_all(c); return c
 
             uu, beats = uu_counter(p['civ'], strings, icons)
-            mark(beat, 'swords', BRONZE)
+            try:                                   # their unique unit: a small drawn sword
+                from PIL import ImageTk
+                if 'uu_img' not in st: st['uu_img'] = ImageTk.PhotoImage(draw_step_icon('sword', 16, PANEL))
+                c_ = tk.Label(beat, image=st['uu_img'], bg=PANEL, bd=0); c_.pack(side='left', padx=(0, 6))
+                bind_all(c_)
+            except Exception:
+                mark(beat, 'swords', BRONZE)
             u1 = tk.Label(beat, text=uu or 'Civ notes', fg='#e6d9b0', bg=PANEL, font=F_SMALL, cursor='hand2')
             u1.pack(side='left')
             u2 = tk.Label(beat, text=('  \u2192 ' + beats) if beats else '',
                           fg=GREEN if beats else FAINT, bg=PANEL, font=F_SMALL, cursor='hand2')
             u2.pack(side='left')
-            u3 = tk.Label(beat, text='  more', fg=FAINT, bg=PANEL, font=F_TINY, cursor='hand2')   # there is more behind this line
-            u3.pack(side='left')
 
             def name_now(h=who, box=more, nm=nm):
                 h.config(text=nm['shown'])                 # the fold shows for itself: no arrows needed
@@ -9761,9 +9884,10 @@ def main():
                     c = load_settings(); c['opp_folded'] = not box.winfo_manager(); save_settings(c)
                 except Exception as e:
                     log('could not remember the fold: %r' % (e,))
-            def notes(dt=det, arrow=u3):
-                """A click on the unique unit's line: the notes on the civ, and how this player opens."""
-                toggle(dt); arrow.config(text='  less' if dt.winfo_manager() else '  more')
+            def notes(dt=det, arrow=u3, box=more):
+                """A click on the civ's name (or the unique unit's line): the notes on the civ."""
+                if not box.winfo_manager(): box.grid()          # folded away: open it to show them
+                toggle(dt); arrow.config(text='\u25b4' if dt.winfo_manager() else '\u25be')
             def fit(line=top, box=opn, nm=nm, show=name_now):
                 """Keep the player's line inside the panel. The second opening goes first, then
                 the end of a long name."""
@@ -9776,9 +9900,10 @@ def main():
                     else: break
             name_now()
             hover(who, tone, lighten(tone, 0.35))
-            for w in (top, dot, who, civl, opn): st['actions'][w] = fold
-            for w in [beat] + beat.winfo_children(): st['actions'][w] = notes
-            for w in (row, top, dot, who, civl, opn, more, beat, det, u1, u2, u3): bind_all(w)
+            for w in (top, dot, who, opn): st['actions'][w] = fold
+            for w in [beat] + beat.winfo_children() + [civf, civl, u3]: st['actions'][w] = notes
+            hover(civl, TXT, GOLDD); hover(u3, MUT, GOLDD)
+            for w in (row, top, dot, who, civf, civl, opn, more, beat, det, u1, u2, u3): bind_all(w)
 
             # the civ's usual openings until their own games have been read
             def chips(box, tops, lead_colour, click, after):
