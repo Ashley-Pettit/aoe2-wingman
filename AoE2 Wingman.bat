@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v141'
+VERSION = 'v142'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -535,7 +535,7 @@ def build_step_at(steps, pop):
     return at
 
 # ---------------------------------------------------------------- the build order read out loud
-VOICE_START_S = 8       # seconds into a game before the first step is read out
+VOICE_START_S = 7       # seconds into a game before the first step is read out
 BO_LEAD_S = 16          # each step shows (and is read out) about this many seconds before you need it
 BO_DONE = 'Build order done. Now go kill your opponent.'
 # Windows' own speech, in one quiet PowerShell that stays open for the whole session and reads a
@@ -5745,6 +5745,8 @@ def _smooth_shape(w, h, bg, draw):
     draw(ImageDraw.Draw(im), k)
     return ImageTk.PhotoImage(im.resize((w, h), Image.LANCZOS))
 
+_SWITCH_IMGS = {}                  # each switch look is drawn once and shared
+
 def Check(parent, text='', variable=None, bg=INK, **_ignored):
     """A small switch and its sentence, in place of Tk's square tick box (which comes out as a
     grey Windows 95 box). Click the switch or the words. Same arguments as tk.Checkbutton, so
@@ -5768,7 +5770,9 @@ def Check(parent, text='', variable=None, bg=INK, **_ignored):
             cx = (W - H / 2.0) * k if on else (H / 2.0) * k
             d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=knob)
         sw.delete('all')
-        st_['img'] = _smooth_shape(W, H, bg, paint)
+        key_ = (on, st_['hot'], bg)
+        if key_ not in _SWITCH_IMGS: _SWITCH_IMGS[key_] = _smooth_shape(W, H, bg, paint)
+        st_['img'] = _SWITCH_IMGS[key_]
         if st_['img'] is not None:
             sw.create_image(0, 0, image=st_['img'], anchor='nw')
         else:
@@ -6431,7 +6435,8 @@ def main():
         lo, hi, text = steps[i]
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
         bo_cap.config(text='%s  \u25be' % name.upper()); bo_goal.config(text=pop)
-        bo_at.config(text='POP %s' % span, fg=GOLDD if i == live else '#efe6d2')
+        bo['span'] = (lo, span)
+        bo_pop_text(fg=GOLDD if i == live else '#efe6d2')
         if i != live:                                  # looking ahead (or back): where you really are, to go back to
             bo_live.config(text='\u25c2 Back to live:  %s' % (BO_DONE if bo['done'] else steps[live][2])); bo_live.grid()
         else:
@@ -6573,6 +6578,18 @@ def main():
     def bo_live_again():
         bo['view'] = None; bo_draw()
 
+    def bo_pop_text(fg=None):
+        """The gold box: your pop as the game shows it, and the pop the step on show is for when you
+        are not there yet ('POP 7 \u203a 8'). Without a reading it falls back to the step's own pop."""
+        lo, span = bo.get('span') or (0, '')
+        p_ = bo['pop'] if (bo['pop'] and time.time() - getattr(tcw, 'pop_t', 0) < 20) else 0
+        if p_ and p_ < lo: t_ = 'POP %d \u203a %d' % (p_, lo)
+        elif p_: t_ = 'POP %d' % p_
+        else: t_ = 'POP %s' % span
+        kw = {'text': t_}
+        if fg: kw['fg'] = fg
+        if bo_at.cget('text') != t_ or fg: bo_at.config(**kw)
+
     def bo_follow(pop):
         """Move with the pop counter the Town Center watcher already reads off your screen.
 
@@ -6590,6 +6607,9 @@ def main():
             # and neither is a misread, so the build never starts again part way through.
             if pop <= 5 and bo['pop'] >= 12: bo_fresh(force=True)
             bo['pop'] = pop; bo['pop_t'] = now
+            if not bo['done']:
+                try: bo_pop_text()
+                except Exception: pass
         if bo['done']: return                                # finished: stays that way until the next game
         # A villager takes 25 game seconds. Move on to the next step about BO_LEAD_S before the
         # next one comes out, so there is time to read it and get ready.
@@ -7740,6 +7760,7 @@ def main():
             st['settings_win'] = None
         cfg = load_settings()
         win = tk.Toplevel(root); st['settings_win'] = win
+        win.withdraw()                         # built out of sight, then shown once in one piece
         win.title(APP_NAME + ' settings'); win.configure(bg=BORDER); win.attributes('-topmost', True)
         win.resizable(False, False)
 
@@ -7761,7 +7782,7 @@ def main():
         board_.create_window((0, 0), window=page, anchor='nw')
         outer = page
         def fit_(_=None):
-            room = win.winfo_screenheight() - 260               # leave space for the Save row, the jump bar and the taskbar
+            room = win.winfo_screenheight() - 240               # leave space for the title, the Save row and the taskbar
             board_.configure(scrollregion=board_.bbox('all'), width=page.winfo_reqwidth(),
                              height=min(page.winfo_reqheight(), room))
             if page.winfo_reqheight() > room: bar_.pack(side='right', fill='y')
@@ -7773,7 +7794,6 @@ def main():
         win.bind('<MouseWheel>', wheel_)
 
         hd = tk.Frame(topf, bg=DEEP); hd.pack(fill='x')
-        nav.pack(fill='x', pady=(8, 0))
         try:
             hd_img = tk.PhotoImage(data=APP_ICON_PNG[1])
             hl = tk.Label(hd, image=hd_img, bg=DEEP); hl.image = hd_img; hl.pack(side='left', padx=(0, 10))
@@ -8398,7 +8418,7 @@ def main():
             elif cleared:
                 ad_msg.config(text='Done. Close Steam fully and open it again, then start the game.', fg=GREEN)
         flat_button(ad_row, 'Stop the game needing admin', ad_fix).pack(side='left')
-        ad_refresh()
+        win.after(50, ad_refresh)                        # after the window is up, so it opens straight away
 
         # God Mode: the UI mod this app is built around (it pins the resource bar and the Global
         # Queue, which the idle Town Center alert reads). The button opens its official mod page.
@@ -8492,25 +8512,12 @@ def main():
         msg = tk.Label(foot, text='', fg='#b8b19f', bg=DEEP, font=F_SMALL, anchor='w',
                        justify='left', wraplength=400)
         msg.pack(fill='x', pady=(10, 0))
-        # the jump bar: one click to a part of Settings instead of scrolling for it
-        def jump(label_):
-            c_ = cards_.get(label_)
-            if c_ is None: return
-            page.update_idletasks()
-            board_.yview_moveto(max(0.0, (c_.winfo_y() - 6) / float(max(1, page.winfo_height()))))
-        for short_, label_ in (('Update', 'Update'), ('Discord', 'Discord'), ('Party', 'Ranked party'),
-                               ('Builds', 'Your build orders'), ('Go Live', 'Go Live'), ('Alerts', 'Alerts'),
-                               ('Display', 'Display'), ('Mods', 'Mods')):
-            if label_ not in cards_: continue
-            j_ = tk.Label(nav, text=short_, fg=MUT, bg=PANEL, font=(F_SMALL[0], 9, 'bold'), padx=8, pady=3,
-                          cursor='hand2', highlightthickness=1, highlightbackground=EDGE)
-            j_.pack(side='left', padx=(0, 5)); hover(j_, MUT, GOLDD)
-            j_.bind('<Button-1>', lambda e, l_=label_: jump(l_))
         win.update_idletasks(); fit_()
         win.update_idletasks()                             # keep the whole window on the screen
         win.geometry('+%d+%d' % (max(0, (win.winfo_screenwidth() - win.winfo_reqwidth()) // 2),
                                  max(0, (win.winfo_screenheight() - win.winfo_reqheight()) // 2 - 24)))
 
+        win.deiconify()
         win.bind('<Escape>', lambda e: close_win())        # Esc does the same as Cancel
         win.protocol('WM_DELETE_WINDOW', close_win)
         try: win.focus_force()
