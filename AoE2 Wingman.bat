@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v139'
+VERSION = 'v140'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -187,7 +187,7 @@ BUILDS = [
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, 'House, then berries with the mill'),
-   (12, 17, '6 hunt under the TC, one takes the second boar'),
+   (12, 17, '6 hunt, one takes the second boar'),
    (18, 18, '2 to wood. Lure deer with the scout'),
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Barracks then stable, 3 scouts, double bit axe')]),
@@ -196,7 +196,7 @@ BUILDS = [
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, 'House, then berries with the mill'),
-   (12, 17, '6 hunt under the TC. Lure deer with the scout'),
+   (12, 17, '6 hunt. Lure deer with the scout'),
    (18, 18, '2 to wood'),
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Barracks, then two stables, double bit axe')]),
@@ -204,10 +204,10 @@ BUILDS = [
    (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 hunts under the TC'),
+   (11, 11, '1 to hunt'),
    (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '6 hunt under the TC'),
+   (14, 18, '6 hunt'),
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks, double bit axe')]),
  ('Archers', 'Archers, one range', '20 pop, Feudal 9:15', [
@@ -215,7 +215,7 @@ BUILDS = [
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'House, then berries with the mill'),
-   (13, 18, '6 hunt under the TC, one takes the second boar'),
+   (13, 18, '6 hunt, one takes the second boar'),
    (19, 19, '2 to wood. Lure deer with the scout'),
    (20, 20, 'Second one to wood. Loom, then click Feudal (up at 9:15)'),
    (21, 99, '5 hunt to a second lumber camp, 2 berries, 3 gold, range up')]),
@@ -223,7 +223,7 @@ BUILDS = [
    (2, 7,   '6 to sheep'),
    (8, 10,  '3 to wood, one builds a house in the wall'),
    (11, 11, 'Lure the first boar. Lure 2 deer, not optional'),
-   (12, 16, '5 hunt under the TC, take the second boar'),
+   (12, 16, '5 hunt, take the second boar'),
    (17, 17, 'Barracks, then a house at the front. No mill yet'),
    (18, 18, '2 more hunt'),
    (19, 19, 'Second one hunts. Loom, then click Feudal (up at 8:50)'),
@@ -235,7 +235,7 @@ BUILDS = [
    (12, 12, 'House, then the mill on chickens, or berries'),
    (13, 14, '2 more to the mill. Lure a deer or two if you can'),
    (15, 15, 'Lure the second boar'),
-   (16, 17, '2 hunt under the TC'),
+   (16, 17, '2 hunt'),
    (18, 18, 'Barracks, then a house at the front'),
    (19, 19, '2 more hunt'),
    (20, 20, 'Second one hunts. Loom, then click Feudal (up at 9:15)'),
@@ -245,7 +245,7 @@ BUILDS = [
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'House, then back to the hunt'),
-   (13, 16, '4 hunt under the TC, take the second boar'),
+   (13, 16, '4 hunt, take the second boar'),
    (17, 17, 'Barracks out front, house beside it. No mill yet'),
    (18, 18, '1 more hunt'),
    (19, 19, '1 to wood. Loom, then click Feudal (up at 8:50)'),
@@ -280,7 +280,7 @@ BUILDS = [
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, '2 houses, then berries with the mill'),
-   (13, 13, '1 hunts under the TC'),
+   (13, 13, '1 to hunt'),
    (14, 14, 'Lure the second boar'),
    (15, 18, '4 to berries'),
    (19, 23, '5 to wood'),
@@ -291,40 +291,40 @@ BUILDS = [
    (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 hunts under the TC'),
+   (11, 11, '1 to hunt'),
    (12, 12, 'House, then berries with the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '6 hunt under the TC. Lure deer with the scout'),
+   (14, 18, '6 hunt. Lure deer with the scout'),
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks and house')]),
  ('Infantry', 'Double barracks eagles', '19 pop, Feudal 8:50', [
    (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 hunts under the TC'),
+   (11, 11, '1 to hunt'),
    (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '6 hunt under the TC. Lure deer with the scout'),
+   (14, 18, '6 hunt. Lure deer with the scout'),
    (19, 19, 'Sixth one hunts. Loom if Aztecs or Incas, then click Feudal (up at 8:50)'),
    (20, 99, '5 to wood for 7 on one camp, 2 gold, barracks and house, 3 berries')]),
  ('Other', 'Tower rush, any civ', '18 pop, Feudal 8:25', [
    (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 hunts under the TC'),
+   (11, 11, '1 to hunt'),
    (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 17, '5 hunt under the TC'),
+   (14, 17, '5 hunt'),
    (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
    (19, 99, '2 to stone with a camp, 5 forward, spears or skirms behind the towers')]),
  ('Other', 'Teuton tower rush', '18 pop, Feudal 8:25', [
    (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 hunts under the TC'),
+   (11, 11, '1 to hunt'),
    (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 17, '5 hunt under the TC'),
+   (14, 17, '5 hunt'),
    (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
    (19, 99, '2 to stone with a camp, 10 forward, tower 8 tiles off their wood')]),
 ]
@@ -508,8 +508,8 @@ def build_step_at(steps, pop):
     return at
 
 # ---------------------------------------------------------------- the build order read out loud
-VOICE_START_S = 10      # seconds into a game before the first step is read out
-BO_LEAD_S = 10          # each step shows (and is read out) about this many seconds before you need it
+VOICE_START_S = 8       # seconds into a game before the first step is read out
+BO_LEAD_S = 16          # each step shows (and is read out) about this many seconds before you need it
 BO_DONE = 'Build order done. Now go kill your opponent.'
 # Windows' own speech, in one quiet PowerShell that stays open for the whole session and reads a
 # line at a time from Wingman, so each step is spoken straight away rather than after a slow start.
@@ -519,11 +519,20 @@ Add-Type -AssemblyName System.Speech
 $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
 try { $s.SetOutputToDefaultAudioDevice() } catch {}
 $v = @($s.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo })
-foreach ($c in 'en-AU', 'en-GB', 'en-US') {
-  $m = $v | Where-Object { $_.Culture.Name -eq $c } | Select-Object -First 1
-  if ($m) { try { $s.SelectVoice($m.Name) } catch {}; break }
+$pick = $null
+foreach ($c in 'en-AU', 'en-GB', 'en-US') {         # a natural sounding voice first, if one is installed
+  $pick = $v | Where-Object { $_.Culture.Name -eq $c -and $_.Name -match 'Natural|Neural|Online' } | Select-Object -First 1
+  if ($pick) { break }
 }
-$s.Rate = 1
+if (-not $pick) {
+  foreach ($c in 'en-AU', 'en-GB', 'en-US') {
+    $pick = $v | Where-Object { $_.Culture.Name -eq $c } | Select-Object -First 1
+    if ($pick) { break }
+  }
+}
+if ($pick) { try { $s.SelectVoice($pick.Name) } catch {} }
+$s.Rate = 0
+$s.Volume = 100
 while ($true) {
   $l = [Console]::In.ReadLine()
   if ($l -eq $null) { break }
@@ -542,8 +551,11 @@ def spoken_step(text):
                     (r'^(\d+) houses\b', r'Build \1 houses')):
         t2 = re.sub(pat, to, t)
         if t2 != t: t = t2; break
-    t = re.sub(r'\bTC\b', 'T C', t)
-    return re.sub(r'\s*\(', ', ', t).replace(')', '')
+    t = re.sub(r'\s*\((?:up|in) at [\d:]+\)', '', t)         # the clock times are for reading, not for hearing
+    t = re.sub(r'\bTC\b', 'town centre', t)
+    t = re.sub(r'\bMAA\b', 'men at arms', t)
+    t = re.sub(r'\s*\(', ', ', t).replace(')', '')
+    return t.strip()
 
 class Voice:
     """Says one line at a time. A new line cuts off the one before, so it never falls behind."""
@@ -2998,6 +3010,13 @@ def relaunch_as_admin(resume=''):
         w = os.path.join(os.path.dirname(exe), 'pythonw.exe')
         if os.path.isfile(w): exe = w
         args = '-x "%s" --wait-turn' % self_path() + (' --resume %s' % resume if resume else '')
+    if FROZEN:
+        # The new copy picks up this one's environment. Left as it is, it would run out of this copy's
+        # temp folder, and this one could not clear that folder when it closes ('Failed to remove
+        # temporary directory'). We are about to close anyway, so clean our own environment first.
+        os.environ.clear(); os.environ.update(clean_env())
+        try: ctypes.windll.kernel32.SetDllDirectoryW(None)
+        except Exception: pass
     se = ctypes.windll.shell32.ShellExecuteW
     se.restype = ctypes.c_void_p
     se.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_int]
@@ -3377,13 +3396,24 @@ def discord_join_channel(auto):
             l_ = n.strip().lower()
             if (l_ == nm or l_.startswith(nm + ' ') or l_.startswith(nm + ',')) and 'voice' in l_:
                 hit = c; break
-        if hit is None:
-            log('go live: no voice channel called "%s" on screen in Discord' % want); return False
-        for fn in (_uia_click, _uia_press):
+        if hit is not None:
+            for fn in (_uia_click, _uia_press):
+                try:
+                    if fn(hit): break
+                except Exception as e:
+                    log('go live, channel click: %r' % (e,))
+        else:
+            # Not on screen (Discord is on your friends list, say): Discord's own quick switcher.
+            # Ctrl+K, then '!' and the name lists only voice channels, and Enter joins the top one.
+            log('go live: "%s" is not on screen, using the quick switcher' % want)
             try:
-                if fn(hit): break
+                d_ = find_discord_window()
+                if d_: focus_window(d_)
+                tap_combo('CTRL+K'); time.sleep(0.7)
+                type_text('!' + want.lstrip('#!').strip()); time.sleep(1.2)
+                tap_key(0x0D)
             except Exception as e:
-                log('go live, channel click: %r' % (e,))
+                log('go live, quick switcher: %r' % (e,)); return False
     joined = _uia_fast_wait(auto, ['Disconnect'], wait=3)           # some versions join straight away
     if not joined:
         btn = _uia_fast_wait(auto, ['Join Voice', 'Join Voice Channel', 'Join Call'], wait=6)
@@ -4323,7 +4353,7 @@ class ScoutWatcher(threading.Thread):
     # same spot on a few looks in a row. A scout wandering past is left alone; a house, a camp or a
     # Town Center coming into view is called inside a second or so.
     SEEN = 2               # other colours: the same spot on this many looks in a row (LOOK apart)
-    BUILDING = 16          # pixels for the smallest building, on a minimap 616 wide (scaled to yours);
+    BUILDING = 12          # pixels for the smallest building, on a minimap 616 wide (scaled to yours);
                            # a scout's dot is 4 to 9, so this still leaves scouts alone
     STILL = 3              # how far its middle may drift between looks and still be not moving
     MARKERS = ((254, 0, 0), (255, 255, 1), (255, 0, 0), (255, 255, 0))
@@ -4335,7 +4365,7 @@ class ScoutWatcher(threading.Thread):
     PAD = 0.06             # the slack minimap_rect adds round the map, taken off again here
     BAND, WORDS = 18, 30   # this many pixels of one colour within a strip this tall is a line of writing
     WIDE, TOP = 70, 0.4    # ...or, across the top of the map where the messages run on: this wide, this far down
-    EARLY = 45             # seconds: a building's worth of colour this soon was on the map from the start
+    EARLY = 15             # seconds: a building's worth of colour this soon was on the map from the start
 
     def __init__(self, notify):
         super().__init__(daemon=True)
@@ -5254,28 +5284,28 @@ def intel_predict(rows, civ=None):
 # their most common opening from their public games. It answers a habit, not this game: it
 # never knows what they are doing right now.
 OPENING_ANSWERS = [
- ('fc boom', 'Answer: punish the greed. Scouts or MAA early, then towers on their wood or gold.'),
- ('fast castle', 'Answer: hit them in Feudal. Scouts or MAA, towers, and make them pay for it.'),
- ('fc', 'Answer: hit them in Feudal before their Castle units arrive. Pikes or camels if knights come.'),
- ('drush', 'Answer: loom before they land, 2 houses by the wood, keep villagers working. Wall if you can.'),
- ('militia', 'Answer: loom before they land, keep villagers working. Archers or towers clean them up.'),
- ('maa', 'Answer: wall early and wall well. Archers or towers on your wood, skirms if archers follow.'),
- ('tower', 'Answer: scout for forward villagers. Loom, pull villagers back, get stone and build your own.'),
- ('scouts', 'Answer: spears and walls, or archers with a few spears. Keep villagers close to the TC.'),
- ('cav archer', 'Answer: skirms and walls, or your own archers in bigger numbers.'),
- ('archers', 'Answer: skirms, or scouts to raid their archers and villagers. Wall your gold.'),
- ('skirm', 'Answer: scouts or MAA. Skirms lose to both.'),
- ('eagle', 'Answer: militia line or scouts with forging. Towers help. Archers struggle.'),
- ('knight', 'Answer: pikes or camels, walls, and a castle of your own if you can.'),
- ('lancer', 'Answer: pikes and camels. Archers behind them.'),
- ('elephant', 'Answer: monks, pikes or halbs. Do not fight them with cavalry.'),
- ('nothing early', 'Answer: they tend to boom. Punish early with scouts or MAA.'),
+ ('fc boom', 'punish the greed. Scouts or MAA early, then towers on their wood or gold.'),
+ ('fast castle', 'hit them in Feudal. Scouts or MAA, towers, and make them pay for it.'),
+ ('fc', 'hit them in Feudal before their Castle units arrive. Pikes or camels if knights come.'),
+ ('drush', 'loom before they land, 2 houses by the wood, keep villagers working. Wall if you can.'),
+ ('militia', 'loom before they land, keep villagers working. Archers or towers clean them up.'),
+ ('maa', 'wall early and wall well. Archers or towers on your wood, skirms if archers follow.'),
+ ('tower', 'scout for forward villagers. Loom, pull villagers back, get stone and build your own.'),
+ ('scouts', 'spears and walls, or archers with a few spears. Keep villagers close to the TC.'),
+ ('cav archer', 'skirms and walls, or your own archers in bigger numbers.'),
+ ('archers', 'skirms, or scouts to raid their archers and villagers. Wall your gold.'),
+ ('skirm', 'scouts or MAA. Skirms lose to both.'),
+ ('eagle', 'militia line or scouts with forging. Towers help. Archers struggle.'),
+ ('knight', 'pikes or camels, walls, and a castle of your own if you can.'),
+ ('lancer', 'pikes and camels. Archers behind them.'),
+ ('elephant', 'monks, pikes or halbs. Do not fight them with cavalry.'),
+ ('nothing early', 'they tend to boom. Punish early with scouts or MAA.'),
 ]
 
 def opening_answer(opening):
     o = (opening or '').lower()
     for key, text in OPENING_ANSWERS:
-        if o.startswith(key) or (' ' + key) in (' ' + o): return text
+        if o.startswith(key) or (' ' + key) in (' ' + o): return text[:1].upper() + text[1:]
     return None
 
 def mmss(sec):
@@ -6112,13 +6142,11 @@ def main():
                      highlightthickness=1, highlightbackground=RIM)
     state.grid(row=0, column=2, sticky='e', padx=(10, 2))
     live_btn = live_pill(head, BG)                                      # pause, chat, stream on Discord
-    bo_open = icon_button(head, '', BG, size=10)                        # brings a hidden build order back
-    try:                                         # the build order's own mark: the gold age-up arrow
-        from PIL import ImageTk
-        bo_open_img = ImageTk.PhotoImage(draw_step_icon('age', 18, BG))
-        bo_open.configure(image=bo_open_img, padx=4, pady=2); bo_open.image = bo_open_img
-    except Exception:
-        bo_open.configure(text='\u2630', padx=3)
+    # brings a hidden build order back: a small gold B badge
+    bo_open = tk.Label(head, text='B', fg=INK, bg=GOLDC, font=(DISPLAY, 10, 'bold'), padx=6, pady=0,
+                       cursor='hand2', highlightthickness=1, highlightbackground=RIM)
+    bo_open.bind('<Enter>', lambda e: bo_open.config(bg=GOLDD), add='+')
+    bo_open.bind('<Leave>', lambda e: bo_open.config(bg=GOLDC), add='+')
     bo_open.grid(row=0, column=3, sticky='e', padx=(4, 0)); bo_open.grid_remove()
     live_btn.grid(row=0, column=4, sticky='e', padx=(6, 2))
     stats_btn = icon_button(head, 'W/L', BG, size=8)
@@ -6261,8 +6289,15 @@ def main():
     bo_cap.pack(side='left')
     bo_goal = tk.Label(bo_caprow, text='', fg=FAINT, bg=PANEL, font=F_TINY, anchor='w', cursor='hand2')
     bo_goal.pack(side='left', padx=(7, 0))
-    bo_at = tk.Label(bo_box, text='', fg=MUT, bg=PANEL, font=F_TINY, anchor='e')
+    bo_at = tk.Label(bo_box, text='', fg=GOLDD, bg=INK, font=(DISPLAY, 10, 'bold'), anchor='e', padx=7, pady=1,
+                     highlightthickness=1, highlightbackground=RIM)
     bo_at.grid(row=0, column=1, sticky='e')
+    # back and forward through the steps; your pop moving on brings it back to where you are
+    bo_navf = tk.Frame(bo_box, bg=PANEL)
+    bo_navf.grid(row=0, column=2, sticky='e', padx=(6, 0))
+    bo_back = tk.Label(bo_navf, text='\u25c2', fg=MUT, bg=PANEL, font=('Segoe UI', 14, 'bold'), padx=4, cursor='hand2')
+    bo_fwd = tk.Label(bo_navf, text='\u25b8', fg=MUT, bg=PANEL, font=('Segoe UI', 14, 'bold'), padx=4, cursor='hand2')
+    bo_back.pack(side='left'); bo_fwd.pack(side='left')
     bo_snd = icon_button(bo_box, '', PANEL, size=9)                   # reads the steps out loud, or not
     bo_snd.config(padx=4, pady=2)
     bo_snd.grid(row=2, column=3, rowspan=2, sticky='e', padx=(8, 0))   # beside the step and the next one
@@ -6336,11 +6371,13 @@ def main():
                 bo_next.config(text=BUILD_SOURCE); bo_ntag.pack_forget()
                 bo_box.config(highlightbackground=EDGE)
                 bo_prog.grid_remove(); bo_snd.grid_remove(); bo_live.grid_remove()
+                bo_at.grid_remove(); bo_navf.grid_remove()
                 bo_box.grid()
             else:
                 bo_box.grid_remove()
             bo_open_sync(); foot_fit(); return
         bo_now.config(font=(DISPLAY, 12, 'bold'))
+        bo_at.grid(); bo_navf.grid()
         name, pop, steps = found
         live = max(0, min(bo['i'], len(steps) - 1))
         bo['i'] = live
@@ -6350,7 +6387,7 @@ def main():
         i = live if bo['view'] is None else bo['view']          # the step on show
         if bo['done'] and bo['view'] is None:
             bo_cap.config(text='%s  \u25be' % name.upper()); bo_goal.config(text=pop)
-            bo_at.config(text='done', fg=GREEN)
+            bo_at.config(text='DONE', fg=GREEN)
             img_ = step_icon('militia', 33, PANEL, 10)          # the sword picture
             bo_now.config(text=BO_DONE, image=img_ or '', compound='left', fg=GOLDD); bo_now.image = img_
             bo_next.config(text='Right-click to look back over the build.', image='')
@@ -6361,7 +6398,7 @@ def main():
         lo, hi, text = steps[i]
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
         bo_cap.config(text='%s  \u25be' % name.upper()); bo_goal.config(text=pop)
-        bo_at.config(text='pop %s' % span, fg=MUT if i == live else '#efe6d2')
+        bo_at.config(text='POP %s' % span, fg=GOLDD if i == live else '#efe6d2')
         if i != live:                                  # looking ahead (or back): where you really are, to go back to
             bo_live.config(text='\u25c2 Back to live:  %s' % (BO_DONE if bo['done'] else steps[live][2])); bo_live.grid()
         else:
@@ -6423,6 +6460,8 @@ def main():
         pop_ = tk.Toplevel(root); st['bo_pop'] = pop_
         pop_.withdraw()
         pop_.overrideredirect(True); pop_.attributes('-topmost', True); pop_.configure(bg=RIM)
+        try: pop_.attributes('-alpha', 0.0)          # drawn out of sight, shown once it is all in place
+        except tk.TclError: pass
         inner = tk.Frame(pop_, bg=INK, padx=10, pady=8); inner.pack(padx=1, pady=1)
         hd = tk.Frame(inner, bg=INK); hd.pack(fill='x')
         tk.Frame(hd, bg=GOLDC, width=3, height=14).pack(side='left', padx=(0, 7))
@@ -6466,6 +6505,9 @@ def main():
             down = lambda: bool(u32.GetAsyncKeyState(0x01) & 0x8000) or bool(u32.GetAsyncKeyState(0x02) & 0x8000)
         except Exception:
             down = lambda: False
+        pop_.update_idletasks()
+        try: pop_.attributes('-alpha', 0.97)         # in one go, no half-drawn list or jump
+        except tk.TclError: pass
         def over(w):
             try:
                 px, py = w.winfo_pointerxy()
@@ -7181,7 +7223,7 @@ def main():
 
     def show_boxes(rect, phys_w, lines):
         cfg_b = load_settings()
-        want_map = cfg_b.get('map_tips_loading', True)          # the map tips panel, up top
+        want_map = False                                        # the map tips panel: taken out, Ash did not like it
         want_civ = cfg_b.get('civ_panel_loading', False)        # your opponent's civ, under it
         if not (want_map or want_civ):
             st['boxes_ok'] = True; return          # the panels are switched off: nothing to draw or read
@@ -7467,7 +7509,7 @@ def main():
     for w in (root, frame, head, badge, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_caprow, bo_cap, bo_goal, bo_at, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
+              bo_box, bo_caprow, bo_cap, bo_goal, bo_at, bo_navf, bo_back, bo_fwd, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
               live_btn, bo_open): bind_all(w)
     st['actions'][bo_prog] = bo_menu
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
@@ -7482,6 +7524,10 @@ def main():
     st['actions'][bo_nrow] = lambda: bo_step(1)
     st['actions'][bo_ntag] = lambda: bo_step(1)
     st['actions'][bo_live] = bo_live_again            # and back to where you are
+    st['actions'][bo_back] = lambda: bo_step(-1)
+    st['actions'][bo_fwd] = lambda: bo_step(1)
+    st['actions'][bo_navf] = lambda: None
+    hover(bo_back, MUT, GOLDD); hover(bo_fwd, MUT, GOLDD)
     for w_ in (bo_next, bo_nrow, bo_ntag): w_.config(cursor='hand2')
     hover(bo_next, FAINT, TXT)
     hover(bo_live, GREEN, '#9fe0a0')
@@ -8154,7 +8200,6 @@ def main():
             except ValueError: cap20 = cfg.get('house_cap20', HOUSE_CAP20)
             return out, grace, cap20
 
-        mt_on = tk.BooleanVar(value=cfg.get('map_tips_loading', True))
         cp_on = tk.BooleanVar(value=cfg.get('civ_panel_loading', False))
         field('Reminders')
         cn_on = tk.BooleanVar(value=cfg.get('castle_note', True))
@@ -8225,7 +8270,6 @@ def main():
         ss_on.trace_add('write', ss_apply)
         Check(outer, text='Show Wingman in screenshots and streams', variable=ss_on).pack(fill='x')
 
-        Check(outer, text='Show map tips while the game loads', variable=mt_on).pack(fill='x')
         Check(outer, text="Show your opponent's civ while the game loads", variable=cp_on).pack(fill='x')
 
         fg_on = tk.BooleanVar(value=cfg.get('focus_game', True))
@@ -8381,7 +8425,7 @@ def main():
                     'feudal_note': bool(fn_on.get()), 'companion_results': bool(cr_on.get()),
                     'castle_food': int(typed_number(cm_e.get(), cfg.get('castle_food', CASTLE_NOTE_FOOD), 100, 5000)),
                     'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
-                    'map_tips_loading': bool(mt_on.get()), 'civ_panel_loading': bool(cp_on.get()),
+                    'civ_panel_loading': bool(cp_on.get()),
                     'admin_auto': bool(ad_on.get()),
                     'friends': list(friends), 'friend_discord': dict(fdisc),
                     'live_pause_key': (lv['live_pause_key'].get().strip().upper()
@@ -9014,9 +9058,12 @@ def main():
             ans = opening_answer(pr['opening'])
             if ans:
                 line2 = tk.Frame(box, bg=BG); line2.pack(fill='x', anchor='w', pady=(2, 0))
-                sh = tk.Canvas(line2, width=13, height=13, bg=BG, highlightthickness=0)
-                draw_icon(sh, 'shield', 13, GOLDC); sh.pack(side='left', padx=(0, 5), anchor='n')
-                al = tk.Label(line2, text=ans, fg=TXT, bg=BG, font=F_SMALL, anchor='w', justify='left',
+                # a small gold reply arrow: what to do back
+                sh = tk.Canvas(line2, width=16, height=14, bg=BG, highlightthickness=0)
+                sh.create_line(4, 1, 4, 9, 14, 9, fill=GOLDC, width=2, arrow='last', arrowshape=(5, 6, 3),
+                               capstyle='round', joinstyle='round')
+                sh.pack(side='left', padx=(0, 5), anchor='n', pady=(1, 0))
+                al = tk.Label(line2, text=ans, fg='#e6d9b0', bg=BG, font=F_SMALL, anchor='w', justify='left',
                               wraplength=340)
                 al.pack(side='left', fill='x')
                 for w in (line2, sh, al): bind_all(w)
