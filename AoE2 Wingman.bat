@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v148'
+VERSION = 'v149'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6431,6 +6431,9 @@ def main():
     bo_navf.grid(row=0, column=2, sticky='e', padx=(6, 0))
     bo_back = tk.Label(bo_navf, text='\u25c2', fg=MUT, bg=PANEL, font=('Segoe UI', 14, 'bold'), padx=4, cursor='hand2')
     bo_fwd = tk.Label(bo_navf, text='\u25b8', fg=MUT, bg=PANEL, font=('Segoe UI', 14, 'bold'), padx=4, cursor='hand2')
+    # shown only while you look at a step that is not the live one; click it to go back
+    bo_prev = tk.Label(bo_navf, text='PREVIEW  \u2715', fg=INK, bg='#efe6d2', font=(F_TINY[0], F_TINY[1], 'bold'),
+                       padx=6, pady=1, cursor='hand2')
     bo_back.pack(side='left'); bo_fwd.pack(side='left')
     bo_snd = icon_button(bo_box, '', PANEL, size=9)                   # reads the steps out loud, or not
     bo_snd.config(padx=4, pady=2)
@@ -6503,7 +6506,7 @@ def main():
                 bo_now.config(text='Pick one', font=(DISPLAY, 10, 'bold'), image='')
                 bo_next.config(image='')
                 bo_next.config(text=BUILD_SOURCE); bo_ntag.pack_forget()
-                bo_box.config(highlightbackground=EDGE)
+                bo_box.config(highlightbackground=EDGE, highlightthickness=1)
                 bo_prog.grid_remove(); bo_snd.grid_remove(); bo_live.grid_remove()
                 bo_at.grid_remove(); bo_navf.grid_remove()
                 bo_box.grid()
@@ -6526,7 +6529,7 @@ def main():
             bo_now.config(text=BO_DONE, image=img_ or '', compound='left', fg=GOLDD); bo_now.image = img_
             bo_next.config(text='Right-click to look back over the build.', image='')
             bo_ntag.pack_forget(); bo_live.grid_remove()
-            bo_box.config(highlightbackground=EDGE)
+            bo_box.config(highlightbackground=EDGE, highlightthickness=1); bo_prev.pack_forget()
             bo_prog.grid(); bo_prog_draw(); bo_snd.grid()
             bo_box.grid(); bo_open_sync(); foot_fit(); return
         lo, hi, text = steps[i]
@@ -6534,10 +6537,12 @@ def main():
         bo_cap.config(text='%s  \u25be' % name.upper()); bo_goal.config(text=pop)
         bo['span'] = (lo, span)
         bo_pop_text(fg=GOLDD if i == live else '#efe6d2')
-        if i != live:                                  # looking ahead (or back): where you really are, to go back to
-            bo_live.config(text='\u25c2 Back to live:  %s' % (BO_DONE if bo['done'] else steps[live][2])); bo_live.grid()
-        else:
-            bo_live.grid_remove()
+        previewing = i != live                         # looking ahead (or back) at a step that is not live
+        bo_live.grid_remove()
+        if previewing and not bo_prev.winfo_manager():
+            bo_prev.pack(side='left', padx=(0, 6), before=bo_back)
+        elif not previewing:
+            bo_prev.pack_forget()
         img_ = step_icon(text, 33, PANEL, 10)
         bo_now.config(text=text, image=img_ or '', compound='left',
                       fg=GOLDD if i == live else '#cfc8b6')        # a step you are only looking at is paler
@@ -6550,7 +6555,10 @@ def main():
             bo_ntag.pack_forget()
         # the moment to click up gets a gold edge, so it stands out from the villager steps
         up_ = any(k in text.lower() for k in ('click feudal', 'click castle'))
-        bo_box.config(highlightbackground=GOLDC if up_ else EDGE)
+        # a step you are only looking at: a pale double edge round the whole strip, so it is plain
+        # at a glance that this is not where you are
+        bo_box.config(highlightbackground='#efe6d2' if previewing else (GOLDC if up_ else EDGE),
+                      highlightthickness=2 if previewing else 1)
         bo_prog.grid(); bo_prog_draw(); bo_snd.grid()
         bo_box.grid(); bo_open_sync(); foot_fit()
 
@@ -6707,9 +6715,6 @@ def main():
         # Centre is training now (your pop + 1): at pop 7 the 8th villager is on its way, so it shows
         # (and says) 'Send 2 to wood' while there is still time to get ready.
         i = build_step_at(steps, pop + 1)
-        # Luring a boar takes walking time, so a lure step comes up a villager earlier than the rest.
-        if i + 1 < len(steps) and 'lure' in steps[i + 1][2].lower() and steps[i + 1][0] <= pop + 2:
-            i += 1
         if i > bo['i']:
             bo['i'] = i; bo['view'] = None; bo_draw()      # ticked over: back to live
             if i == len(steps) - 1 and not bo['done_t']: bo['done_t'] = now
@@ -7661,7 +7666,7 @@ def main():
     for w in (root, frame, head, badge, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_caprow, bo_cap, bo_goal, bo_at, bo_navf, bo_back, bo_fwd, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
+              bo_box, bo_caprow, bo_cap, bo_goal, bo_at, bo_navf, bo_back, bo_fwd, bo_prev, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
               live_btn, bo_open): bind_all(w)
     st['actions'][bo_prog] = bo_menu
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
@@ -7676,6 +7681,7 @@ def main():
     st['actions'][bo_nrow] = lambda: bo_step(1)
     st['actions'][bo_ntag] = lambda: bo_step(1)
     st['actions'][bo_live] = bo_live_again            # and back to where you are
+    st['actions'][bo_prev] = bo_live_again
     st['actions'][bo_back] = lambda: bo_step(-1)
     st['actions'][bo_fwd] = lambda: bo_step(1)
     st['actions'][bo_navf] = lambda: None
