@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v157'
+VERSION = 'v158'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6912,13 +6912,12 @@ def main():
     # so with no game on the whole panel is one row. The row below it only appears when the
     # button has something to say.
     btn_plate = tk.Frame(head, bg=RIM, padx=1, pady=1)           # dark edge around the bronze face
-    host_btn = tk.Label(btn_plate, text='Ranked party invite', fg='#2a2113', bg=GOLD, font=(DISPLAY, 9, 'bold'),
+    host_btn = tk.Label(btn_plate, text='Ranked invite', fg='#2a2113', bg=GOLD, font=(DISPLAY, 9, 'bold'),
                         padx=8, pady=3, cursor='hand2')
     host_btn.pack()
     host_btn.bind('<Enter>', lambda e: host_btn.cget('bg') == GOLD and host_btn.config(bg=GOLDD), add='+')
     host_btn.bind('<Leave>', lambda e: host_btn.cget('bg') == GOLDD and host_btn.config(bg=GOLD), add='+')
-    # on its own line under the header, so the name and the header buttons always fit beside each other
-    btn_plate.grid(row=1, column=0, columnspan=8, sticky='w', pady=(7, 1))
+    btn_plate.grid(row=0, column=2, sticky='e', padx=(6, 2))
     state.grid_remove()                                          # the app opens with no game on
     hint = tk.Label(host_row, text='drag to move  \u00b7  click the name to roll up  \u00b7  W/L for your record', fg=FAINT, bg=BG,
                     font=F_TINY, anchor='e', justify='right', wraplength=PANEL_W - 20)
