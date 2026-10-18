@@ -8068,6 +8068,30 @@ def main():
             detail('On this map', record([x for x in earlier if x.get('map') == g.get('map')]))
             detail('Last 10', record(sorted(earlier, key=lambda x: x.get('started') or 0)[-10:]))
 
+            # PERFORMANCE METRICS: show useful placeholders now, but never invent
+            # numbers. Wingman's existing replay-lobby reader does not decode
+            # action events, and the live TC watcher detects *possible* idleness
+            # from OCR rather than measuring an authoritative game timeline.
+            # Future replay parsers or validated trackers can populate these keys
+            # on the existing game row without changing this UI contract.
+            section('Performance metrics')
+            def metric_value(key, suffix, minimum=0, maximum=None):
+                value = g.get(key)
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    return 'Not recorded'
+                if not (minimum <= value and (maximum is None or value <= maximum)):
+                    return 'Not recorded'
+                return ('%s %s' % (round(value, 1), suffix)).strip()
+            detail('APM', metric_value('apm', 'actions/min', 0, 1000))
+            detail('Effective APM', metric_value('eapm', 'actions/min', 0, 1000))
+            detail('Idle TC time', metric_value('idle_tc_seconds', 'seconds', 0, 14400))
+            detail('TC idle share', metric_value('idle_tc_pct', '%', 0, 100))
+            detail('Villagers lost', metric_value('villagers_lost', '', 0, 1000))
+            detail('Resources floated', metric_value('resources_floated', '', 0, 1000000))
+            label(page, 'Metrics appear when reliable match telemetry is available. '
+                  'APM requires action events; TC idle time requires a trustworthy '
+                  'time series. Wingman does not currently record either.', 9, MUT)
+
             section('Coach notes')
             same_civ = [x for x in earlier if x.get('civ') == g.get('civ')]
             same_map = [x for x in earlier if x.get('map') == g.get('map')]
@@ -8083,6 +8107,14 @@ def main():
                 advice = 'Pick one turning point from this loss and practice a response in your next game.'
             else:
                 advice = 'Identify the opening decision that worked and aim to repeat it next match.'
+            # Only give metric-specific coaching when the source provides a
+            # plausible measurement; no fabricated thresholds for missing data.
+            idle_pct = g.get('idle_tc_pct')
+            if isinstance(idle_pct, (int, float)) and not isinstance(idle_pct, bool) and 15 <= idle_pct <= 100:
+                advice += ' Prioritise villager production: your measured TC idle share was %.1f%%.' % idle_pct
+            apm = g.get('apm')
+            if isinstance(apm, (int, float)) and not isinstance(apm, bool) and 0 <= apm < 20:
+                advice += ' Your measured APM was low; practise a simple production-and-scouting rhythm.'
             label(page, advice, 11, FG, wrap=660)
             label(page, 'These are history-based prompts, not claims about unobserved '
                   'economy, army, or build-order events.', 9, MUT)
