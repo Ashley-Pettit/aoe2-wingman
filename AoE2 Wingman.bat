@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v151'
+VERSION = 'v152'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6435,6 +6435,8 @@ def main():
     # shown only while you look at a step that is not the live one; click it to go back
     bo_prev = tk.Label(bo_navf, text='PREVIEW  \u2715', fg=INK, bg='#efe6d2', font=(F_TINY[0], F_TINY[1], 'bold'),
                        padx=6, pady=1, cursor='hand2')
+    # which villager of a several-villager step is training now ('3/6')
+    bo_cnt = tk.Label(bo_navf, text='', fg=GOLDC, bg=INK, font=(F_SMALL[0], F_SMALL[1], 'bold'), padx=5, pady=0)
     bo_back.pack(side='left'); bo_fwd.pack(side='left')
     bo_snd = icon_button(bo_box, '', PANEL, size=9)                   # reads the steps out loud, or not
     bo_snd.config(padx=4, pady=2)
@@ -6536,7 +6538,7 @@ def main():
         lo, hi, text = steps[i]
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
         bo_cap.config(text='%s  \u25be' % name.upper()); bo_goal.config(text=pop)
-        bo['span'] = (lo, span)
+        bo['span'] = (lo, span, hi, i == live)
         bo_pop_text(fg=GOLDD if i == live else '#efe6d2')
         previewing = i != live                         # looking ahead (or back) at a step that is not live
         bo_live.grid_remove()
@@ -6687,8 +6689,17 @@ def main():
     def bo_pop_text(fg=None):
         """The gold box: your pop as the game shows it, and the pop the step on show is for when you
         are not there yet ('POP 7 \u203a 8'). Without a reading it falls back to the step's own pop."""
-        lo, span = bo.get('span') or (0, '')
+        lo, span, hi, live_ = bo.get('span') or (0, '', 0, True)
         t_ = 'POP %s' % span                                    # the pops this step is for
+        # A step that covers several villagers ('6 hunt' for pops 12 to 17): which of them is the one
+        # training now, so you can tell where you are in it.
+        v_ = (bo['pop'] or 0) + 1
+        cnt_ = ('%d/%d' % (v_ - lo + 1, hi - lo + 1)) if (live_ and bo['pop'] and hi < 99 and hi > lo
+                                                           and lo <= v_ <= hi) else ''
+        if bo_cnt.cget('text') != cnt_:
+            bo_cnt.config(text=cnt_)
+            if cnt_ and not bo_cnt.winfo_manager(): bo_cnt.pack(side='left', padx=(0, 6), before=bo_back)
+            elif not cnt_: bo_cnt.pack_forget()
         kw = {'text': t_}
         if fg: kw['fg'] = fg
         if bo_at.cget('text') != t_ or fg: bo_at.config(**kw)
@@ -6710,6 +6721,9 @@ def main():
             # and neither is a misread, so the build never starts again part way through.
             if pop <= 5 and bo['pop'] >= 8: bo_fresh(force=True)      # back to a starting pop: a new game
             bo['pop'] = pop; bo['pop_t'] = now
+            if not bo['done'] and bo['view'] is None:
+                try: bo_pop_text()                         # 'n of 6' moves on with every villager
+                except Exception: pass
 
         if bo['done']: return                                # finished: stays that way until the next game
         # Straight off your pop counter. The step on show is the one for the villager your Town
@@ -7667,7 +7681,7 @@ def main():
     for w in (root, frame, head, badge, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_caprow, bo_cap, bo_goal, bo_at, bo_navf, bo_back, bo_fwd, bo_prev, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
+              bo_box, bo_caprow, bo_cap, bo_goal, bo_at, bo_navf, bo_back, bo_fwd, bo_prev, bo_cnt, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
               live_btn, bo_open): bind_all(w)
     st['actions'][bo_prog] = bo_menu
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
@@ -7861,14 +7875,42 @@ def main():
         except Exception as e:
             log('bring window up: %r' % (e,))
 
-    def open_settings():
+    def reveal_settings(w_):
+        """Put a built Settings window on screen, in the middle, ready to use."""
+        w_.update_idletasks()
+        w_.geometry('+%d+%d' % (max(0, (w_.winfo_screenwidth() - w_.winfo_reqwidth()) // 2),
+                                max(0, (w_.winfo_screenheight() - w_.winfo_reqheight()) // 2 - 24)))
+        w_.deiconify()
+        try: w_.focus_force()
+        except tk.TclError: pass
+        w_.after(60, lambda: bring_up(w_))
+
+    def prebuild_settings():
+        """Build Settings ahead of time, out of sight, so the gear opens it straight away."""
+        if st.get('settings_win') is not None: return
+        pre = st.get('settings_pre')
+        try:
+            if pre is not None and pre.winfo_exists(): return
+        except tk.TclError: pass
+        try: open_settings(show=False)
+        except Exception as e: log('settings prebuild: %r' % (e,))
+
+    def open_settings(show=True):
+        if show:
+            pre = st.pop('settings_pre', None)                 # built earlier, out of sight: just show it
+            try:
+                if pre is not None and pre.winfo_exists():
+                    st['settings_win'] = pre; reveal_settings(pre); return
+            except tk.TclError: pass
         if st.get('settings_win') is not None:
             try:
                 if st['settings_win'].winfo_exists(): bring_up(st['settings_win']); return
             except tk.TclError: pass
             st['settings_win'] = None
         cfg = load_settings()
-        win = tk.Toplevel(root); st['settings_win'] = win
+        win = tk.Toplevel(root)
+        if show: st['settings_win'] = win
+        else: st['settings_pre'] = win
         win.withdraw()                         # built out of sight, then shown once in one piece
         win.title(APP_NAME + ' settings'); win.configure(bg=BORDER); win.attributes('-topmost', True)
         win.resizable(False, False)
@@ -8659,6 +8701,7 @@ def main():
                 msg.config(text='Discord said no: %s' % e, fg=REDC)
         def close_win():
             st['settings_win'] = None; win.destroy()
+            root.after(1500, prebuild_settings)          # the next one ready and waiting, with what was saved
 
         flat_button(wh_btns, 'Send a test message', test).pack(side='left')
         btns = tk.Frame(foot, bg=DEEP); btns.pack(fill='x', pady=(0, 0))
@@ -8668,16 +8711,9 @@ def main():
                        justify='left', wraplength=400)
         msg.pack(fill='x', pady=(10, 0))
         win.update_idletasks(); fit_()
-        win.update_idletasks()                             # keep the whole window on the screen
-        win.geometry('+%d+%d' % (max(0, (win.winfo_screenwidth() - win.winfo_reqwidth()) // 2),
-                                 max(0, (win.winfo_screenheight() - win.winfo_reqheight()) // 2 - 24)))
-
-        win.deiconify()
         win.bind('<Escape>', lambda e: close_win())        # Esc does the same as Cancel
         win.protocol('WM_DELETE_WINDOW', close_win)
-        try: win.focus_force()
-        except tk.TclError: pass
-        win.after(60, lambda: bring_up(win))
+        if show: reveal_settings(win)
     def busy_spinner(text):
         """A small gold spinner by the overlay while something takes a moment to build.
         Returns a function that takes it away."""
@@ -8705,13 +8741,15 @@ def main():
 
     def open_settings_soon():
         """The gear: a spinner straight away, then Settings, which takes a moment to build."""
-        if st.get('settings_win') is not None: open_settings(); return
+        if st.get('settings_win') is not None or st.get('settings_pre') is not None:
+            open_settings(); return                        # already built: on screen straight away
         done_ = busy_spinner('Opening settings\u2026')
         def go():
             try: open_settings()
             finally: root.after(150, done_)
         root.after(30, go)
     st['actions'][gear] = open_settings_soon
+    root.after(4000, prebuild_settings)
 
     def open_stats():
         """The record: filters for 1v1 / team games, time window and ranked, then your form, rating,
@@ -9334,7 +9372,7 @@ def main():
             top.columnconfigure(4, weight=1)
             dot = tk.Canvas(top, width=11, height=11, bg=PANEL, highlightthickness=0, cursor='hand2')
             dot.create_oval(1, 1, 10, 10, fill=solid, outline=RIM)
-            dot.grid(row=0, column=0, padx=(0, 7))
+            # (no coloured dot: the name is already in their colour)
             who = tk.Label(top, text='', fg=tone, bg=PANEL, font=F_HEAD, anchor='w', cursor='hand2')
             who.grid(row=0, column=1, sticky='w')
             civl = tk.Label(top, text=name.upper(), fg=TXT, bg=PANEL, font=(DISPLAY, 9, 'bold'),
