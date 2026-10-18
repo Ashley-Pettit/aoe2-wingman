@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v140'
+VERSION = 'v141'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -351,6 +351,33 @@ def step_icon_kind(text):
         i = t.find(word)
         if i >= 0 and (best is None or i < best[0]): best = (i, kind)
     return best[1] if best else None
+
+def draw_build_badge(S, bg, hot=False):
+    """The build order's own mark: a royal blue shield with a gold rim and a cream serif B.
+    Blue so it never gets mixed up with the gold party invite button next to it."""
+    from PIL import Image, ImageDraw, ImageFont
+    k = 4; W = int(S * 0.86); N, M = W * k, S * k
+    im = Image.new('RGBA', (N, M), bg)
+    d = ImageDraw.Draw(im)
+    def shield(inset):
+        i = inset * k; w, h = N - 1 - i, M - 1 - i
+        return [(i, i + 2 * k), (N / 2.0, i), (w, i + 2 * k), (w, h * 0.58), (N / 2.0, h), (i, h * 0.58)]
+    d.polygon(shield(0), fill='#e2b84a' if hot else '#c99a2e')                 # gold rim
+    d.polygon(shield(1.6), fill='#1d2f52')                                     # dark edge inside the rim
+    d.polygon(shield(2.3), fill='#3d68b8' if hot else '#2f569c')               # royal blue face
+    # a lighter top half for a bit of shine
+    sh = shield(2.3); top = [sh[0], sh[1], sh[2], (sh[2][0], M * 0.36), (sh[0][0], M * 0.36)]
+    d.polygon(top, fill='#4a7bcf' if hot else '#3a66b3')
+    font = None
+    for f in ('georgiab.ttf', 'timesbd.ttf', 'DejaVuSerif-Bold.ttf', 'arialbd.ttf'):
+        try: font = ImageFont.truetype(f, int(M * 0.56)); break
+        except Exception: continue
+    if font is None: font = ImageFont.load_default()
+    bb = d.textbbox((0, 0), 'B', font=font)
+    tx = (N - (bb[2] - bb[0])) / 2.0 - bb[0]; ty = (M * 0.86 - (bb[3] - bb[1])) / 2.0 - bb[1]
+    d.text((tx + k * 0.6, ty + k * 0.8), 'B', font=font, fill='#0f1a30')       # a soft drop shadow
+    d.text((tx, ty), 'B', font=font, fill='#f4ead2')
+    return im.resize((W, S), Image.LANCZOS).convert('RGB')
 
 def draw_step_icon(kind, S, bg):
     """kind drawn in an S x S square, 4x then shrunk. Returns a PIL RGB image."""
@@ -6133,7 +6160,7 @@ def main():
         badge = tk.Label(head, image=crest_img, bg=BG, bd=0); badge.image = crest_img
     except Exception:
         badge = tk.Label(head, text='', bg=BG)
-    badge.grid(row=0, column=0, sticky='w', padx=(0, 6))
+    badge.grid(row=0, column=0, sticky='w', padx=(0, 4))
     HEAD_NAME = 'Wingman'             # the crest already says AoE2; the short name keeps the header in one row
     title = tk.Label(head, text=HEAD_NAME, fg=GOLDC, bg=BG, font=F_HEADLINE, anchor='w', cursor='hand2',
                      justify='left', wraplength=PANEL_W - 170)
@@ -6143,19 +6170,25 @@ def main():
     state.grid(row=0, column=2, sticky='e', padx=(10, 2))
     live_btn = live_pill(head, BG)                                      # pause, chat, stream on Discord
     # brings a hidden build order back: a small gold B badge
-    bo_open = tk.Label(head, text='B', fg=INK, bg=GOLDC, font=(DISPLAY, 10, 'bold'), padx=6, pady=0,
-                       cursor='hand2', highlightthickness=1, highlightbackground=RIM)
-    bo_open.bind('<Enter>', lambda e: bo_open.config(bg=GOLDD), add='+')
-    bo_open.bind('<Leave>', lambda e: bo_open.config(bg=GOLDC), add='+')
-    bo_open.grid(row=0, column=3, sticky='e', padx=(4, 0)); bo_open.grid_remove()
-    live_btn.grid(row=0, column=4, sticky='e', padx=(6, 2))
+    bo_open = tk.Label(head, text='', bg=BG, padx=0, pady=0, cursor='hand2', bd=0)
+    try:
+        from PIL import ImageTk
+        bo_open_imgs = [ImageTk.PhotoImage(draw_build_badge(23, BG, hot)) for hot in (False, True)]
+        bo_open.config(image=bo_open_imgs[0]); bo_open.images = bo_open_imgs
+        bo_open.bind('<Enter>', lambda e: bo_open.config(image=bo_open_imgs[1]), add='+')
+        bo_open.bind('<Leave>', lambda e: bo_open.config(image=bo_open_imgs[0]), add='+')
+    except Exception:
+        bo_open.config(text='B', fg='#f4ead2', bg='#2f569c', font=(DISPLAY, 10, 'bold'), padx=6)
+    bo_open.grid(row=0, column=3, sticky='e', padx=(3, 0)); bo_open.grid_remove()
+    live_btn.grid(row=0, column=4, sticky='e', padx=(5, 1))
     stats_btn = icon_button(head, 'W/L', BG, size=8)
     stats_btn.configure(font=(DISPLAY, 8, 'bold'))
-    stats_btn.grid(row=0, column=5, sticky='e', padx=(4, 0))
+    stats_btn.grid(row=0, column=5, sticky='e', padx=(2, 0))
     gear = icon_button(head, '\u2699', BG)
-    gear.grid(row=0, column=6, sticky='e', padx=(4, 0))
+    gear.grid(row=0, column=6, sticky='e', padx=(1, 0))
     close = icon_button(head, '\u2715', BG, hot=REDC)
     close.grid(row=0, column=7, sticky='e')
+    for b_ in (stats_btn, gear, close): b_.config(padx=4)          # tight, so the header fits the panel's width
     sep = Rule(frame)
     sep.grid(row=1, column=0, columnspan=4, sticky='we', pady=(4, 5))
 
@@ -6673,7 +6706,7 @@ def main():
     host_btn.pack()
     host_btn.bind('<Enter>', lambda e: host_btn.cget('bg') == GOLD and host_btn.config(bg=GOLDD), add='+')
     host_btn.bind('<Leave>', lambda e: host_btn.cget('bg') == GOLDD and host_btn.config(bg=GOLD), add='+')
-    btn_plate.grid(row=0, column=2, sticky='e', padx=(8, 2))
+    btn_plate.grid(row=0, column=2, sticky='e', padx=(6, 2))
     state.grid_remove()                                          # the app opens with no game on
     hint = tk.Label(host_row, text='drag to move  \u00b7  click the name to roll up  \u00b7  W/L for your record', fg=FAINT, bg=BG,
                     font=F_TINY, anchor='e', justify='right', wraplength=PANEL_W - 20)
