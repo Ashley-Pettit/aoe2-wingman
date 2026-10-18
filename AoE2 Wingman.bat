@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v154'
+VERSION = 'v155'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -183,7 +183,7 @@ BUILD_SOURCE = "Hera's strategy guide, Dec 2025"
 # villagers plus the scout, plus any militia, which is how players and the in-game counter count.
 BUILDS = [
  ('Scouts', 'Scouts, one stable', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, 'Build a house, then a mill at the berries and pick them'),
@@ -192,7 +192,7 @@ BUILDS = [
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Barracks then stable, 3 scouts, double bit axe')]),
  ('Scouts', 'Scouts, two stables', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, 'Build a house, then a mill at the berries and pick them'),
@@ -201,7 +201,7 @@ BUILDS = [
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Barracks, then two stables, double bit axe')]),
  ('Scouts', 'Scouts into archers', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 to hunt'),
@@ -211,7 +211,7 @@ BUILDS = [
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks, double bit axe')]),
  ('Archers', 'Archers, one range', '20 pop, Feudal 9:15', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'Build a house, then a mill at the berries and pick them'),
@@ -220,7 +220,7 @@ BUILDS = [
    (20, 20, 'Second one to wood. Loom, then click Feudal (up at 9:15)'),
    (21, 99, '5 hunt to a second lumber camp, 2 berries, 3 gold, range up')]),
  ('Infantry', 'Men-at-arms', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 10,  '3 to wood, one builds a house in the wall'),
    (11, 11, 'Lure the first boar. Lure 2 deer, not optional'),
    (12, 16, '5 hunt, take the second boar'),
@@ -229,7 +229,7 @@ BUILDS = [
    (19, 19, 'Second one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '5 hunt to wood, 2 gold camp, 1 berries, 3 militia out')]),
  ('Infantry', 'Men-at-arms into skirms', '20 pop, Feudal 9:15', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'Build a house, then a mill at the chickens or berries and gather'),
@@ -241,7 +241,7 @@ BUILDS = [
    (20, 20, 'Second one hunts. Loom, then click Feudal (up at 9:15)'),
    (21, 99, 'Militia out, skirms behind them')]),
  ('Infantry', 'Feudal drush', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'House, then back to the hunt'),
@@ -251,7 +251,7 @@ BUILDS = [
    (19, 19, '1 to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Militia out, 1 more to the berries')]),
  ('Fast Castle', 'Fast Castle boom', '24 pop, Castle 14:00', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'Build a house, then a mill at the berries and pick them'),
@@ -263,7 +263,7 @@ BUILDS = [
    (25, 26, 'Feudal is in: 2 more to wood, market and blacksmith'),
    (27, 99, 'Click Castle as soon as both are up (in at 14:00)')]),
  ('Fast Castle', 'Drush into Fast Castle', '31 pop, Castle 16:05', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 11,  '4 to wood'),
    (12, 12, 'Lure the first boar'),
    (13, 13, '2 houses, then a barracks'),
@@ -276,7 +276,7 @@ BUILDS = [
    (32, 33, 'Feudal is in: 2 more to gold, range and blacksmith'),
    (34, 99, 'Click Castle, keep the militia busy (in at 16:05)')]),
  ('Fast Castle', 'Knight rush (easier)', '26 pop, Castle 16:05', [
-   (2, 7,   '2 houses first, then 6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'Build 2 houses, then a mill at the berries and pick them'),
@@ -288,7 +288,7 @@ BUILDS = [
    (26, 26, 'Third one to gold. Loom, then click Feudal (up at 11:45). Barracks and a house'),
    (27, 99, 'Stable and market, 4 more to gold, click Castle (in at 16:05)')]),
  ('Scouts', 'Scouts into skirms', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 to hunt'),
@@ -298,7 +298,7 @@ BUILDS = [
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks and house')]),
  ('Infantry', 'Double barracks eagles', '19 pop, Feudal 8:50', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 to hunt'),
@@ -308,7 +308,7 @@ BUILDS = [
    (19, 19, 'Sixth one hunts. Loom if Aztecs or Incas, then click Feudal (up at 8:50)'),
    (20, 99, '5 to wood for 7 on one camp, 2 gold, barracks and house, 3 berries')]),
  ('Other', 'Tower rush, any civ', '18 pop, Feudal 8:25', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 to hunt'),
@@ -318,7 +318,7 @@ BUILDS = [
    (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
    (19, 99, '2 to stone with a camp, 5 forward, spears or skirms behind the towers')]),
  ('Other', 'Teuton tower rush', '18 pop, Feudal 8:25', [
-   (2, 7,   '6 to sheep'),
+   (2, 7,   '2 houses, then 6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 to hunt'),
@@ -346,6 +346,9 @@ STEP_ICON_WORDS = [            # first word found in the step picks the picture
 
 def step_icon_kind(text):
     t = (text or '').lower(); best = None
+    # 'Build a house, then ...': the house is a quick job on the way; the picture is for what
+    # the villager ends up doing
+    t = re.sub(r'^(build )?(a|\d+|\w+) houses?(,| first,)? then ', '', t)
     for word, kind in STEP_ICON_WORDS:
         if word in ('click feudal', 'click castle') and word in t: return kind
         i = t.find(word)
@@ -535,7 +538,14 @@ def build_step_at(steps, pop):
     return at
 
 # ---------------------------------------------------------------- the build order read out loud
-VOICE_START_S = 7       # seconds into a game before the first step is read out
+VOICE_START_S = 7       # seconds into a game before the first step is read out, when the
+                        # build leaves the opening houses unsaid (time for you to place them)
+
+def voice_start_s(steps):
+    """No wait when the first step itself says to build the houses: it can be said straight away."""
+    try: first = (steps[0][2] if steps else '').lower()
+    except Exception: first = ''
+    return 1 if 'house' in first else VOICE_START_S
 BO_DONE = 'Build order done. Now go kill your opponent.'
 # Windows' own speech, in one quiet PowerShell that stays open for the whole session and reads a
 # line at a time from Wingman, so each step is spoken straight away rather than after a slow start.
@@ -617,6 +627,7 @@ def spoken_step(text):
                     (r'^(\d+) houses\b', r'Build \1 houses')):
         t2 = re.sub(pat, to, t)
         if t2 != t: t = t2; break
+    t = re.sub(r'\bthen (\d+) (more )?to ', r'then send \1 \2to ', t)
     t = re.sub(r'\s*\((?:up|in) at [\d:]+\)', '', t)         # the clock times are for reading, not for hearing
     t = re.sub(r'\bTC\b', 'town centre', t)
     t = re.sub(r'\bMAA\b', 'men at arms', t)
@@ -5757,7 +5768,7 @@ def live_pill(parent, bg):
         def __init__(self):
             tk.Canvas.__init__(self, parent, bg=bg, highlightthickness=0, bd=0, cursor='hand2', height=self.H)
             self.font = tkfont.Font(family='Segoe UI', size=7, weight='bold')
-            self.text, self.col, self.solid, self.ink, self.hot = 'LIVE', LIVE_RED, False, 'white', False
+            self.text, self.col, self.solid, self.ink, self.hot = 'GO LIVE', LIVE_RED, False, 'white', False
             self.img = None
             self.bind('<Enter>', lambda e: self._hover(True), add='+')
             self.bind('<Leave>', lambda e: self._hover(False), add='+')
@@ -5770,8 +5781,9 @@ def live_pill(parent, bg):
             if self.solid:
                 fill = LIVE_HOT if (self.hot and self.col == LIVE_RED) else self.col
                 return fill, self.ink, self.ink
-            fill = _mix(bg, self.col, 0.55 if self.hot else 0.32)       # a dark red that sits in the panel
-            return fill, self.col, '#f6dcd8'
+            # waiting to be pressed: a red outline with a play arrow, a button rather than a light
+            fill = _mix(bg, self.col, 0.28) if self.hot else bg
+            return fill, self.col, '#f6dcd8' if self.hot else '#e8b4ad'
         def smooth(self, w, h, fill, dot):
             try:
                 from PIL import Image, ImageDraw, ImageTk
@@ -5780,9 +5792,15 @@ def live_pill(parent, bg):
             k = 4
             im = Image.new('RGB', (w * k, h * k), bg)
             d = ImageDraw.Draw(im)
-            d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=h * k // 2, fill=fill)
             cx, cy, r = (self.PAD + self.DOT / 2.0) * k, h * k / 2.0, self.DOT * k / 2.0
-            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=dot)
+            if self.solid:                                            # live (or busy): a solid pill and a dot
+                d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=h * k // 2, fill=fill)
+                d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=dot)
+            else:                                                     # press me: outline and a play arrow
+                d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=h * k // 2, fill=fill,
+                                    outline=self.col, width=int(1.3 * k))
+                r2 = r * 1.15
+                d.polygon([(cx - r2 * 0.75, cy - r2), (cx - r2 * 0.75, cy + r2), (cx + r2, cy)], fill=dot)
             return ImageTk.PhotoImage(im.resize((w, h), Image.LANCZOS))
         def draw(self):
             h = self.H
@@ -6176,6 +6194,8 @@ def map_sections(name, desc=''):
     return [('How it starts', t['start']), ('Map tips', t['tips']), ('Plans that work', t['plans'])]
 
 # ---------------------------------------------------------------- window
+WAKE_FILE = os.path.join(os.path.dirname(PIDFILE), 'overlay.wake')
+
 def single_instance():
     """Only one overlay at a time. A second copy, however it was started, bows out quietly.
     Also leaves its process id where the watchdog can find it to close it later."""
@@ -6221,7 +6241,12 @@ def main():
     import tkinter as tk
     warm_imports()
     if not single_instance():
-        log('another copy is already running'); return
+        # Opening it again means you cannot see the one that is running: ask that one to come
+        # back to the front, in a spot on the screen.
+        try:
+            with io.open(WAKE_FILE, 'w', encoding='utf-8') as fh: fh.write(str(time.time()))
+        except Exception: pass
+        log('another copy is already running: asked it to show itself'); return
     maps, strings, icons = load_data()
     me = my_profile()
     root = tk.Tk()
@@ -6830,11 +6855,16 @@ def main():
         p_ = getattr(tcw, 'pop', None)
         if p_ and p_[0] > 10 and time.time() - getattr(tcw, 'pop_t', 0) < 60:
             log('loading screen gone, but a game was already on: the build order carries on'); return
-        bo_fresh(time.time() + VOICE_START_S)
+        bo_fresh(time.time() + bo_voice_wait())
+
+    def bo_voice_wait():
+        found_ = build_by_name(bo['name'])
+        return voice_start_s(found_[2] if found_ else [])
 
     def bo_game_start(f):
         """A new game: the build starts again, and the voice waits until the clock has run a bit."""
         bo_fresh(force=True)
+        wait_ = bo_voice_wait()
         def work():
             try:
                 fresh = time.time() - os.path.getctime(f) <= 40       # not opened part way through
@@ -6843,9 +6873,9 @@ def main():
                     for _ in range(120):              # the recording grows once the game clock runs
                         if os.path.getsize(f) > size0: break
                         time.sleep(0.25)
-                at = time.time() + (VOICE_START_S if fresh else 3)
+                at = time.time() + (wait_ if fresh else min(wait_, 3))
             except OSError:
-                at = time.time() + VOICE_START_S
+                at = time.time() + wait_
             def go():
                 if st.get('last') == f and not bo['voice_at']: bo['voice_at'] = at
             root.after(0, go)
@@ -6915,6 +6945,30 @@ def main():
         px, py = 20, 120
     root.geometry('+%d+%d' % (px, py))
     OV_W = PANEL_W + 2 * 12 + 2 + 4        # the panel, its padding, its edge and the bronze rim
+    def hold_now():
+        try:
+            h_ = root.winfo_reqheight()
+            if root.winfo_width() != OV_W or root.winfo_height() != h_:
+                root.geometry('%dx%d' % (OV_W, h_))
+        except tk.TclError:
+            pass
+    # Changes in one piece. When a part of the overlay is rebuilt (the opponents, the build order
+    # step, a section opening or closing), the new layout and the new window size are worked out
+    # and applied together, straight away, rather than the size catching up a moment later. That
+    # moment was the text hanging below the edge and the black strip while it grew.
+    _calm = {'n': 0}
+    def calm(fn):
+        def run_(*a, **k):
+            if _calm['n']: return fn(*a, **k)              # already inside one: the outer one sizes it
+            _calm['n'] += 1
+            try:
+                r_ = fn(*a, **k)
+                try: root.update_idletasks(); hold_now(); root.update_idletasks()
+                except tk.TclError: pass
+            finally:
+                _calm['n'] -= 1
+            return r_
+        return run_
     def hold_size():
         # One width, always: the overlay never jumps sideways as things come and go. Anything
         # wider than that wraps (or, at worst, is cut at the edge). Only the height follows.
@@ -6929,6 +6983,7 @@ def main():
         root.after(16, hold_size)
     root.geometry('%dx%d' % (OV_W, root.winfo_reqheight()))
     root.after(20, hold_size)
+    bo_draw = calm(bo_draw); idle_size = calm(idle_size)
     st = {'drag': None, 'last': None, 'actions': {}, 'shift': False,
           'first': None, 'herd': None, 'extra': 0}
     root.update_idletasks()
@@ -7734,7 +7789,7 @@ def main():
         d = st['drag']; st['drag'] = None
         if d and abs(e.x_root - d[2]) < 4 and abs(e.y_root - d[3]) < 4:
             act = st['actions'].get(e.widget)
-            if act: act()
+            if act: calm(act)()
         elif d and not st.get('locked'):
             remember_pos()                 # moved: keep this spot for next time
     def bind_all(w):
@@ -7826,7 +7881,7 @@ def main():
                 show('FAIL', LIVE_OFF)
                 try: root.after(0, lambda: host_msg.config(text='Go Live: ' + why))
                 except Exception: pass
-            try: root.after(8000, lambda: live_btn.set('LIVE', LIVE_RED, False))
+            try: root.after(8000, lambda: live_btn.set('GO LIVE', LIVE_RED, False))
             except Exception: pass
             if report:
                 try: root.after(0, lambda: report(ok, why))
@@ -7857,6 +7912,8 @@ def main():
             else: host_row.grid_remove()
 
     def show_footer(on):
+        calm(_show_footer)(on)
+    def _show_footer(on):
         """The party invite button only makes sense at the menu. Out of a game it is there, in the
         header; in a game the state tag takes its place, so there is nothing to fat finger while you play."""
         st['footer'] = on
@@ -7945,21 +8002,26 @@ def main():
         out.pack(fill='x', pady=(10, 0))
         fade_in(win)
 
-    def fade_in(w_, to=1.0, wait=30, ms=120):
-        """Show a window that is already built without it drawing itself in bits: it goes on
-        screen see-through, gets a moment to paint everything, then fades up."""
+    def fade_in(w_, to=1.0, wait=30, ms=60):
+        """Show a window that is already built without it drawing itself in bits (or as a grey
+        box while Windows catches up): it goes on screen fully see-through, every part of it is
+        drawn while nobody can see it, and only then does it come up, quickly."""
         try: w_.attributes('-alpha', 0.0)
         except tk.TclError: pass
         try: w_.deiconify()
         except tk.TclError: return
-        n_ = 6
+        n_ = 4
         def step(k):
             try:
-                if k == 1: w_.update_idletasks()
                 w_.attributes('-alpha', to * k / float(n_))
                 if k < n_: w_.after(max(10, ms // n_), lambda: step(k + 1))
             except tk.TclError: pass
-        w_.after(wait, lambda: step(1))
+        def painted():
+            try:
+                w_.update()                                  # all of it drawn, still invisible
+                w_.after(25, lambda: (w_.update(), step(1)))  # and once more for anything late
+            except tk.TclError: pass
+        w_.after(wait, painted)
 
     def bring_up(w_):
         """Put one of our windows in front and give it the keyboard. The overlay never takes focus
@@ -8028,11 +8090,11 @@ def main():
         board_ = tk.Canvas(shell_, bg=DEEP, highlightthickness=0, bd=0, yscrollcommand=bar_.set)
         bar_.config(command=board_.yview)
         board_.pack(side='left', fill='both', expand=True)
-        page = tk.Frame(board_, bg=DEEP, padx=16, pady=14)
+        page = tk.Frame(board_, bg=DEEP, padx=16, pady=8)
         board_.create_window((0, 0), window=page, anchor='nw')
         outer = page
         def fit_(_=None):
-            room = win.winfo_screenheight() - 190               # leave space for the title, the Save row and the taskbar
+            room = win.winfo_screenheight() - 200               # leave space for the title, the Save row and the taskbar
             board_.configure(scrollregion=board_.bbox('all'), width=page.winfo_reqwidth(),
                              height=min(page.winfo_reqheight(), room))
             if page.winfo_reqheight() > room: bar_.pack(side='right', fill='y')
@@ -8072,15 +8134,15 @@ def main():
             """A card with a gold heading; what follows goes in it. The notes stay in the code as a
             record of how each part works, but are not shown: Settings reads cleaner without them."""
             nonlocal outer
-            card = tk.Frame(page, bg=INK, highlightthickness=1, highlightbackground=EDGE, padx=14, pady=11)
-            card.pack(fill='x', pady=(10, 0))
+            card = tk.Frame(page, bg=INK, highlightthickness=1, highlightbackground=EDGE, padx=14, pady=9)
+            card.pack(fill='x', pady=(8, 0))
             tk.Label(card, text=label, fg=GOLD, bg=INK, font=F_HEAD, anchor='w').pack(fill='x', pady=(0, 7))
             outer = card
             cards_[label] = card
 
         def field(label):
             """A small label for one part of a card."""
-            tk.Label(outer, text=label, fg=MUT, bg=INK, font=F_SMALL, anchor='w').pack(fill='x', pady=(8, 3))
+            tk.Label(outer, text=label, fg=MUT, bg=INK, font=F_SMALL, anchor='w').pack(fill='x', pady=(6, 2))
 
         section('Update', 'Wingman.exe updates itself from the public Releases page. The .bat '
                           'updates from GitHub: Prod is the settled version, dev gets changes first.', gap=10)
@@ -8194,7 +8256,7 @@ def main():
         outer = page
         fair = tk.Frame(outer, bg=PANEL, highlightthickness=1, highlightbackground=RIM,
                         padx=12, pady=10)
-        fair.pack(fill='x', pady=(14, 0))
+        fair.pack(fill='x', pady=(8, 0))
         fh = tk.Frame(fair, bg=PANEL); fh.pack(fill='x')
         fc = tk.Canvas(fh, width=15, height=15, bg=PANEL, highlightthickness=0)
         draw_icon(fc, 'shield', 15, GOLD); fc.pack(side='left', padx=(0, 7))
@@ -8817,9 +8879,9 @@ def main():
         # small for that still scrolls. The cards keep their order, top to bottom, left to right.
         try:
             kids = list(page.pack_slaves())
-            hs = [c_.winfo_reqheight() + 10 for c_ in kids]
+            hs = [c_.winfo_reqheight() + 8 for c_ in kids]
             cw = max(c_.winfo_reqwidth() for c_ in kids)
-            room = win.winfo_screenheight() - 190 - 32          # what fit_ allows, less the page's own padding
+            room = win.winfo_screenheight() - 200 - 20          # what fit_ allows, less the page's own padding
             most = max(1, min(4, (win.winfo_screenwidth() - 70) // (cw + 16)))
             def groups(limit):
                 out_, cur, tot = [], [], 0
@@ -8835,14 +8897,24 @@ def main():
                     if len(groups(mid)) <= n_: hi_ = mid
                     else: lo_ = mid + 1
                 return lo_
-            n_ = next((k for k in range(1, most + 1) if best(k) <= room), most)
-            log('settings: %d columns, tallest %d of %d (screen %dx%d)' % (n_, best(n_), room,
+            def shortest(n_):
+                # each card, in turn, goes under whichever column is shortest so far
+                cols, tot = [[] for _ in range(n_)], [0] * n_
+                for c_, h_ in zip(kids, hs):
+                    j = tot.index(min(tot)); cols[j].append(c_); tot[j] += h_
+                return [c for c in cols if c], max(tot)
+            def plan(n_):
+                a_ = (groups(best(n_)), best(n_)); b_ = shortest(n_)
+                return a_ if a_[1] <= b_[1] else b_
+            n_ = next((k for k in range(1, most + 1) if plan(k)[1] <= room), most)
+            grps, tall = plan(n_)
+            log('settings: %d columns, tallest %d of %d (screen %dx%d)' % (n_, tall, room,
                 win.winfo_screenwidth(), win.winfo_screenheight()))
             if n_ > 1 and len(kids) > 1:
                 cols_ = tk.Frame(page, bg=DEEP); cols_.pack(fill='x')
-                for j, grp in enumerate(groups(best(n_))):
+                for j, grp in enumerate(grps):
                     col = tk.Frame(cols_, bg=DEEP)
-                    col.grid(row=0, column=j, sticky='n', padx=(0 if j == 0 else 14, 0))
+                    col.grid(row=0, column=j, sticky='nwe', padx=(0 if j == 0 else 14, 0))
                     cols_.grid_columnconfigure(j, minsize=cw, uniform='col')
                     for c_ in grp:
                         info = c_.pack_info(); info.pop('in', None)
@@ -9638,7 +9710,7 @@ def main():
                            chips_=chips, note_=note, report_=lambda pr, col, f=intel: scouting_report(f, pr, col)):
                     def post(fn):
                         for _ in range(40):
-                            try: root.after(0, fn); return
+                            try: root.after(0, calm(fn)); return
                             except RuntimeError: time.sleep(0.25)   # the window is still starting up
                     try:
                         post(lambda: note_(box, 'reading their games\u2026', fold_, fit_))
@@ -9661,6 +9733,7 @@ def main():
                     except Exception as e:
                         log('openings lookup failed: %r' % (e,))
                 if pp_ok(p, i): threading.Thread(target=habits, daemon=True).start()
+    show_opponents = calm(show_opponents)
 
     def pp_ok(p, i):
         return bool(p.get('profile')) and i < 4 and load_settings().get('opp_openings', True)
@@ -9674,7 +9747,28 @@ def main():
         elif st['herd'] and watcher.status == 'unavailable': txt += '\n(herd tracking unavailable)'
         if body.cget('text') != txt: body.config(text=txt)
 
+    def wake_check():
+        """A second start asked us to show ourselves: back on screen, on top, solid."""
+        try:
+            if not os.path.exists(WAKE_FILE): return
+            os.remove(WAKE_FILE)
+        except Exception:
+            return
+        try:
+            log('opened again: showing the overlay (was %s, %s, seen %s, alpha %s)' % (
+                root.geometry(), root.state(), root.winfo_viewable(), root.attributes('-alpha')))
+            x_, y_ = root.winfo_x(), root.winfo_y()
+            if not (-60 <= x_ <= root.winfo_screenwidth() - 80 and -20 <= y_ <= root.winfo_screenheight() - 40):
+                root.geometry('+20+120')
+            root.deiconify()
+            root.attributes('-alpha', 0.97); st['alpha'] = 0.97
+            root.attributes('-topmost', False); root.attributes('-topmost', True); root.lift()
+            hold_now()
+        except Exception as e:
+            log('showing the overlay: %r' % (e,))
+
     def fast():
+        wake_check()
         refresh(); hover_fade(); foot_fit()
         try: feudal_reminder(); castle_reminder()
         except Exception as e: log('reminder: %r' % (e,))
