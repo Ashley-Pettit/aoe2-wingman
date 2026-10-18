@@ -7864,7 +7864,8 @@ def main():
             if g and g.get('result') in ('win', 'loss'):
                 stamp_rating(gid, g.get('mode'), 'rating_after')
                 root.after(0, lambda: show_result_card(gid))
-                root.after(0, lambda: show_post_game(gid) if review_gid[0] == gid else None)
+                root.after(0, lambda: show_post_game(gid) if review_gid[0] == gid and
+                           st.get('last') is None else None)
                 root.after(0, refresh_stats_window)
                 return
 
@@ -7988,6 +7989,8 @@ def main():
             canvas.bind('<Configure>', lambda e: canvas.itemconfigure(item, width=e.width))
             def wheel_review(e):
                 if e.delta: canvas.yview_scroll(-int(e.delta / 120), 'units')
+            # Bind the scroll wheel to the canvas and content; child labels may
+            # intercept wheel events, so use a binding on each generated label too.
             canvas.bind('<MouseWheel>', wheel_review)
             page.bind('<MouseWheel>', wheel_review)
 
@@ -7996,6 +7999,7 @@ def main():
                 obj = tk.Label(parent, text=str(value), bg=BG, fg=color, font=font_,
                                anchor='w', justify='left', wraplength=wrap)
                 obj.pack(fill='x', pady=(0, 6))
+                obj.bind('<MouseWheel>', wheel_review)
                 return obj
 
             def section(title):
@@ -8028,7 +8032,7 @@ def main():
             detail('Duration', fmt_len(game_length(g)) if game_length(g) else 'Not yet available')
             detail('Played', g.get('at') or 'Unknown')
             before, after = g.get('rating'), g.get('rating_after')
-            if before is not None and after is not None:
+            if isinstance(before, (int, float)) and isinstance(after, (int, float)):
                 delta = after - before
                 detail('Rating', '%s  (%+d)' % (after, delta))
             elif after is not None:
@@ -8105,7 +8109,12 @@ def main():
             rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
             stats_btn.grid()
             show_opponents([]); hide_boxes()
-            if gid: show_post_game(gid)
+            # Do not interrupt a player with a full-size review before the
+            # end-screen detection has been confirmed. The existing game-over
+            # detector can briefly misfire while a replay is still growing.
+            if gid:
+                root.after(1800, lambda: show_post_game(gid) if
+                           st.get('ended') and st.get('last') is None else None)
         root.after(0, go)
 
     def boxes_pending():
