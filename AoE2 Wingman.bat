@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v156'
+VERSION = 'v157'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -8422,12 +8422,22 @@ def main():
             if key_ == 'live_pause_key' and not combo_ok(v_): v_ = LIVE_DEFAULTS[key_]
             e_.insert(0, v_); e_.pack(side='left', fill='x', expand=True, ipady=2)
             lv[key_] = e_
-        field("Voice channel to join if you're not in a call")
+        field("Voice channel link (joined if you're not in a call)")
         lv_chan = tk.Entry(outer, width=46); style_entry(lv_chan)
         lv_chan.insert(0, cfg.get('live_channel', '')); lv_chan.pack(fill='x', ipady=3)
-        tk.Label(outer, text="Its name, or its link (in Discord, right-click the channel, Copy Link). "
-                             "Leave it empty to skip.", fg=FAINT, bg=INK, font=F_TINY, anchor='w',
-                 justify='left', wraplength=430).pack(fill='x', pady=(3, 0))
+        lv_hint = tk.Label(outer, text='', fg=FAINT, bg=INK, font=F_TINY, anchor='w',
+                           justify='left', wraplength=400)
+        lv_hint.pack(fill='x', pady=(3, 0))
+        LV_HOW = ('Paste the channel link, like https://discord.com/channels/713962454140321834/713962454589112323\n'
+                  'In Discord: right-click the voice channel, then Copy Link. Leave it empty to skip.')
+        def lv_check(_e=None):
+            t_ = lv_chan.get().strip()
+            if not t_: lv_hint.config(text=LV_HOW, fg=FAINT)
+            elif discord_channel_link(t_): lv_hint.config(text='\u2713 Channel link set. Wingman opens it when you Go Live.', fg=GREEN)
+            else: lv_hint.config(text="That isn't a channel link yet. " + LV_HOW, fg=REDC)
+        lv_chan.bind('<KeyRelease>', lv_check, add='+'); lv_chan.bind('<FocusOut>', lv_check, add='+')
+        lv_chan.bind('<<Paste>>', lambda e: lv_chan.after(10, lv_check), add='+')
+        lv_check()
         lv_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
                           justify='left', wraplength=400)
         def lv_test():
@@ -8893,6 +8903,9 @@ def main():
             c = collect()
             if c['webhook'] and not re.match(r'https://(\w+\.)?discord(app)?\.com/api/webhooks/', c['webhook']):
                 msg.config(text="That doesn't look like a Discord webhook link.", fg=REDC); return
+            if c.get('live_channel') and not discord_channel_link(c['live_channel']):
+                lv_check(); msg.config(text="The Go Live voice channel needs to be the channel's link. "
+                                            "See the note under it.", fg=REDC); return
             merged = load_settings(); merged.update(c); save_settings(merged)
             tc_settings(); tc_draw()
             scorew.enabled = merged.get('concede_flag', True)
