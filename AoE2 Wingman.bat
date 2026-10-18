@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v145'
+VERSION = 'v146'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6230,7 +6230,7 @@ def main():
         log('window icon: %r' % (e,))
     pick_fonts()
     root.overrideredirect(True); root.attributes('-topmost', True)
-    try: root.attributes('-alpha', 0.88)
+    try: root.attributes('-alpha', 0.97)          # solid enough that the game does not show through the text
     except tk.TclError: pass
     BG, FG, GOLD, RED = INK, TXT, GOLDC, REDC
     root.configure(bg=RIM)                          # a bronze edge around the panel, like the game's frames
@@ -6319,8 +6319,8 @@ def main():
             self.text = text; self.render()
 
         def _chip(self, row, label):
-            c = tk.Frame(row, bg=PANEL, highlightthickness=1, highlightbackground=RIM)
-            tk.Label(c, text=label, fg=TXT, bg=PANEL, font=F_SMALL, padx=6, pady=1).pack()
+            c = tk.Frame(row, bg=PANEL)                               # a quiet tag, like every other tag
+            tk.Label(c, text=label, fg=TXT, bg=PANEL, font=F_SMALL, padx=7, pady=2).pack()
             c.pack(side='left', padx=(0, 4), pady=(0, 4))
             return c
 
@@ -6786,7 +6786,7 @@ def main():
     rec_line.grid(row=4, column=0, columnspan=4, sticky='w', pady=(3, 0)); rec_line.grid_remove()
 
     # the card that goes up once the service confirms how the last game went
-    card = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=RIM, padx=10, pady=7)
+    card = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=6)
     card.grid(row=4, column=0, columnspan=4, sticky='we', pady=(8, 0)); card.grid_remove()
     card.columnconfigure(1, weight=1)
     card_word = tk.Label(card, text='', fg=GREEN, bg=PANEL, font=(DISPLAY, 11, 'bold'), anchor='w')
@@ -6797,11 +6797,11 @@ def main():
                          wraplength=PANEL_W - 24)
     card_line.grid(row=1, column=0, columnspan=2, sticky='w', pady=(3, 0))
     # the score line: how your side's total compares, and the flag when the game looks gone
-    score_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w', pady=1,
-                          justify='left', wraplength=PANEL_W)
-    score_line.grid(row=5, column=0, columnspan=4, sticky='we', pady=(3, 0)); score_line.grid_remove()
-    opp_area = tk.Frame(frame, bg=BG)
-    opp_area.grid(row=6, column=0, columnspan=4, sticky='we')
+    score_line = tk.Label(frame, text='', fg=MUT, bg=PANEL, font=F_SMALL, anchor='w', padx=9, pady=4,
+                          justify='left', wraplength=PANEL_W - 24, highlightthickness=1, highlightbackground=EDGE)
+    score_line.grid(row=5, column=0, columnspan=4, sticky='we', pady=(6, 0)); score_line.grid_remove()
+    opp_area = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=6)
+    opp_area.grid(row=6, column=0, columnspan=4, sticky='we'); opp_area.grid_remove()
 
     # footer: the one action, with the hint that only appears while the mouse is over the overlay
     footsep = Rule(frame)
@@ -7772,6 +7772,8 @@ def main():
                 if bo['name']: w.grid()
             elif w is score_line:
                 if score_line.cget('text'): w.grid()
+            elif w is opp_area:
+                if opp_area.winfo_children(): w.grid()
             elif w is footsep and not st.get('footer', True): continue
             elif w in (footsep, sep) and waiting_now[0]: continue    # no dividers while idle
             elif w is body and not body.cget('text'): continue      # nothing to show while waiting
@@ -8652,7 +8654,40 @@ def main():
         try: win.focus_force()
         except tk.TclError: pass
         win.after(60, lambda: bring_up(win))
-    st['actions'][gear] = open_settings
+    def busy_spinner(text):
+        """A small gold spinner by the overlay while something takes a moment to build.
+        Returns a function that takes it away."""
+        w_ = tk.Toplevel(root); w_.overrideredirect(True); w_.attributes('-topmost', True)
+        w_.configure(bg=RIM)
+        f_ = tk.Frame(w_, bg=INK, padx=10, pady=7); f_.pack(padx=1, pady=1)
+        c_ = tk.Canvas(f_, width=16, height=16, bg=INK, highlightthickness=0); c_.pack(side='left')
+        tk.Label(f_, text=text, fg=MUT, bg=INK, font=F_SMALL).pack(side='left', padx=(8, 0))
+        arc = c_.create_arc(2, 2, 14, 14, start=0, extent=270, style='arc', outline=GOLDC, width=2)
+        live_ = {'on': True, 'a': 0}
+        def spin():
+            if not live_['on']: return
+            live_['a'] = (live_['a'] - 30) % 360
+            try: c_.itemconfigure(arc, start=live_['a']); w_.after(50, spin)
+            except tk.TclError: pass
+        w_.update_idletasks()
+        x_ = root.winfo_rootx() + max(0, (root.winfo_width() - w_.winfo_reqwidth()) // 2)
+        y_ = root.winfo_rooty() + root.winfo_height() + 6
+        w_.geometry('+%d+%d' % (x_, y_)); w_.update(); spin()
+        def gone():
+            live_['on'] = False
+            try: w_.destroy()
+            except tk.TclError: pass
+        return gone
+
+    def open_settings_soon():
+        """The gear: a spinner straight away, then Settings, which takes a moment to build."""
+        if st.get('settings_win') is not None: open_settings(); return
+        done_ = busy_spinner('Opening settings\u2026')
+        def go():
+            try: open_settings()
+            finally: root.after(150, done_)
+        root.after(30, go)
+    st['actions'][gear] = open_settings_soon
 
     def open_stats():
         """The record: filters for 1v1 / team games, time window and ranked, then your form, rating,
@@ -9194,22 +9229,22 @@ def main():
         mine = next((p for p in players if p['human'] and p['profile'] == me), None)
         opps = [p for p in players if p is not mine and (mine is None or p['team'] <= 1 or p['team'] != mine['team'])]
         team_game = len(players) > 2
-        if opps:
-            opp_area.grid_configure(pady=(5, 0))
-        if len(opps) > 1:                          # one opponent needs no heading
-            cap = tk.Label(opp_area, text='OPPONENTS', fg=BRONZE, bg=BG,
-                           font=(DISPLAY, 8, 'bold'), anchor='w')
-            cap.grid(row=0, column=0, sticky='w'); bind_all(cap)
+        if not opps:
+            opp_area.grid_remove(); return
+        opp_area.grid(); opp_area.grid_configure(pady=(6, 0))
+        cap = tk.Label(opp_area, text='OPPONENTS' if len(opps) > 1 else 'OPPONENT', fg=BRONZE, bg=PANEL,
+                       font=F_TINY, anchor='w')
+        cap.grid(row=0, column=0, sticky='w', pady=(0, 3)); bind_all(cap)
         def scouting_report(box, pr, col):
             """One line: a bar split by how often they open each way, the usual one named with
             its count, then their usual Feudal and Castle times. As your own game clock comes up
             to one of those times it turns amber with a countdown, then red while it is due."""
             for w in box.winfo_children(): w.destroy()
-            line1 = tk.Frame(box, bg=BG); line1.pack(fill='x', anchor='w')
-            ic = tk.Canvas(line1, width=13, height=13, bg=BG, highlightthickness=0)
+            line1 = tk.Frame(box, bg=PANEL); line1.pack(fill='x', anchor='w')
+            ic = tk.Canvas(line1, width=13, height=13, bg=PANEL, highlightthickness=0)
             draw_icon(ic, 'clock', 13, BRONZE); ic.pack(side='left', padx=(0, 5))
             W, H = 54, 7
-            bar = tk.Canvas(line1, width=W, height=H, bg=PANEL, highlightthickness=1, highlightbackground=RIM)
+            bar = tk.Canvas(line1, width=W, height=H, bg=INK, highlightthickness=1, highlightbackground=RIM)
             x, total = 0.0, float(sum(n for _, n in pr['dist'])) or 1.0
             for k, (lab, n) in enumerate(pr['dist']):
                 w_ = W * n / total
@@ -9218,21 +9253,21 @@ def main():
                 x += w_
             bar.pack(side='left', padx=(0, 6))
             lead = tk.Label(line1, text='%s %d/%d' % (pr['opening'], pr['observed'], pr['matches']),
-                            fg=GOLDD, bg=BG, font=(DISPLAY, 9, 'bold'))
+                            fg=GOLDD, bg=PANEL, font=(DISPLAY, 9, 'bold'))
             lead.pack(side='left')
-            when = tk.Label(line1, text='', fg=MUT, bg=BG, font=F_SMALL)
+            when = tk.Label(line1, text='', fg=MUT, bg=PANEL, font=F_SMALL)
             when.pack(side='left', padx=(8, 0))
             for w in (box, line1, ic, bar, lead, when): bind_all(w)
             # and what to do about it: a stock answer to the way they usually open
             ans = opening_answer(pr['opening'])
             if ans:
-                line2 = tk.Frame(box, bg=BG); line2.pack(fill='x', anchor='w', pady=(2, 0))
+                line2 = tk.Frame(box, bg=PANEL); line2.pack(fill='x', anchor='w', pady=(2, 0))
                 # a small gold reply arrow: what to do back
-                sh = tk.Canvas(line2, width=16, height=14, bg=BG, highlightthickness=0)
+                sh = tk.Canvas(line2, width=16, height=14, bg=PANEL, highlightthickness=0)
                 sh.create_line(4, 1, 4, 9, 14, 9, fill=GOLDC, width=2, arrow='last', arrowshape=(5, 6, 3),
                                capstyle='round', joinstyle='round')
                 sh.pack(side='left', padx=(0, 5), anchor='n', pady=(1, 0))
-                al = tk.Label(line2, text=ans, fg='#e6d9b0', bg=BG, font=F_SMALL, anchor='w', justify='left',
+                al = tk.Label(line2, text=ans, fg='#e6d9b0', bg=PANEL, font=F_SMALL, anchor='w', justify='left',
                               wraplength=340)
                 al.pack(side='left', fill='x')
                 for w in (line2, sh, al): bind_all(w)
@@ -9264,57 +9299,57 @@ def main():
             tone = name_colour(p.get('colour'), RED)        # the colour the game writes their name in
             solid = player_colour(p.get('colour'))[0] or tone   # and the one it paints them in
             nm = {'shown': p['name'] if len(p['name']) <= 20 else p['name'][:19] + '\u2026'}
-            row = tk.Frame(opp_area, bg=BG)
+            row = tk.Frame(opp_area, bg=PANEL)
             row.grid(row=i + 1, column=0, sticky='we', pady=(3 if i else 0, 0))
             row.columnconfigure(0, weight=1)
 
             # The player's line: who they are, their civ, what they open with, and their ladder
             # rating. 1v1 is the number that matters, so it is the big one; the team rating sits
             # beside it, quieter. Click the line and everything under it folds away.
-            top = tk.Frame(row, bg=BG); top.grid(row=0, column=0, sticky='we')
+            top = tk.Frame(row, bg=PANEL); top.grid(row=0, column=0, sticky='we')
             top.columnconfigure(4, weight=1)
-            dot = tk.Canvas(top, width=11, height=11, bg=BG, highlightthickness=0, cursor='hand2')
+            dot = tk.Canvas(top, width=11, height=11, bg=PANEL, highlightthickness=0, cursor='hand2')
             dot.create_oval(1, 1, 10, 10, fill=solid, outline=RIM)
             dot.grid(row=0, column=0, padx=(0, 7))
-            who = tk.Label(top, text='', fg=tone, bg=BG, font=F_HEAD, anchor='w', cursor='hand2')
+            who = tk.Label(top, text='', fg=tone, bg=PANEL, font=F_HEAD, anchor='w', cursor='hand2')
             who.grid(row=0, column=1, sticky='w')
-            civl = tk.Label(top, text=name.upper(), fg=TXT, bg=BG, font=(DISPLAY, 9, 'bold'),
+            civl = tk.Label(top, text=name.upper(), fg=TXT, bg=PANEL, font=(DISPLAY, 9, 'bold'),
                             anchor='w', cursor='hand2')
             civl.grid(row=0, column=2, sticky='w', padx=(8, 0), pady=(2, 0))
-            opn = tk.Frame(top, bg=BG)
+            opn = tk.Frame(top, bg=PANEL)
             opn.grid(row=0, column=3, sticky='w', padx=(8, 0))
-            elo1 = tk.Label(top, text='', fg=GOLDD, bg=BG, font=(DISPLAY, 11, 'bold'), anchor='e')
+            elo1 = tk.Label(top, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 11, 'bold'), anchor='e')
             elo1.grid(row=0, column=5, sticky='e')
-            elo2 = tk.Label(top, text='', fg=MUT, bg=BG, font=F_TINY, anchor='e')
+            elo2 = tk.Label(top, text='', fg=MUT, bg=PANEL, font=F_TINY, anchor='e')
             elo2.grid(row=0, column=6, sticky='e', padx=(6, 0))
 
             # Under it: what beats their unique unit, and behind that line the notes on the civ.
-            more = tk.Frame(row, bg=BG)
+            more = tk.Frame(row, bg=PANEL)
             more.grid(row=1, column=0, sticky='we', padx=(18, 0))
-            beat = tk.Frame(more, bg=BG)
+            beat = tk.Frame(more, bg=PANEL)
             beat.grid(row=0, column=0, sticky='w', pady=(2, 0))
             # The scouting report: their usual opening as a bar of how often, and when they
             # usually reach Feudal and Castle, counting down against your own game clock.
-            intel = tk.Frame(more, bg=BG)
+            intel = tk.Frame(more, bg=PANEL)
             intel.grid(row=1, column=0, sticky='w', pady=(3, 0)); intel.grid_remove()
-            det = tk.Label(more, text=text, fg='#cfc8b6', bg=BG, font=F_SMALL, anchor='w',
+            det = tk.Label(more, text=text, fg='#cfc8b6', bg=PANEL, font=F_SMALL, anchor='w',
                            justify='left', wraplength=380)
             det.grid(row=2, column=0, sticky='w', pady=(2, 0)); det.grid_remove()
             if folded: more.grid_remove()
 
             def mark(parent, kind, col):
-                c = tk.Canvas(parent, width=14, height=14, bg=BG, highlightthickness=0)
+                c = tk.Canvas(parent, width=14, height=14, bg=PANEL, highlightthickness=0)
                 draw_icon(c, kind, 14, col); c.pack(side='left', padx=(0, 6))
                 bind_all(c); return c
 
             uu, beats = uu_counter(p['civ'], strings, icons)
             mark(beat, 'swords', BRONZE)
-            u1 = tk.Label(beat, text=uu or 'Civ notes', fg='#e6d9b0', bg=BG, font=F_SMALL, cursor='hand2')
+            u1 = tk.Label(beat, text=uu or 'Civ notes', fg='#e6d9b0', bg=PANEL, font=F_SMALL, cursor='hand2')
             u1.pack(side='left')
             u2 = tk.Label(beat, text=('  \u2192 ' + beats) if beats else '',
-                          fg=GREEN if beats else FAINT, bg=BG, font=F_SMALL, cursor='hand2')
+                          fg=GREEN if beats else FAINT, bg=PANEL, font=F_SMALL, cursor='hand2')
             u2.pack(side='left')
-            u3 = tk.Label(beat, text='  more', fg=FAINT, bg=BG, font=F_TINY, cursor='hand2')   # there is more behind this line
+            u3 = tk.Label(beat, text='  more', fg=FAINT, bg=PANEL, font=F_TINY, cursor='hand2')   # there is more behind this line
             u3.pack(side='left')
 
             def name_now(h=who, box=more, nm=nm):
@@ -9352,15 +9387,15 @@ def main():
                 for n_, (lab, cnt) in enumerate(tops):
                     lead = n_ == 0
                     # quiet tags: a dark plate, the usual one lit in their colour, no heavy boxes
-                    c = tk.Frame(box, bg=PANEL, cursor='hand2')
+                    c = tk.Frame(box, bg=INK, cursor='hand2')
                     bar_ = tk.Frame(c, bg=lead_colour if lead else EDGE, width=2)
                     bar_.pack(side='left', fill='y')
-                    t = tk.Label(c, text=lab.upper(), fg=GOLDD if lead else MUT, bg=PANEL,
+                    t = tk.Label(c, text=lab.upper(), fg=GOLDD if lead else MUT, bg=INK,
                                  font=(F_SMALL[0], F_SMALL[1], 'bold'), padx=6, pady=1)
                     t.pack(side='left')
                     bits = [t, bar_]
                     if cnt:
-                        x = tk.Label(c, text='\u00d7%d' % cnt, fg=FAINT, bg=PANEL, font=F_TINY, pady=1)
+                        x = tk.Label(c, text='\u00d7%d' % cnt, fg=FAINT, bg=INK, font=F_TINY, pady=1)
                         x.pack(side='left', padx=(0, 6)); bits.append(x)
                     c.pack(side='left', padx=(0, 4))
                     for w in [c] + bits:
@@ -9369,7 +9404,7 @@ def main():
 
             def note(box, txt, click, after, col=FAINT):
                 for w in box.winfo_children(): w.destroy()
-                lb = tk.Label(box, text=txt, fg=col, bg=BG, font=F_SMALL, anchor='w')
+                lb = tk.Label(box, text=txt, fg=col, bg=PANEL, font=F_SMALL, anchor='w')
                 lb.pack(side='left'); st['actions'][lb] = click; bind_all(lb)
                 box.grid(); after()
 
