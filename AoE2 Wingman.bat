@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v146'
+VERSION = 'v147'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -1713,7 +1713,7 @@ class TCWatcher(threading.Thread):
         last_shot = 0
         last_fg = 0
         while True:
-            time.sleep(0.15)                       # six or seven looks a second is plenty for an idle TC
+            time.sleep(0.08)                       # as fast as before: an idle TC alert is only useful if it is quick
             now_ = time.time()
             if now_ - last_fg > 0.8:                     # where the game is, for the pop reader, game seen or not
                 last_fg = now_
