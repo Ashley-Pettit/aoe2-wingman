@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v152'
+VERSION = 'v153'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6433,7 +6433,7 @@ def main():
     bo_back = tk.Label(bo_navf, text='\u25c2', fg=MUT, bg=PANEL, font=('Segoe UI', 14, 'bold'), padx=4, cursor='hand2')
     bo_fwd = tk.Label(bo_navf, text='\u25b8', fg=MUT, bg=PANEL, font=('Segoe UI', 14, 'bold'), padx=4, cursor='hand2')
     # shown only while you look at a step that is not the live one; click it to go back
-    bo_prev = tk.Label(bo_navf, text='PREVIEW  \u2715', fg=INK, bg='#efe6d2', font=(F_TINY[0], F_TINY[1], 'bold'),
+    bo_prev = tk.Label(bo_navf, text='\u21a9 LIVE', fg=INK, bg=GOLDC, font=(F_TINY[0], F_TINY[1], 'bold'),
                        padx=6, pady=1, cursor='hand2')
     # which villager of a several-villager step is training now ('3/6')
     bo_cnt = tk.Label(bo_navf, text='', fg=GOLDC, bg=INK, font=(F_SMALL[0], F_SMALL[1], 'bold'), padx=5, pady=0)
@@ -6651,9 +6651,7 @@ def main():
             down = lambda: bool(u32.GetAsyncKeyState(0x01) & 0x8000) or bool(u32.GetAsyncKeyState(0x02) & 0x8000)
         except Exception:
             down = lambda: False
-        pop_.update_idletasks()
-        try: pop_.attributes('-alpha', 0.97)         # in one go, no half-drawn list or jump
-        except tk.TclError: pass
+        fade_in(pop_, to=0.97, wait=20, ms=90)        # drawn see-through, then up in one go
         def over(w):
             try:
                 px, py = w.winfo_pointerxy()
@@ -6869,6 +6867,26 @@ def main():
     except Exception:
         px, py = 20, 120
     root.geometry('+%d+%d' % (px, py))
+    OV_W = PANEL_W + 2 * 12 + 2 + 4        # the panel, its padding, its edge and the bronze rim
+    def hold_size():
+        # One width, always: the overlay never jumps sideways as things come and go. Anything
+        # wider than that wraps (or, at worst, is cut at the edge). Only the height follows.
+        # A change in height glides over a few frames, so a new part slides into view rather than
+        # popping in, and nothing is ever drawn half way across the old size.
+        try:
+            h_ = root.winfo_reqheight(); cur = root.winfo_height()
+            if root.winfo_width() != OV_W or cur != h_:
+                d_ = h_ - cur
+                if abs(d_) > 6 and cur > 1:
+                    step_ = int(d_ * 0.5)
+                    if abs(step_) < 4: step_ = 4 if d_ > 0 else -4
+                    h_ = cur + step_ if abs(step_) < abs(d_) else h_
+                root.geometry('%dx%d' % (OV_W, h_))
+        except tk.TclError:
+            return
+        root.after(16, hold_size)
+    root.geometry('%dx%d' % (OV_W, root.winfo_reqheight()))
+    root.after(20, hold_size)
     st = {'drag': None, 'last': None, 'actions': {}, 'shift': False,
           'first': None, 'herd': None, 'extra': 0}
     root.update_idletasks()
@@ -7701,6 +7719,8 @@ def main():
     st['actions'][bo_fwd] = lambda: bo_step(1)
     st['actions'][bo_navf] = lambda: None
     hover(bo_back, MUT, GOLDD); hover(bo_fwd, MUT, GOLDD)
+    bo_prev.bind('<Enter>', lambda e: bo_prev.config(bg=GOLDD), add='+')
+    bo_prev.bind('<Leave>', lambda e: bo_prev.config(bg=GOLDC), add='+')
     for w_ in (bo_next, bo_nrow, bo_ntag): w_.config(cursor='hand2')
     hover(bo_next, FAINT, TXT)
     hover(bo_live, GREEN, '#9fe0a0')
@@ -7836,6 +7856,7 @@ def main():
             try: st['cheat_win'].lift(); return
             except tk.TclError: st['cheat_win'] = None
         win = tk.Toplevel(root); st['cheat_win'] = win
+        win.withdraw()
         win.title('Godmode'); win.configure(bg=BORDER); win.attributes('-topmost', True)
         win.resizable(False, False)
         win.protocol('WM_DELETE_WINDOW', lambda: (st.update(cheat_win=None), win.destroy()))
@@ -7861,6 +7882,23 @@ def main():
                 b.grid(row=i // 2, column=i % 2, sticky='we', padx=(0, 6), pady=2)
             row.columnconfigure(0, weight=1); row.columnconfigure(1, weight=1)
         out.pack(fill='x', pady=(10, 0))
+        fade_in(win)
+
+    def fade_in(w_, to=1.0, wait=30, ms=120):
+        """Show a window that is already built without it drawing itself in bits: it goes on
+        screen see-through, gets a moment to paint everything, then fades up."""
+        try: w_.attributes('-alpha', 0.0)
+        except tk.TclError: pass
+        try: w_.deiconify()
+        except tk.TclError: return
+        n_ = 6
+        def step(k):
+            try:
+                if k == 1: w_.update_idletasks()
+                w_.attributes('-alpha', to * k / float(n_))
+                if k < n_: w_.after(max(10, ms // n_), lambda: step(k + 1))
+            except tk.TclError: pass
+        w_.after(wait, lambda: step(1))
 
     def bring_up(w_):
         """Put one of our windows in front and give it the keyboard. The overlay never takes focus
@@ -7880,7 +7918,7 @@ def main():
         w_.update_idletasks()
         w_.geometry('+%d+%d' % (max(0, (w_.winfo_screenwidth() - w_.winfo_reqwidth()) // 2),
                                 max(0, (w_.winfo_screenheight() - w_.winfo_reqheight()) // 2 - 24)))
-        w_.deiconify()
+        fade_in(w_, wait=40, ms=110)                 # painted while see-through, then up in one piece
         try: w_.focus_force()
         except tk.TclError: pass
         w_.after(60, lambda: bring_up(w_))
@@ -7949,9 +7987,9 @@ def main():
             left = glide['left']
             if abs(left) < 1:
                 glide['left'], glide['job'] = 0.0, None; return
-            d = int(left * 0.3) or (1 if left > 0 else -1)
+            d = int(left * 0.45) or (1 if left > 0 else -1)
             board_.yview_scroll(d, 'units'); glide['left'] -= d
-            glide['job'] = win.after(10, glide_step)
+            glide['job'] = win.after(16, glide_step)
         def wheel_(e):
             if page.winfo_reqheight() <= board_.winfo_height(): return
             glide['left'] += -(e.delta / 120.0) * 80
@@ -8765,6 +8803,7 @@ def main():
         st.setdefault('days', cfg_.get('stats_days', 0))
         st.setdefault('ranked', cfg_.get('stats_ranked', False))
         win = tk.Toplevel(root); st['stats_win'] = win
+        win.withdraw()                                  # built out of sight, then faded up
         win.title(APP_NAME + ' record'); win.configure(bg=RIM); win.attributes('-topmost', True)
         win.geometry('600x760'); win.minsize(560, 460)
         outer = tk.Frame(win, bg=INK, padx=18, pady=14)
@@ -9023,6 +9062,10 @@ def main():
         build()
         win.bind('<Escape>', lambda e: close_win())
         win.protocol('WM_DELETE_WINDOW', close_win)
+        win.update_idletasks()
+        win.geometry('+%d+%d' % (max(0, (win.winfo_screenwidth() - 600) // 2),
+                                 max(0, (win.winfo_screenheight() - 760) // 2 - 24)))
+        fade_in(win)
         try: win.focus_force()
         except tk.TclError: pass
     st['actions'][stats_btn] = open_stats
