@@ -7864,6 +7864,8 @@ def main():
             if g and g.get('result') in ('win', 'loss'):
                 stamp_rating(gid, g.get('mode'), 'rating_after')
                 root.after(0, lambda: show_result_card(gid))
+                root.after(0, lambda: show_post_game(gid) if review_gid[0] == gid and
+                           st.get('last') is None else None)
                 root.after(0, refresh_stats_window)
                 return
 
@@ -7931,6 +7933,205 @@ def main():
     st['actions'][card_line] = hide_card
     st['actions'][card_elo] = hide_card
 
+
+    # POST-GAME REVIEW: deliberately built into the existing Tkinter application.
+    # WHY: Wingman already records matches, so a useful review must work offline and
+    # must not introduce another service, dependency, or incompatible exe asset.
+    # The game service is authoritative for wins/losses; never infer a result from
+    # an end-screen detection or from the player's score.
+    review_window = [None]
+    review_gid = [None]
+
+    def close_post_game():
+        """Close the optional review without changing the persisted match record."""
+        w = review_window[0]
+        review_window[0] = None
+        review_gid[0] = None
+        try:
+            if w is not None and w.winfo_exists(): w.destroy()
+        except Exception: pass
+
+    def show_post_game(gid):
+        """Open/refresh a dedicated, scrollable post-game screen on the Tk main thread.
+
+        DESIGN INTENT: surface verified facts, make uncertainty explicit, and offer
+        one actionable practice focus based on actual match history. We do not
+        invent build timings, army compositions, or replay-derived statistics.
+        This screen opens on the end-screen event; service results arrive later,
+        and calling it again refreshes the same window rather than stacking them.
+        """
+        if not gid or st.get('last') is not None: return
+        try:
+            games = load_stats().get('games', [])
+            g = next((row for row in games if row.get('id') == gid), None)
+            if not g: return
+            old_geometry = None
+            if review_window[0] is not None:
+                try:
+                    old_geometry = review_window[0].geometry()
+                except Exception: pass
+                close_post_game()  # rebuild with latest confirmed data
+            w = tk.Toplevel(root)
+            review_window[0], review_gid[0] = w, gid
+            w.title('Wingman | Post-game review')
+            w.configure(bg=BG)
+            w.geometry(old_geometry or '740x700')
+            w.minsize(560, 440)
+            # This is an actual independent Tk window, not just backend data.
+            # Preserve its position when refreshing a pending service result.
+            w.protocol('WM_DELETE_WINDOW', close_post_game)
+            try: w.attributes('-topmost', True)
+            except Exception: pass
+
+            # Scrollable layout: no content disappears on smaller laptop displays.
+            shell = tk.Frame(w, bg=BG); shell.pack(fill='both', expand=True)
+            canvas = tk.Canvas(shell, bg=BG, highlightthickness=0)
+            scroll = tk.Scrollbar(shell, orient='vertical', command=canvas.yview)
+            canvas.configure(yscrollcommand=scroll.set)
+            scroll.pack(side='right', fill='y'); canvas.pack(side='left', fill='both', expand=True)
+            page = tk.Frame(canvas, bg=BG, padx=24, pady=20)
+            item = canvas.create_window((0, 0), window=page, anchor='nw')
+            page.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+            canvas.bind('<Configure>', lambda e: canvas.itemconfigure(item, width=e.width))
+            def wheel_review(e):
+                if e.delta: canvas.yview_scroll(-int(e.delta / 120), 'units')
+            # Bind the scroll wheel to the canvas and content; child labels may
+            # intercept wheel events, so use a binding on each generated label too.
+            canvas.bind('<MouseWheel>', wheel_review)
+            page.bind('<MouseWheel>', wheel_review)
+
+            def label(parent, value, size=11, color=FG, bold=False, wrap=660):
+                font_ = ('Segoe UI', size, 'bold' if bold else 'normal')
+                obj = tk.Label(parent, text=str(value), bg=BG, fg=color, font=font_,
+                               anchor='w', justify='left', wraplength=wrap)
+                obj.pack(fill='x', pady=(0, 6))
+                obj.bind('<MouseWheel>', wheel_review)
+                return obj
+
+            def section(title):
+                label(page, title.upper(), 11, GOLD, True)
+                tk.Frame(page, bg=EDGE, height=1).pack(fill='x', pady=(0, 12))
+
+            def detail(k, v):
+                line = tk.Frame(page, bg=BG); line.pack(fill='x', pady=(0, 6))
+                key_label = tk.Label(line, text=k, width=19, anchor='w', bg=BG, fg=MUT,
+                         font=('Segoe UI', 10))
+                key_label.pack(side='left')
+                value_label = tk.Label(line, text=str(v), anchor='w', bg=BG, fg=FG,
+                         font=('Segoe UI', 10, 'bold'), wraplength=450,
+                         justify='left')
+                value_label.pack(side='left', fill='x', expand=True)
+                for widget in (line, key_label, value_label):
+                    widget.bind('<MouseWheel>', wheel_review)
+
+            result = g.get('result')
+            verified = result in ('win', 'loss')
+            label(page, 'MATCH DEBRIEF', 12, GOLD, True)
+            label(page, 'VICTORY' if result == 'win' else
+                  'DEFEAT' if result == 'loss' else 'RESULT PENDING',
+                  25, GREEN if result == 'win' else REDC if result == 'loss' else GOLD, True)
+            label(page, 'Confirmed by match history' if verified else
+                  'Waiting for the game service to confirm the result. No outcome is assumed.',
+                  10, MUT)
+            section('Match overview')
+            detail('Civilization', g.get('civ') or 'Unknown')
+            detail('Opponent civilization', g.get('opp') or 'Unknown')
+            detail('Map', g.get('map') or 'Unknown')
+            detail('Format', g.get('size') or g.get('mode') or 'Unknown')
+            detail('Queue', 'Ranked' if g.get('ranked') else 'Unspecified')
+            detail('Duration', fmt_len(game_length(g)) if game_length(g) else 'Not yet available')
+            detail('Played', g.get('at') or 'Unknown')
+            before, after = g.get('rating'), g.get('rating_after')
+            if isinstance(before, (int, float)) and isinstance(after, (int, float)):
+                delta = after - before
+                detail('Rating', '%s  (%+d)' % (after, delta))
+            elif after is not None:
+                detail('Rating after', after)
+
+            # History comparisons use only confirmed results; unknown matches
+            # must not quietly count as losses or dilute the win percentage.
+            # If timestamps are absent, do not include unrelated newer games.
+            # A missing start timestamp means we cannot establish chronology.
+            started = g.get('started')
+            earlier = [x for x in games if x.get('id') != gid
+                       and x.get('result') in ('win', 'loss')
+                       and isinstance(started, (int, float))
+                       and isinstance(x.get('started'), (int, float))
+                       and x['started'] < started]
+            def record(rows):
+                wins = sum(x.get('result') == 'win' for x in rows)
+                return '%d wins / %d games (%d%%)' % (
+                    wins, len(rows), round(100.0 * wins / len(rows))) if rows else 'No confirmed history yet'
+            section('Your track record before this game')
+            detail('Overall', record(earlier))
+            detail('With this civ', record([x for x in earlier if x.get('civ') == g.get('civ')]))
+            detail('On this map', record([x for x in earlier if x.get('map') == g.get('map')]))
+            detail('Last 10', record(sorted(earlier, key=lambda x: x.get('started') or 0)[-10:]))
+
+            # PERFORMANCE METRICS: show useful placeholders now, but never invent
+            # numbers. Wingman's existing replay-lobby reader does not decode
+            # action events, and the live TC watcher detects *possible* idleness
+            # from OCR rather than measuring an authoritative game timeline.
+            # Future replay parsers or validated trackers can populate these keys
+            # on the existing game row without changing this UI contract.
+            section('Performance metrics')
+            def metric_value(key, suffix, minimum=0, maximum=None):
+                value = g.get(key)
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    return 'Not recorded'
+                if not (minimum <= value and (maximum is None or value <= maximum)):
+                    return 'Not recorded'
+                return ('%s %s' % (round(value, 1), suffix)).strip()
+            detail('APM', metric_value('apm', 'actions/min', 0, 1000))
+            detail('Effective APM', metric_value('eapm', 'actions/min', 0, 1000))
+            detail('Idle TC time', metric_value('idle_tc_seconds', 'seconds', 0, 14400))
+            detail('TC idle share', metric_value('idle_tc_pct', '%', 0, 100))
+            detail('Villagers lost', metric_value('villagers_lost', '', 0, 1000))
+            detail('Resources floated', metric_value('resources_floated', '', 0, 1000000))
+            label(page, 'Metrics appear when reliable match telemetry is available. '
+                  'APM requires action events; TC idle time requires a trustworthy '
+                  'time series. Wingman does not currently record either.', 9, MUT)
+
+            section('Coach notes')
+            same_civ = [x for x in earlier if x.get('civ') == g.get('civ')]
+            same_map = [x for x in earlier if x.get('map') == g.get('map')]
+            if not verified:
+                advice = 'The outcome is still pending. Review your opening and note the first decision you would change.'
+            elif len(same_civ) >= 3 and sum(x.get('result') == 'loss' for x in same_civ) > len(same_civ) / 2:
+                advice = ('Practice one repeatable opening with %s. Your earlier confirmed '
+                          'matches with this civilization show more losses than wins.' % (g.get('civ') or 'this civ'))
+            elif len(same_map) >= 3 and sum(x.get('result') == 'loss' for x in same_map) > len(same_map) / 2:
+                advice = ('Review your first five minutes on %s. Your earlier confirmed '
+                          'matches on this map show more losses than wins.' % (g.get('map') or 'this map'))
+            elif result == 'loss':
+                advice = 'Pick one turning point from this loss and practice a response in your next game.'
+            else:
+                advice = 'Identify the opening decision that worked and aim to repeat it next match.'
+            # Only give metric-specific coaching when the source provides a
+            # plausible measurement; no fabricated thresholds for missing data.
+            idle_pct = g.get('idle_tc_pct')
+            if isinstance(idle_pct, (int, float)) and not isinstance(idle_pct, bool) and 15 <= idle_pct <= 100:
+                advice += ' Prioritise villager production: your measured TC idle share was %.1f%%.' % idle_pct
+            apm = g.get('apm')
+            if isinstance(apm, (int, float)) and not isinstance(apm, bool) and 0 <= apm < 20:
+                advice += ' Your measured APM was low; practise a simple production-and-scouting rhythm.'
+            label(page, advice, 11, FG, wrap=660)
+            label(page, 'These are history-based prompts, not claims about unobserved '
+                  'economy, army, or build-order events.', 9, MUT)
+            section('Next steps')
+            label(page, 'Compare your build-order milestones and scout notes while the '
+                  'match is fresh. Detailed timing analysis needs recorded milestones '
+                  'or replay parsing and is intentionally not fabricated here.', 10, FG)
+            buttons = tk.Frame(page, bg=BG); buttons.pack(fill='x', pady=(12, 18))
+            tk.Button(buttons, text='Refresh result', command=lambda: show_post_game(gid),
+                      bg=RIM, fg=FG, padx=14, pady=7).pack(side='left', padx=(0, 10))
+            tk.Button(buttons, text='Close', command=close_post_game,
+                      bg=RIM, fg=FG, padx=14, pady=7).pack(side='left')
+            w.lift()
+        except Exception as e:
+            log('post-game review failed: %r' % (e,))
+            close_post_game()
+
     def game_over(result=None):
         def go():
             gid = None
@@ -7955,6 +8156,12 @@ def main():
             rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
             stats_btn.grid()
             show_opponents([]); hide_boxes()
+            # Do not interrupt a player with a full-size review before the
+            # end-screen detection has been confirmed. The existing game-over
+            # detector can briefly misfire while a replay is still growing.
+            if gid:
+                root.after(1800, lambda: show_post_game(gid) if
+                           st.get('ended') and st.get('last') is None else None)
         root.after(0, go)
 
     def boxes_pending():
@@ -10255,6 +10462,7 @@ def main():
                     scorew.active = mine_p is not None                 # not while watching someone else
                     rec_line.config(text=''); rec_line.grid_remove()   # not while you are playing
                     hide_card()                                       # last game's result is history now
+                    close_post_game()                                # never cover a new live match
                     stats_btn.grid_remove()
         except Exception as e:
             body.config(text='Could not read the game settings: %s' % e)
