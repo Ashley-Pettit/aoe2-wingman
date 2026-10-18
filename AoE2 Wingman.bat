@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v159'
+VERSION = 'v160'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -403,14 +403,21 @@ def draw_step_icon(kind, S, bg):
             E(x - r, y - r, x + r, y + r, fill=wool)
         E(0.5, 9, 11.5, 21, fill=face); E(7, 6, 12.5, 11.5, fill=face)
         E(3.2, 12.4, 5.4, 14.6, fill=wool); E(7.5, 7.5, 13.5, 13.5, fill=wool)
-    elif kind == 'boar':
-        body, dark = '#9a6a45', '#5a3d28'
-        E(6, 10, 28, 24, fill=body)
-        d.polygon(P((8, 12), (1, 16), (2, 20), (9, 22)), fill=body)
-        E(0, 16, 4, 20, fill=dark)
-        L([(4, 19), (2, 14)], 1.6, '#efe6d2')
-        for x in (10, 15, 21, 25): R(x - 1.3, 21, x + 1.3, 28, 1, fill=dark)
-        d.polygon(P((14, 10), (18, 6), (22, 10)), fill=dark)
+    elif kind == 'boar':                  # side on, facing left: bristly back, long snout, white tusk
+        body, dark, snout, ridge = '#94633f', '#4a3220', '#b07a50', '#3a281a'
+        for x in (12, 16.5, 23, 27): R(x - 1.5, 21, x + 1.5, 29.5, 1, fill=dark)          # short legs
+        L([(29.5, 14), (31, 12), (30.5, 10.5)], 1.2, dark)                                  # tail
+        E(9, 8.5, 30.5, 25, fill=body)                                                      # barrel body
+        d.polygon(P((13, 9.5), (4, 14.5), (1.5, 18), (3.5, 21.5), (14, 24)), fill=body)      # head, tapering
+        d.polygon(P((10, 15.5), (3, 17), (3.5, 21.5), (12, 23)), fill=snout)                # lighter snout
+        E(0.3, 16.2, 4, 21.6, fill='#c08a66')                                               # nose disc
+        E(1.2, 17.6, 2.2, 18.8, fill=dark); E(1.8, 19.4, 2.8, 20.6, fill=dark)              # nostrils
+        # the bristly ridge along the back
+        d.polygon(P((10, 10), (12, 6.5), (14, 9), (16, 5.5), (18, 8.5), (20.5, 5.5), (22.5, 8.5),
+                    (25, 6.5), (26.5, 9.5), (29, 9), (29, 12), (10, 13)), fill=ridge)
+        d.polygon(P((10.5, 10.5), (12, 4.5), (15, 10)), fill=dark)                           # ear
+        E(7.4, 13.2, 9.8, 15.6, fill='#1a120c'); E(8.4, 13.6, 9.2, 14.4, fill='#e8dcc0')    # eye
+        d.arc((2 * u, 13 * u, 10 * u, 23 * u), 115, 220, fill='#f6efdf', width=max(1, int(2.2 * u)))       # tusk
     elif kind == 'deer':
         body, dark = '#b98a55', '#6e4f2e'
         E(8, 12, 27, 22, fill=body)
