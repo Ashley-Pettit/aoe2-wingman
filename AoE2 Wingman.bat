@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v164'
+VERSION = 'v165'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -4205,6 +4205,8 @@ def name_variants(name):
     if m and _norm2(m.group(1)): out.append(m.group(1))
     return out
 
+BUTTON_WORDS = re.compile(r'(?i)\b(?:i\s*n\s*v\s*i\s*t\s*e|r\s*e\s*t\s*r\s*a\s*c\s*t|c\s*a\s*n\s*c\s*e\s*l)\b')
+
 def name_score(text, name):
     """3 exact, 2 exact after dropping 1-2 junk letters (globe icon, clan tag) or the clan tag, 1 close, 0 no match."""
     t = _norm2(text)
@@ -4319,6 +4321,10 @@ class RankedParty(threading.Thread):
                 if thresh: buf = buf.translate(THRESH)
                 raw = ' '.join(read(buf, ow, oh))
                 txt = ' '.join(t for t in raw.split() if _norm(t) not in (on, off)).strip()
+                # the strip runs through the row's button too: 'Taizi I NVITE' has to come out as
+                # 'Taizi', or the name never matches and the friend is wrongly called offline
+                txt = BUTTON_WORDS.sub(' ', txt).replace('\u2022', ' ').strip(' .,|-')
+                txt = re.sub(r'\s+', ' ', txt)
                 if _norm2(txt): break
             out.append((ry, txt, st_))
         return out
@@ -4459,7 +4465,7 @@ class RankedParty(threading.Thread):
             click(x + sp[0] / k, y + sp[1] / k); time.sleep(0.5)
         # 3) invite each friend who is online: click Invite on the same row as their name
         invited, offline, already, missing = [], [], [], list(friends)
-        seen, same = None, 0
+        seen, same, row_names = None, 0, []
         for page in range(25):
             (x, y, k), lines = self.ocr(read, grab, h)
             log('list page %d: %s' % (page, ' | '.join(t for t, _ in lines)[:500]))
@@ -4475,13 +4481,21 @@ class RankedParty(threading.Thread):
                 if best[0]: p = (0, best[1], 0)
                 if not p:
                     p = find_name(lines, name)             # fall back to the whole-window read
+                    if p:
+                        # only on one of the list's rows, left of its buttons: the same name in your
+                        # party at the side, or anywhere else on screen, says nothing about them
+                        rh_ = rows[0][2] if rows else 30
+                        if not rows or p[0] > col or not any(abs(r[0] - p[1]) < max(p[2] or 0, rh_) * 1.2 for r in rows):
+                            log('%s: name seen at %s, not on a row of the list, so not used' % (name, (int(p[0]), int(p[1]))))
+                            p = None
                 if not p: continue
                 nx, ny, nh = p
                 nh = nh or (rows[0][2] if rows else 30)
                 near = [r for r in rows if abs(r[0] - ny) < nh * 1.2]
                 status = min(near, key=lambda r: abs(r[0] - ny))[1] if near else 'on'
                 missing.remove(name)
-                if status == 'off': offline.append(name); continue
+                if status == 'off':
+                    log('%s is on an offline row (y %d)' % (name, int(ny))); offline.append(name); continue
                 btn = self.button_at(lines, col, ny, nh)
                 if btn.startswith('retr') or btn == _norm(self.l_retract):
                     log('%s already invited (button says %r), leaving it' % (name, btn))
@@ -4506,7 +4520,11 @@ class RankedParty(threading.Thread):
         parts = []
         if invited: parts.append('Invited ' + ', '.join(invited))
         if already: parts.append('already invited: ' + ', '.join(already))
-        if offline or missing: parts.append('not online: ' + ', '.join(offline + missing))
+        if offline: parts.append('offline: ' + ', '.join(offline))
+        if missing:
+            parts.append("couldn't spot " + ', '.join(missing) + ' in the list')
+            log('invite: not found in the list: %s (online rows read: %s)' % (', '.join(missing), ' | '.join(
+                t for _, t, s_ in row_names if s_ == 'on')))
         self.say(('; '.join(parts) or 'Nobody to invite') + '.')
         url = self.cfg.get('webhook', '').strip()
         if url and invited:
