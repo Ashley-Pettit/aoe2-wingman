@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v162'
+VERSION = 'v163'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6838,11 +6838,11 @@ def main():
         are not there yet ('POP 7 \u203a 8'). Without a reading it falls back to the step's own pop."""
         lo, span, hi, live_ = bo.get('span') or (0, '', 0, True)
         t_ = 'POP %s' % span                                    # the pops this step is for
-        # A step that covers several villagers ('6 hunt' for pops 12 to 17): which of them is the one
-        # training now, so you can tell where you are in it.
-        v_ = (bo['pop'] or 0) + 1                     # the villager training now: the pop shows the ones already out
-        cnt_ = ('%d/%d' % (v_ - lo + 1, hi - lo + 1)) if (live_ and bo['pop'] and hi < 99 and hi > lo
-                                                           and lo <= v_ <= hi) else ''
+        # A step that covers several villagers ('6 to sheep', '6 to the boar'): how many of them are
+        # already out doing it, the way you would count them on screen. 5 on sheep reads 5/6.
+        p_ = bo['pop'] or 0
+        cnt_ = ('%d/%d' % (p_ - lo + 1, hi - lo + 1)) if (live_ and p_ and hi < 99 and hi > lo
+                                                          and lo - 1 <= p_ <= hi) else ''
         if bo_cnt.cget('text') != cnt_:
             bo_cnt.config(text=cnt_)
             if cnt_ and not bo_cnt.winfo_manager() and not bo_prev.winfo_manager(): bo_cnt.pack(side='right')
