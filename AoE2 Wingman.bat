@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v147'
+VERSION = 'v148'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -186,7 +186,7 @@ BUILDS = [
    (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, 'House, then berries with the mill'),
+   (11, 11, 'Build a house, then a mill at the berries and pick them'),
    (12, 17, '6 hunt, one takes the second boar'),
    (18, 18, '2 to wood. Lure deer with the scout'),
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
@@ -195,7 +195,7 @@ BUILDS = [
    (2, 7,   '6 to sheep'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, 'House, then berries with the mill'),
+   (11, 11, 'Build a house, then a mill at the berries and pick them'),
    (12, 17, '6 hunt. Lure deer with the scout'),
    (18, 18, '2 to wood'),
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
@@ -205,7 +205,7 @@ BUILDS = [
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 to hunt'),
-   (12, 12, 'House, then the mill'),
+   (12, 12, 'Build a house, then a mill at the berries and pick them'),
    (13, 13, 'Lure the second boar'),
    (14, 18, '6 hunt'),
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
@@ -214,7 +214,7 @@ BUILDS = [
    (2, 7,   '6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, 'House, then berries with the mill'),
+   (12, 12, 'Build a house, then a mill at the berries and pick them'),
    (13, 18, '6 hunt, one takes the second boar'),
    (19, 19, '2 to wood. Lure deer with the scout'),
    (20, 20, 'Second one to wood. Loom, then click Feudal (up at 9:15)'),
@@ -232,8 +232,8 @@ BUILDS = [
    (2, 7,   '6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, 'House, then the mill on chickens, or berries'),
-   (13, 14, '2 more to the mill. Lure a deer or two if you can'),
+   (12, 12, 'Build a house, then a mill at the chickens or berries and gather'),
+   (13, 14, '2 more to the berries. Lure a deer or two if you can'),
    (15, 15, 'Lure the second boar'),
    (16, 17, '2 hunt'),
    (18, 18, 'Barracks, then a house at the front'),
@@ -249,12 +249,12 @@ BUILDS = [
    (17, 17, 'Barracks out front, house beside it. No mill yet'),
    (18, 18, '1 more hunt'),
    (19, 19, '1 to wood. Loom, then click Feudal (up at 8:50)'),
-   (20, 99, 'Militia out, 1 to berries with the mill')]),
+   (20, 99, 'Militia out, 1 more to the berries')]),
  ('Fast Castle', 'Fast Castle boom', '24 pop, Castle 14:00', [
    (2, 7,   '6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, 'House, then berries with the mill'),
+   (12, 12, 'Build a house, then a mill at the berries and pick them'),
    (13, 14, '2 hunt, one takes the second boar. Lure 3 deer'),
    (15, 18, '4 to berries, seed 3 farms off the hunt'),
    (19, 22, '4 to wood'),
@@ -269,7 +269,7 @@ BUILDS = [
    (13, 13, '2 houses, then a barracks'),
    (14, 17, '1 to gold, then back to the boar. 3 militia out'),
    (18, 18, 'Lure the second boar'),
-   (19, 23, '5 to berries, build the mill'),
+   (19, 23, '5 to berries, one builds a mill there'),
    (24, 27, '4 to wood on one camp, then loom'),
    (28, 30, '4 to gold'),
    (31, 31, 'Fourth one to gold. Click Feudal (up at 12:35)'),
@@ -279,7 +279,7 @@ BUILDS = [
    (2, 7,   '2 houses first, then 6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, '2 houses, then berries with the mill'),
+   (12, 12, 'Build 2 houses, then a mill at the berries and pick them'),
    (13, 13, '1 to hunt'),
    (14, 14, 'Lure the second boar'),
    (15, 18, '4 to berries'),
@@ -292,7 +292,7 @@ BUILDS = [
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 to hunt'),
-   (12, 12, 'House, then berries with the mill'),
+   (12, 12, 'Build a house, then a mill at the berries and pick them'),
    (13, 13, 'Lure the second boar'),
    (14, 18, '6 hunt. Lure deer with the scout'),
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
@@ -302,7 +302,7 @@ BUILDS = [
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 to hunt'),
-   (12, 12, 'House, then the mill'),
+   (12, 12, 'Build a house, then a mill at the berries and pick them'),
    (13, 13, 'Lure the second boar'),
    (14, 18, '6 hunt. Lure deer with the scout'),
    (19, 19, 'Sixth one hunts. Loom if Aztecs or Incas, then click Feudal (up at 8:50)'),
@@ -312,7 +312,7 @@ BUILDS = [
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 to hunt'),
-   (12, 12, 'House, then the mill'),
+   (12, 12, 'Build a house, then a mill at the berries and pick them'),
    (13, 13, 'Lure the second boar'),
    (14, 17, '5 hunt'),
    (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
@@ -322,7 +322,7 @@ BUILDS = [
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
    (11, 11, '1 to hunt'),
-   (12, 12, 'House, then the mill'),
+   (12, 12, 'Build a house, then a mill at the berries and pick them'),
    (13, 13, 'Lure the second boar'),
    (14, 17, '5 hunt'),
    (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
@@ -620,6 +620,7 @@ def spoken_step(text):
     t = re.sub(r'\s*\((?:up|in) at [\d:]+\)', '', t)         # the clock times are for reading, not for hearing
     t = re.sub(r'\bTC\b', 'town centre', t)
     t = re.sub(r'\bMAA\b', 'men at arms', t)
+    t = re.sub(r'\b[Ll]ure\b', lambda m: 'Loor' if m.group(0)[0] == 'L' else 'loor', t)   # said the way players say it
     t = re.sub(r'\s*\(', ', ', t).replace(')', '')
     return t.strip()
 
@@ -6706,6 +6707,9 @@ def main():
         # Centre is training now (your pop + 1): at pop 7 the 8th villager is on its way, so it shows
         # (and says) 'Send 2 to wood' while there is still time to get ready.
         i = build_step_at(steps, pop + 1)
+        # Luring a boar takes walking time, so a lure step comes up a villager earlier than the rest.
+        if i + 1 < len(steps) and 'lure' in steps[i + 1][2].lower() and steps[i + 1][0] <= pop + 2:
+            i += 1
         if i > bo['i']:
             bo['i'] = i; bo['view'] = None; bo_draw()      # ticked over: back to live
             if i == len(steps) - 1 and not bo['done_t']: bo['done_t'] = now
@@ -7109,10 +7113,8 @@ def main():
             if flag:
                 score_line.config(text=' CONCEDE AVAILABLE  \u00b7  %d%% behind  \u00b7  %s ' % (pct, nums),
                                   fg='white', bg='#b3261e', font=(DISPLAY, 9, 'bold'))
-            else:
-                where = 'level' if pct == 0 else '%d%% %s' % (pct, 'behind' if behind > 0 else 'ahead')
-                score_line.config(text='Score   %s   \u00b7   %s' % (nums, where), bg=BG, font=F_SMALL,
-                                  fg=REDC if behind > CONCEDE_BEHIND else MUT)
+            else:                                     # only the concede flag earns a line; the plain score is not shown
+                score_line.config(text=''); score_line.grid_remove(); place_found(); return
             if not st.get('rolled'): score_line.grid()
             place_found()
         try: root.after(0, go)
