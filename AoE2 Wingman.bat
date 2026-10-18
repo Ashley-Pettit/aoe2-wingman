@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v158'
+VERSION = 'v159'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -5770,13 +5770,48 @@ def live_pill(parent, bg):
             self.font = tkfont.Font(family='Segoe UI', size=7, weight='bold')
             self.text, self.col, self.solid, self.ink, self.hot = 'GO LIVE', LIVE_RED, False, 'white', False
             self.img = None
+            self.spin_on, self.frames, self.fi, self.img_id = False, [], 0, None
             self.bind('<Enter>', lambda e: self._hover(True), add='+')
             self.bind('<Leave>', lambda e: self._hover(False), add='+')
             self.draw()
         def _hover(self, on):
             self.hot = on; self.draw()
         def set(self, text, col=LIVE_RED, solid=True, ink='white'):
+            self.spin_on = False
             self.text, self.col, self.solid, self.ink = text, col, solid, ink; self.draw()
+        def busy(self):
+            """Working on it: a dark red pill, 'GOING LIVE', and a small spinning ring where the
+            arrow was. The frames are drawn once and then shown in turn."""
+            if self.spin_on: return
+            self.spin_on = True; self.text = 'GOING LIVE'; self.fi = 0
+            self.draw(); self._tick()
+        def _tick(self):
+            if not self.spin_on or not self.frames: return
+            self.fi = (self.fi + 1) % len(self.frames)
+            try:
+                self.itemconfigure(self.img_id, image=self.frames[self.fi])
+                self.after(55, self._tick)
+            except tk.TclError:
+                pass
+        def spin_frames(self, w, h):
+            try:
+                from PIL import Image, ImageDraw, ImageTk
+            except Exception:
+                return []
+            k = 4; out = []
+            fill = _mix(bg, LIVE_RED, 0.30)
+            cx, cy = (self.PAD + self.DOT / 2.0) * k, h * k / 2.0
+            r = (self.DOT / 2.0 + 1.6) * k
+            for n in range(12):
+                im = Image.new('RGB', (w * k, h * k), bg)
+                d = ImageDraw.Draw(im)
+                d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=h * k // 2, fill=fill,
+                                    outline=LIVE_RED, width=int(1.3 * k))
+                d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=_mix(fill, LIVE_RED, 0.55), width=int(1.8 * k))
+                a0 = n * 30
+                d.arc((cx - r, cy - r, cx + r, cy + r), a0, a0 + 120, fill='#ffffff', width=int(1.8 * k))
+                out.append(ImageTk.PhotoImage(im.resize((w, h), Image.LANCZOS)))
+            return out
         def colours(self):
             if self.solid:
                 fill = LIVE_HOT if (self.hot and self.col == LIVE_RED) else self.col
@@ -5808,6 +5843,13 @@ def live_pill(parent, bg):
             self.configure(width=w)
             self.delete('all')
             fill, dot, ink = self.colours()
+            if self.spin_on:
+                if not self.frames or self.frames[0].width() != w: self.frames = self.spin_frames(w, h)
+                if self.frames:
+                    self.img_id = self.create_image(0, 0, image=self.frames[self.fi % len(self.frames)], anchor='nw')
+                    self.create_text(self.PAD + self.DOT + 4, h / 2.0, text=self.text, anchor='w',
+                                     fill='#f6dcd8', font=self.font)
+                    return
             self.img = self.smooth(w, h, fill, dot)
             if self.img is not None:
                 self.create_image(0, 0, image=self.img, anchor='nw')
@@ -7857,6 +7899,8 @@ def main():
                 go_admin('live')       # Windows asks; say yes and it starts again and carries on
                 return
         st['live_busy'] = True
+        try: live_btn.busy()                    # the spinner straight away
+        except Exception: pass
         def show(text, col=LIVE_RED, solid=True, ink='white'):
             try: root.after(0, lambda: live_btn.set(text, col, solid, ink))
             except Exception: pass
@@ -7864,7 +7908,7 @@ def main():
             ok, why = False, ''
             try:
                 go_live(load_settings(), in_game=in_game, timer=tcw.timer_stopped,
-                        status=lambda t: show('\u2026', LIVE_BUSY, True, INK))
+                        status=lambda t: root.after(0, live_btn.busy))
                 ok = True
             except LiveFail as e:
                 why = str(e)
