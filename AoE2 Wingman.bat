@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v149'
+VERSION = 'v150'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7852,7 +7852,8 @@ def main():
         (so the game keeps its sound), which means Windows will not let a new window jump in front
         unless we ask the way the game switch does."""
         try:
-            w_.deiconify(); w_.lift(); w_.attributes('-topmost', True)
+            if not w_.winfo_ismapped(): w_.deiconify()
+            w_.lift()
             import ctypes
             h_ = ctypes.windll.user32.GetAncestor(w_.winfo_id(), 2)
             threading.Thread(target=lambda: focus_window(h_), daemon=True).start()
@@ -7894,10 +7895,24 @@ def main():
                              height=min(page.winfo_reqheight(), room))
             if page.winfo_reqheight() > room: bar_.pack(side='right', fill='y')
             else: bar_.pack_forget()
-        page.bind('<Configure>', fit_)
+        # once it is on screen the window keeps its size; only what there is to scroll changes
+        page.bind('<Configure>', lambda e: board_.configure(scrollregion=board_.bbox('all'))
+                  if win.winfo_ismapped() else fit_())
+        # smooth scrolling: the wheel sets how far to go, and the page glides there a few pixels a
+        # frame instead of jumping a tenth of the page at a time
+        board_.configure(yscrollincrement=1)
+        glide = {'left': 0.0, 'job': None}
+        def glide_step():
+            left = glide['left']
+            if abs(left) < 1:
+                glide['left'], glide['job'] = 0.0, None; return
+            d = int(left * 0.3) or (1 if left > 0 else -1)
+            board_.yview_scroll(d, 'units'); glide['left'] -= d
+            glide['job'] = win.after(10, glide_step)
         def wheel_(e):
-            if page.winfo_reqheight() > board_.winfo_height():
-                board_.yview_scroll(-1 if e.delta > 0 else 1, 'units')
+            if page.winfo_reqheight() <= board_.winfo_height(): return
+            glide['left'] += -(e.delta / 120.0) * 80
+            if not glide['job']: glide_step()
         win.bind('<MouseWheel>', wheel_)
 
         hd = tk.Frame(topf, bg=DEEP); hd.pack(fill='x')
