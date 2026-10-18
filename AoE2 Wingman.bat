@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v153'
+VERSION = 'v154'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6263,6 +6263,24 @@ def main():
     except Exception:
         badge = tk.Label(head, text='', bg=BG)
     badge.grid(row=0, column=0, sticky='w', padx=(0, 4))
+    badge.config(cursor='hand2')
+    # the crest with a small gold padlock on it: shown while the overlay is locked in place
+    crest_locked = None
+    try:
+        from PIL import Image as _Im, ImageDraw as _Dr, ImageTk as _ITk
+        _c = _Im.open(io.BytesIO(__import__('base64').b64decode(CREST_20_PNG))).convert('RGBA')
+        K_ = 4; big = _Im.new('RGBA', (20 * K_, 20 * K_), (0, 0, 0, 0)); d_ = _Dr.Draw(big)
+        # body and shackle, bottom right, with a dark edge so it reads over the crest
+        x0, y0 = 11 * K_, 11 * K_
+        d_.rounded_rectangle((x0 - K_, y0 + 2 * K_ - K_, x0 + 8 * K_ + K_, y0 + 9 * K_ + K_), radius=2 * K_, fill=(20, 16, 10, 255))
+        d_.arc((x0 + 1 * K_, y0 - 2 * K_, x0 + 7 * K_, y0 + 5 * K_), 180, 360, fill=(20, 16, 10, 255), width=4 * K_)
+        d_.arc((x0 + 1 * K_ + K_ // 2, y0 - 1 * K_, x0 + 7 * K_ - K_ // 2, y0 + 5 * K_), 180, 360, fill=(232, 196, 104, 255), width=int(1.6 * K_))
+        d_.rounded_rectangle((x0, y0 + 2 * K_, x0 + 8 * K_, y0 + 9 * K_), radius=int(1.5 * K_), fill=(232, 196, 104, 255))
+        d_.ellipse((x0 + 3 * K_, y0 + 4 * K_, x0 + 5 * K_, y0 + 6 * K_), fill=(20, 16, 10, 255))
+        _c.alpha_composite(big.resize((20, 20), _Im.LANCZOS))
+        crest_locked = _ITk.PhotoImage(_c)
+    except Exception:
+        pass
     HEAD_NAME = 'Wingman'             # the crest already says AoE2; the short name keeps the header in one row
     title = tk.Label(head, text=HEAD_NAME, fg=GOLDC, bg=BG, font=F_HEADLINE, anchor='w', cursor='hand2',
                      justify='left', wraplength=PANEL_W - 170)
@@ -6423,20 +6441,30 @@ def main():
     bo_cap = tk.Label(bo_caprow, text='', fg=GOLDC, bg=INK, font=(F_TINY[0], F_TINY[1], 'bold'), anchor='w',
                       cursor='hand2', padx=7, pady=2, highlightthickness=1, highlightbackground=RIM)
     bo_cap.pack(side='left')
-    bo_goal = tk.Label(bo_caprow, text='', fg=FAINT, bg=PANEL, font=F_TINY, anchor='w', cursor='hand2')
-    bo_goal.pack(side='left', padx=(7, 0))
-    bo_at = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 10, 'bold'), anchor='e', padx=2, pady=0)
-    bo_at.grid(row=0, column=1, sticky='e')
+    # right of the build's name: [LIVE or 3/6] [POP 12-17], both fixed widths, so nothing moves
+    bo_right = tk.Frame(bo_box, bg=PANEL)
+    bo_right.grid(row=0, column=1, sticky='e')
+    bo_at = tk.Label(bo_right, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 10, 'bold'), anchor='e', padx=2, pady=0,
+                     width=9)                    # one width for 'POP 7' and 'POP 12-17', so nothing beside it shifts
+    bo_at.pack(side='right')
     # back and forward through the steps; your pop moving on brings it back to where you are
     bo_navf = tk.Frame(bo_box, bg=PANEL)
     bo_navf.grid(row=0, column=2, sticky='e', padx=(6, 0))
     bo_back = tk.Label(bo_navf, text='\u25c2', fg=MUT, bg=PANEL, font=('Segoe UI', 14, 'bold'), padx=4, cursor='hand2')
     bo_fwd = tk.Label(bo_navf, text='\u25b8', fg=MUT, bg=PANEL, font=('Segoe UI', 14, 'bold'), padx=4, cursor='hand2')
+    # One fixed space before the arrows, for either the LIVE button (looking at another step) or
+    # the 3/6 counter (live). It never changes size, so stepping never shifts anything sideways.
+    bo_slot = tk.Frame(bo_right, bg=PANEL)
     # shown only while you look at a step that is not the live one; click it to go back
-    bo_prev = tk.Label(bo_navf, text='\u21a9 LIVE', fg=INK, bg=GOLDC, font=(F_TINY[0], F_TINY[1], 'bold'),
+    bo_prev = tk.Label(bo_slot, text='\u21a9 LIVE', fg=INK, bg=GOLDC, font=(F_TINY[0], F_TINY[1], 'bold'),
                        padx=6, pady=1, cursor='hand2')
     # which villager of a several-villager step is training now ('3/6')
-    bo_cnt = tk.Label(bo_navf, text='', fg=GOLDC, bg=INK, font=(F_SMALL[0], F_SMALL[1], 'bold'), padx=5, pady=0)
+    bo_cnt = tk.Label(bo_slot, text='', fg=GOLDC, bg=INK, font=(F_SMALL[0], F_SMALL[1], 'bold'), padx=5, pady=0)
+    bo_slot.update_idletasks()
+    bo_slot.config(width=max(bo_prev.winfo_reqwidth(), bo_cnt.winfo_reqwidth() + 22) + 2,
+                   height=max(bo_prev.winfo_reqheight(), bo_cnt.winfo_reqheight()))
+    bo_slot.pack_propagate(False)
+    bo_slot.pack(side='right', padx=(0, 2))
     bo_back.pack(side='left'); bo_fwd.pack(side='left')
     bo_snd = icon_button(bo_box, '', PANEL, size=9)                   # reads the steps out loud, or not
     bo_snd.config(padx=4, pady=2)
@@ -6459,6 +6487,18 @@ def main():
     bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
                       anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP - 30)
     bo_now.grid(row=2, column=0, columnspan=3, sticky='w', pady=(1, 0))
+    try:
+        import tkinter.font as tkfont
+        _ls = tkfont.Font(font=(DISPLAY, 12, 'bold')).metrics('linespace')
+        bo_box.grid_rowconfigure(2, minsize=max(36, 2 * _ls + 4))     # the strip does not grow or shrink step to step
+        _nfont = tkfont.Font(font=F_SMALL)
+    except Exception:
+        _nfont = None
+    def one_line(t_, px_):
+        """Cut a line to fit the room, with an ellipsis, so the NEXT line never wraps."""
+        if not _nfont or not t_ or _nfont.measure(t_) <= px_: return t_
+        while t_ and _nfont.measure(t_ + '\u2026') > px_: t_ = t_[:-1]
+        return t_.rstrip(' ,.') + '\u2026'
     # how far through the build you are: one short bar per step, gold for the one you are on
     bo_prog = tk.Canvas(bo_box, height=3, bg=PANEL, highlightthickness=0, bd=0)
     bo_prog.grid(row=1, column=0, columnspan=4, sticky='we', pady=(3, 3))
@@ -6476,7 +6516,10 @@ def main():
             bo_prog.create_rectangle(x0, 0, x0 + seg, 3, fill=col, outline='')
     bo_prog.bind('<Configure>', bo_prog_draw, add='+')
     bo_nrow = tk.Frame(bo_box, bg=PANEL)
-    bo_nrow.grid(row=3, column=0, columnspan=3, sticky='w', pady=(1, 0))
+    bo_nrow.grid(row=3, column=0, columnspan=3, sticky='we', pady=(1, 0))
+    # the build's goal ('19 pop, Feudal 8:50'), small, at the end of the NEXT line
+    bo_goal = tk.Label(bo_nrow, text='', fg=FAINT, bg=PANEL, font=F_TINY, anchor='e', cursor='hand2')
+    bo_goal.pack(side='right', anchor='n', pady=(1, 0))
     bo_ntag = tk.Label(bo_nrow, text='NEXT', fg=BRONZE, bg=PANEL, font=(F_TINY[0], F_TINY[1], 'bold'), anchor='nw')
     bo_ntag.pack(side='left', anchor='n', padx=(0, 6), pady=(1, 0))
     bo_next = tk.Label(bo_nrow, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
@@ -6493,6 +6536,7 @@ def main():
         w = max(BO_WRAP, bo_box.winfo_width() - 34)
         if bo_now.cget('wraplength') != w - 84:                     # room for the step picture and the speaker
             bo_now.config(wraplength=w - 84); bo_next.config(wraplength=w - 76); bo_live.config(wraplength=w - 10)
+            if bo.get('name'): root.after_idle(bo_draw)
     bo_box.bind('<Configure>', bo_wrap, add='+')
 
     def bo_draw():
@@ -6511,13 +6555,13 @@ def main():
                 bo_next.config(text=BUILD_SOURCE); bo_ntag.pack_forget()
                 bo_box.config(highlightbackground=EDGE, highlightthickness=1)
                 bo_prog.grid_remove(); bo_snd.grid_remove(); bo_live.grid_remove()
-                bo_at.grid_remove(); bo_navf.grid_remove()
+                bo_right.grid_remove(); bo_navf.grid_remove()
                 bo_box.grid()
             else:
                 bo_box.grid_remove()
             bo_open_sync(); foot_fit(); return
         bo_now.config(font=(DISPLAY, 12, 'bold'))
-        bo_at.grid(); bo_navf.grid()
+        bo_right.grid(); bo_navf.grid()
         name, pop, steps = found
         live = max(0, min(bo['i'], len(steps) - 1))
         bo['i'] = live
@@ -6543,15 +6587,18 @@ def main():
         previewing = i != live                         # looking ahead (or back) at a step that is not live
         bo_live.grid_remove()
         if previewing and not bo_prev.winfo_manager():
-            bo_prev.pack(side='left', padx=(0, 6), before=bo_back)
+            bo_cnt.pack_forget(); bo_prev.pack(side='right')
         elif not previewing:
             bo_prev.pack_forget()
+            if bo_cnt.cget('text') and not bo_cnt.winfo_manager(): bo_cnt.pack(side='right')
         img_ = step_icon(text, 33, PANEL, 10)
         bo_now.config(text=text, image=img_ or '', compound='left',
                       fg=GOLDD if i == live else '#cfc8b6')        # a step you are only looking at is paler
         bo_now.image = img_
         nxt = steps[i + 1][2] if i + 1 < len(steps) else None
-        bo_next.config(text=nxt or 'Last step. Over to you.', image='')
+        try: room_ = int(str(bo_next.cget('wraplength'))) - 10 - (bo_goal.winfo_reqwidth() if bo_goal.cget('text') else 0)
+        except Exception: room_ = 260
+        bo_next.config(text=one_line(nxt or 'Last step. Over to you.', room_), image='')
         if nxt and not bo_ntag.winfo_manager():
             bo_ntag.pack(side='left', anchor='n', padx=(0, 6), pady=(1, 0), before=bo_next)
         elif not nxt:
@@ -6696,7 +6743,7 @@ def main():
                                                            and lo <= v_ <= hi) else ''
         if bo_cnt.cget('text') != cnt_:
             bo_cnt.config(text=cnt_)
-            if cnt_ and not bo_cnt.winfo_manager(): bo_cnt.pack(side='left', padx=(0, 6), before=bo_back)
+            if cnt_ and not bo_cnt.winfo_manager() and not bo_prev.winfo_manager(): bo_cnt.pack(side='right')
             elif not cnt_: bo_cnt.pack_forget()
         kw = {'text': t_}
         if fg: kw['fg'] = fg
@@ -6871,16 +6918,11 @@ def main():
     def hold_size():
         # One width, always: the overlay never jumps sideways as things come and go. Anything
         # wider than that wraps (or, at worst, is cut at the edge). Only the height follows.
-        # A change in height glides over a few frames, so a new part slides into view rather than
-        # popping in, and nothing is ever drawn half way across the old size.
+        # Straight to the new height in one go: every resize makes Windows redraw the whole
+        # see-through window, so it happens once, not over several frames.
         try:
-            h_ = root.winfo_reqheight(); cur = root.winfo_height()
-            if root.winfo_width() != OV_W or cur != h_:
-                d_ = h_ - cur
-                if abs(d_) > 6 and cur > 1:
-                    step_ = int(d_ * 0.5)
-                    if abs(step_) < 4: step_ = 4 if d_ > 0 else -4
-                    h_ = cur + step_ if abs(step_) < abs(d_) else h_
+            h_ = root.winfo_reqheight()
+            if root.winfo_width() != OV_W or root.winfo_height() != h_:
                 root.geometry('%dx%d' % (OV_W, h_))
         except tk.TclError:
             return
@@ -7221,7 +7263,7 @@ def main():
         """An opponent's colour has turned up on your own minimap for the first time."""
         def go():
             civ = (st.get('opp_civ') or {}).get(idx, '')
-            rec_line.config(text='\u25b8 %s found%s' % (label, ('   \u00b7   ' + civ) if civ else ''),
+            rec_line.config(text='%s found%s' % (label, ('   \u00b7   ' + civ) if civ else ''),
                             fg=name_colour(idx, GOLDC))
             rec_line.grid(); place_found()
             def clear():
@@ -7242,7 +7284,8 @@ def main():
         are never looked for, so your own units can never set it off."""
         st['opp_civ'] = {}
         targets = {}
-        if load_settings().get('scout_alert', True) and mine_p is not None:
+        # off unless switched on in Settings (a new name, so an old 'on' does not carry over)
+        if load_settings().get('scout_callout', False) and mine_p is not None:
             for pp in players:
                 if pp is mine_p: continue
                 if mine_p.get('team', 0) > 1 and pp.get('team') == mine_p.get('team'): continue
@@ -7681,7 +7724,8 @@ def main():
         st['shift'] = bool(e.state & 1)
         st['drag'] = (e.x_root - root.winfo_x(), e.y_root - root.winfo_y(), e.x_root, e.y_root)
     def motion(e):
-        if st['drag']: root.geometry('+%d+%d' % (e.x_root - st['drag'][0], e.y_root - st['drag'][1]))
+        if st['drag'] and not st.get('locked'):
+            root.geometry('+%d+%d' % (e.x_root - st['drag'][0], e.y_root - st['drag'][1]))
     def remember_pos():
         try:
             c = load_settings(); c['pos'] = [root.winfo_x(), root.winfo_y()]; save_settings(c)
@@ -7691,7 +7735,7 @@ def main():
         if d and abs(e.x_root - d[2]) < 4 and abs(e.y_root - d[3]) < 4:
             act = st['actions'].get(e.widget)
             if act: act()
-        elif d:
+        elif d and not st.get('locked'):
             remember_pos()                 # moved: keep this spot for next time
     def bind_all(w):
         w.bind('<ButtonPress-1>', press); w.bind('<B1-Motion>', motion)
@@ -7699,8 +7743,23 @@ def main():
     for w in (root, frame, head, badge, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_caprow, bo_cap, bo_goal, bo_at, bo_navf, bo_back, bo_fwd, bo_prev, bo_cnt, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
+              bo_box, bo_caprow, bo_cap, bo_goal, bo_at, bo_right, bo_navf, bo_slot, bo_back, bo_fwd, bo_prev, bo_cnt, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
               live_btn, bo_open): bind_all(w)
+    def show_lock():
+        if st.get('locked') and crest_locked is not None: badge.config(image=crest_locked)
+        else: badge.config(image=getattr(badge, 'image', '') or '')
+    def toggle_lock():
+        """The crest locks the overlay where it is, so it cannot be dragged by accident; click
+        it again to move it."""
+        st['locked'] = not st.get('locked')
+        try:
+            c_ = load_settings(); c_['locked'] = st['locked']; save_settings(c_)
+        except Exception: pass
+        show_lock()
+        log('overlay %s' % ('locked in place' if st['locked'] else 'unlocked'))
+    st['locked'] = bool(load_settings().get('locked'))
+    show_lock()
+    st['actions'][badge] = toggle_lock
     st['actions'][bo_prog] = bo_menu
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
     st['actions'][bo_caprow] = bo_menu
@@ -7718,6 +7777,8 @@ def main():
     st['actions'][bo_back] = lambda: bo_step(-1)
     st['actions'][bo_fwd] = lambda: bo_step(1)
     st['actions'][bo_navf] = lambda: None
+    st['actions'][bo_slot] = lambda: None
+    st['actions'][bo_right] = lambda: None
     hover(bo_back, MUT, GOLDD); hover(bo_fwd, MUT, GOLDD)
     bo_prev.bind('<Enter>', lambda e: bo_prev.config(bg=GOLDD), add='+')
     bo_prev.bind('<Leave>', lambda e: bo_prev.config(bg=GOLDC), add='+')
@@ -7971,7 +8032,7 @@ def main():
         board_.create_window((0, 0), window=page, anchor='nw')
         outer = page
         def fit_(_=None):
-            room = win.winfo_screenheight() - 240               # leave space for the title, the Save row and the taskbar
+            room = win.winfo_screenheight() - 190               # leave space for the title, the Save row and the taskbar
             board_.configure(scrollregion=board_.bbox('all'), width=page.winfo_reqwidth(),
                              height=min(page.winfo_reqheight(), room))
             if page.winfo_reqheight() > room: bar_.pack(side='right', fill='y')
@@ -7991,9 +8052,11 @@ def main():
             board_.yview_scroll(d, 'units'); glide['left'] -= d
             glide['job'] = win.after(16, glide_step)
         def wheel_(e):
+            # only on a screen too small for the columns: one clean jump per notch, drawn in full
+            # straight away (a glide leaves smeared copies of the lines behind on Windows)
             if page.winfo_reqheight() <= board_.winfo_height(): return
-            glide['left'] += -(e.delta / 120.0) * 80
-            if not glide['job']: glide_step()
+            board_.yview_scroll(int(-(e.delta / 120.0) * 90), 'units')
+            board_.update_idletasks()
         win.bind('<MouseWheel>', wheel_)
 
         hd = tk.Frame(topf, bg=DEEP); hd.pack(fill='x')
@@ -8487,9 +8550,9 @@ def main():
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
         field('Opponent spotted')
-        sc_on = tk.BooleanVar(value=cfg.get('scout_alert', True))
+        sc_on = tk.BooleanVar(value=cfg.get('scout_callout', False))
         sp_on = tk.BooleanVar(value=cfg.get('scout_ping', True))
-        for var, txt in ((sc_on, 'Call out opponents'),
+        for var, txt in ((sc_on, "Call out opponents ('Red found')"),
                          (sp_on, 'Ring the spot on the minimap as well')):
             Check(outer, text=txt, variable=var, fg=TXT, bg=INK,
                            selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
@@ -8706,7 +8769,7 @@ def main():
             hb, hg, h20 = house_cfg()
             return {'house_bands': hb, 'house_grace': hg, 'house_cap20': h20,
                     'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(),
-                    'tc_alert': bool(tc_on.get()), 'scout_alert': bool(sc_on.get()),
+                    'tc_alert': bool(tc_on.get()), 'scout_callout': bool(sc_on.get()),
                     'scout_ping': bool(sp_on.get()),
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
                     'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
@@ -8748,7 +8811,46 @@ def main():
         msg = tk.Label(foot, text='', fg='#b8b19f', bg=DEEP, font=F_SMALL, anchor='w',
                        justify='left', wraplength=400)
         msg.pack(fill='x', pady=(10, 0))
-        win.update_idletasks(); fit_()
+        win.update_idletasks()
+        # Side by side columns, as many as it takes for everything to fit on the screen, so there
+        # is nothing to scroll (scrolling a page of controls smears on Windows). Only a screen too
+        # small for that still scrolls. The cards keep their order, top to bottom, left to right.
+        try:
+            kids = list(page.pack_slaves())
+            hs = [c_.winfo_reqheight() + 10 for c_ in kids]
+            cw = max(c_.winfo_reqwidth() for c_ in kids)
+            room = win.winfo_screenheight() - 190 - 32          # what fit_ allows, less the page's own padding
+            most = max(1, min(4, (win.winfo_screenwidth() - 70) // (cw + 16)))
+            def groups(limit):
+                out_, cur, tot = [], [], 0
+                for c_, h_ in zip(kids, hs):
+                    if cur and tot + h_ > limit: out_.append(cur); cur, tot = [], 0
+                    cur.append(c_); tot += h_
+                if cur: out_.append(cur)
+                return out_
+            def best(n_):
+                lo_, hi_ = max(hs), sum(hs)
+                while lo_ < hi_:
+                    mid = (lo_ + hi_) // 2
+                    if len(groups(mid)) <= n_: hi_ = mid
+                    else: lo_ = mid + 1
+                return lo_
+            n_ = next((k for k in range(1, most + 1) if best(k) <= room), most)
+            log('settings: %d columns, tallest %d of %d (screen %dx%d)' % (n_, best(n_), room,
+                win.winfo_screenwidth(), win.winfo_screenheight()))
+            if n_ > 1 and len(kids) > 1:
+                cols_ = tk.Frame(page, bg=DEEP); cols_.pack(fill='x')
+                for j, grp in enumerate(groups(best(n_))):
+                    col = tk.Frame(cols_, bg=DEEP)
+                    col.grid(row=0, column=j, sticky='n', padx=(0 if j == 0 else 14, 0))
+                    cols_.grid_columnconfigure(j, minsize=cw, uniform='col')
+                    for c_ in grp:
+                        info = c_.pack_info(); info.pop('in', None)
+                        c_.pack_forget(); c_.pack(in_=col, **info); c_.lift()
+                win.update_idletasks()
+        except Exception as e:
+            log('settings columns: %r' % (e,))
+        fit_()
         win.bind('<Escape>', lambda e: close_win())        # Esc does the same as Cancel
         win.protocol('WM_DELETE_WINDOW', close_win)
         if show: reveal_settings(win)
