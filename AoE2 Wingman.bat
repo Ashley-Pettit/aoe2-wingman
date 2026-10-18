@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v161'
+VERSION = 'v162'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6840,7 +6840,7 @@ def main():
         t_ = 'POP %s' % span                                    # the pops this step is for
         # A step that covers several villagers ('6 hunt' for pops 12 to 17): which of them is the one
         # training now, so you can tell where you are in it.
-        v_ = bo['pop'] or 0                           # the game counts a villager the moment it starts training
+        v_ = (bo['pop'] or 0) + 1                     # the villager training now: the pop shows the ones already out
         cnt_ = ('%d/%d' % (v_ - lo + 1, hi - lo + 1)) if (live_ and bo['pop'] and hi < 99 and hi > lo
                                                            and lo <= v_ <= hi) else ''
         if bo_cnt.cget('text') != cnt_:
@@ -6873,10 +6873,10 @@ def main():
                 except Exception: pass
 
         if bo['done']: return                                # finished: stays that way until the next game
-        # Straight off your pop counter. The game adds a villager to it the moment it starts
-        # training, so the pop on screen is the villager in the Town Centre now: the step for it
-        # shows (and is said) as it starts training, and it is that villager's job when it walks out.
-        i = build_step_at(steps, pop)
+        # Straight off your pop counter, which counts the villagers already out. The one training
+        # now is pop + 1, so its step shows (and is said) as it starts training: at pop 7 the 8th
+        # villager is in the Town Centre and you hear 'Send 2 to wood' for it.
+        i = build_step_at(steps, pop + 1)
         if i > bo['i']:
             bo['i'] = i; bo['view'] = None; bo_draw()      # ticked over: back to live
             if i == len(steps) - 1 and not bo['done_t']: bo['done_t'] = now
