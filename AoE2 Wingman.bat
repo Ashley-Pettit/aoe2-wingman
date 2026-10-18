@@ -7965,14 +7965,20 @@ def main():
             games = load_stats().get('games', [])
             g = next((row for row in games if row.get('id') == gid), None)
             if not g: return
+            old_geometry = None
             if review_window[0] is not None:
-                close_post_game()  # rebuild ensures every figure uses the latest confirmed data
+                try:
+                    old_geometry = review_window[0].geometry()
+                except Exception: pass
+                close_post_game()  # rebuild with latest confirmed data
             w = tk.Toplevel(root)
             review_window[0], review_gid[0] = w, gid
             w.title('Wingman | Post-game review')
             w.configure(bg=BG)
-            w.geometry('740x700')
+            w.geometry(old_geometry or '740x700')
             w.minsize(560, 440)
+            # This is an actual independent Tk window, not just backend data.
+            # Preserve its position when refreshing a pending service result.
             w.protocol('WM_DELETE_WINDOW', close_post_game)
             try: w.attributes('-topmost', True)
             except Exception: pass
@@ -8008,11 +8014,15 @@ def main():
 
             def detail(k, v):
                 line = tk.Frame(page, bg=BG); line.pack(fill='x', pady=(0, 6))
-                tk.Label(line, text=k, width=19, anchor='w', bg=BG, fg=MUT,
-                         font=('Segoe UI', 10)).pack(side='left')
-                tk.Label(line, text=str(v), anchor='w', bg=BG, fg=FG,
+                key_label = tk.Label(line, text=k, width=19, anchor='w', bg=BG, fg=MUT,
+                         font=('Segoe UI', 10))
+                key_label.pack(side='left')
+                value_label = tk.Label(line, text=str(v), anchor='w', bg=BG, fg=FG,
                          font=('Segoe UI', 10, 'bold'), wraplength=450,
-                         justify='left').pack(side='left', fill='x', expand=True)
+                         justify='left')
+                value_label.pack(side='left', fill='x', expand=True)
+                for widget in (line, key_label, value_label):
+                    widget.bind('<MouseWheel>', wheel_review)
 
             result = g.get('result')
             verified = result in ('win', 'loss')
@@ -8040,9 +8050,14 @@ def main():
 
             # History comparisons use only confirmed results; unknown matches
             # must not quietly count as losses or dilute the win percentage.
+            # If timestamps are absent, do not include unrelated newer games.
+            # A missing start timestamp means we cannot establish chronology.
+            started = g.get('started')
             earlier = [x for x in games if x.get('id') != gid
                        and x.get('result') in ('win', 'loss')
-                       and (x.get('started') or 0) <= (g.get('started') or 0)]
+                       and isinstance(started, (int, float))
+                       and isinstance(x.get('started'), (int, float))
+                       and x['started'] < started]
             def record(rows):
                 wins = sum(x.get('result') == 'win' for x in rows)
                 return '%d wins / %d games (%d%%)' % (
