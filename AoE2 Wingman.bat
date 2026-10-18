@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v143'
+VERSION = 'v144'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -1514,6 +1514,7 @@ class TCWatcher(threading.Thread):
             self.t0 = started if started and 0 < started <= now else now
             self.clock, self.clock_t, self.speed = None, 0, 1.7
             self.food = self.food_last = None; self.food_t = 0
+            self.debugged = set(); self.clock_miss = 0; self.food_miss = 0
         self.set('off')
 
     def needs_house(self, mins, now):
@@ -1615,13 +1616,34 @@ class TCWatcher(threading.Thread):
             except Exception as e:
                 log('pop / clock read: %r' % (e,)); time.sleep(2)
 
+    def debug_band(self, name, shot, lines):
+        """Once a game for each kind: keep the picture that would not read, and what was read off it,
+        so the reading can be tuned to what is really on your screen."""
+        done = getattr(self, 'debugged', None)
+        if done is None: done = self.debugged = set()
+        if name in done: return
+        done.add(name)
+        try:
+            from PIL import Image
+            buf, gw, gh = shot
+            os.makedirs(TC_DEBUG, exist_ok=True)
+            Image.frombuffer('RGBA', (gw, gh), buf, 'raw', 'BGRA', 0, 1).convert('RGB').save(
+                os.path.join(TC_DEBUG, '%s_%s.png' % (name, time.strftime('%H%M%S'))))
+            log('%s did not read: %s' % (name, ' | '.join(str(l_) for l_ in lines)[:200] or 'nothing'))
+        except Exception as e:
+            log('debug band %s: %r' % (name, e))
+
     def read_clock(self, read, grab, x, y, w, s):
         """In-game seconds off the game timer ('00:02:19 (Fast - 2.0)') under the resource bar."""
         cx = x + w / 2.0
         k = 2 if s < 0.7 else 1
-        for t in read(*grab((int(cx - 450 * s), int(y + 240 * s), int(900 * s), int(80 * s), k))):
+        shot = grab((int(cx - 450 * s), int(y + 240 * s), int(900 * s), int(80 * s), k))
+        lines = read(*shot)
+        for t in lines:
             m = re.search(r'(\d{1,2})\s*[:.]\s*(\d{2})\s*[:.]\s*(\d{2})', t)
             if m: return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+        self.clock_miss = getattr(self, 'clock_miss', 0) + 1
+        if self.clock_miss == 20: self.debug_band('clock', shot, lines)
         return None
 
     def timer_stopped(self):
@@ -1658,14 +1680,18 @@ class TCWatcher(threading.Thread):
         k = 3 if s < 0.7 else 2
         band = (int(px - (SPAN + 80) * s), int(cy - 34 * s), int((SPAN + 60) * s), int(68 * s), k)
         nums = []
-        for _, ws in read(*grab(band), words=True):
+        shot = grab(band)
+        got = read(*shot, words=True)
+        for _, ws in got:
             for t, wx, wy, ww, wh in ws:
                 t = t.replace('O', '0').replace('o', '0').replace(',', '')
                 if re.fullmatch(r'\d{1,6}', t): nums.append((wx, wh, int(t)))
-        if not nums: return None
-        tall = max(h for _, h, _ in nums)
+        tall = max([h for _, h, _ in nums] or [0])
         big = sorted((x_, v) for x_, h, v in nums if h >= 0.7 * tall)
-        return big[1][1] if len(big) >= 4 else None
+        if len(big) >= 4: return big[1][1]
+        self.food_miss = getattr(self, 'food_miss', 0) + 1
+        if self.food_miss == 5: self.debug_band('food', shot, [t for t, _ in got])
+        return None
 
     def read_pop(self, read, grab, a):
         bx, by, bw, bh = a['box']
@@ -6953,14 +6979,19 @@ def main():
         nudge to check the two buildings it needs. If the food can't be read off the screen, it falls
         back to 17 minutes. Not if you are already in Castle Age, and only once a game."""
         if st.get('last') is None or st.get('castle_note') or not tcw.active: return
+        if time.time() - st.get('watch_t', 0) < 60: return       # just opened, or just restarted: look first
         want = reminders(); food_at = want['castle_food']
         mins = tcw.game_minutes(time.time())
         if mins < CASTLE_NOTE_MIN: return
         food = getattr(tcw, 'food', None)
+        pop = tcw.pop[0] if tcw.pop else None
         if food is not None and food < food_at: return
-        if food is None and mins < CASTLE_NOTE_LATE: return
+        # No food reading to go on: 17 minutes, but only with an economy that could be clicking up.
+        # (Without the game clock the minutes are a guess that counts pauses, so the pop decides.)
+        if food is None and (mins < CASTLE_NOTE_LATE or pop is None or pop < 22): return
         st['castle_note'] = True
         if tcw.age >= 3 or not want['castle']: return
+        if st.get('ended') and st.get('ended') == st.get('last'): return     # that game has finished
         log('castle reminder shown (food %s, %.1f min)' % (food, mins))
         tc_note(('%d FOOD' % food_at if food is not None else '%d MIN' % CASTLE_NOTE_LATE)
                 + '  \u00b7  2 BUILDINGS FOR CASTLE AGE?')
@@ -9459,6 +9490,7 @@ def main():
                     except OSError: began = None
                     tcw.reset(civ_name(mine_p['civ'], strings) if mine_p else None, began)
                     tc['snooze'] = False; tcw.active = mine_p is not None   # not while watching someone else
+                    st['watch_t'] = time.time()
                     if mine_p is None: log('you are not in the player list (profile %s), so the in-game alerts stay off' % me)
                     start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')), recording=f)
                     scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
