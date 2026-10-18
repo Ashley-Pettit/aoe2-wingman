@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v163'
+VERSION = 'v164'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -668,6 +668,7 @@ class Voice:
         self.p = None
         self.q = queue.Queue()
         self.worker = None
+        self.lock = threading.Lock()
     def _start(self):
         import subprocess, base64
         ps = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'WindowsPowerShell',
@@ -675,7 +676,12 @@ class Voice:
         if not os.path.exists(ps): ps = 'powershell'
         enc = base64.b64encode(VOICE_PS.encode('utf-16-le')).decode('ascii')
         env = clean_env(); env['WINGMAN_VOICE'] = str(load_settings().get('voice_name') or '')
-        try: err = open(self.VOICE_LOG, 'w', encoding='utf-8')
+        try:
+            if getattr(self, 'err', None): self.err.close()
+        except Exception: pass
+        try:
+            mode_ = 'a' if os.path.exists(self.VOICE_LOG) and os.path.getsize(self.VOICE_LOG) < 200000 else 'w'
+            err = self.err = open(self.VOICE_LOG, mode_, encoding='utf-8')
         except OSError: err = subprocess.DEVNULL
         self.p = subprocess.Popen([ps, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
                                    '-EncodedCommand', enc], stdin=subprocess.PIPE,
@@ -694,8 +700,9 @@ class Voice:
                 except Exception as e:
                     log('voice: %r' % (e,)); self.p = None
     def _put(self, line):
-        if self.worker is None or not self.worker.is_alive():
-            self.worker = threading.Thread(target=self._run, daemon=True); self.worker.start()
+        with self.lock:                                # one reader for the queue, never two talking at once
+            if self.worker is None or not self.worker.is_alive():
+                self.worker = threading.Thread(target=self._run, daemon=True); self.worker.start()
         self.q.put(line)
     def say(self, text):
         line = re.sub(r'\s+', ' ', str(text or '')).strip()
@@ -1560,7 +1567,9 @@ class TCWatcher(threading.Thread):
     def needs_house(self, mins, now):
         """Warn before you get housed: how close to the limit depends on how far into the game you are."""
         if not self.pop: return False
-        cfg = load_settings()
+        if now - getattr(self, 'cfg_t', 0) > 5:
+            self.cfg_c, self.cfg_t = load_settings(), now
+        cfg = self.cfg_c
         room = house_room(mins, self.pop[1], cfg)
         grace = cfg.get('house_grace', HOUSE_GRACE_MIN)
         return (self.pop[1] < 200 and self.pop[1] - self.pop[0] <= room
@@ -1754,7 +1763,10 @@ class TCWatcher(threading.Thread):
             ok = ensure_pillow() and ensure_numpy()
         except Exception as e:
             log('idle TC alert off: %r' % (e,)); return
-        from PIL import Image
+        try:
+            from PIL import Image
+        except Exception as e:
+            log('idle TC alert and pop reading off, no Pillow: %r' % (e,)); return
         ctypes, wintypes, u, _ = _win()
         threading.Thread(target=self.slow_loop, daemon=True).start()
         last_shot = 0
@@ -2087,12 +2099,23 @@ class ScoreWatcher(threading.Thread):
 SETTINGS = os.path.join(os.environ.get('APPDATA', HOME), 'AoE2MapOverlay', 'settings.json')
 
 def load_settings():
-    try: return json.load(open(SETTINGS, encoding='utf-8'))
+    try:
+        with open(SETTINGS, encoding='utf-8') as fh: return json.load(fh)
     except Exception: return {'webhook': '', 'friends': [], 'channel': 'wesley'}
 
+_SAVE_LOCK = threading.Lock()
+
 def save_settings(cfg):
+    """Written to a new file that then takes the old one's place, so a read at the same moment
+    never sees half a file (which used to fall back to the defaults)."""
     os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
-    json.dump(cfg, open(SETTINGS, 'w', encoding='utf-8'), indent=2)
+    with _SAVE_LOCK:
+        tmp = SETTINGS + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as fh: json.dump(cfg, fh, indent=2)
+        for i in range(5):
+            try: os.replace(tmp, SETTINGS); return
+            except PermissionError: time.sleep(0.05 * (i + 1))   # someone reading it right now
+        os.replace(tmp, SETTINGS)
 
 STATS = os.path.join(os.path.dirname(SETTINGS), 'stats.json')
 PIDFILE = os.path.join(os.path.dirname(SETTINGS), 'overlay.pid')
@@ -2742,7 +2765,11 @@ def update_exe(rel, progress=lambda t: None):
     except OSError:                                    # the last old one is still closing: pick another name
         old = os.path.join(here, 'Wingman.old.%d.exe' % int(time.time()))
     os.replace(me, old)
-    os.replace(new, me)
+    try:
+        os.replace(new, me)
+    except OSError:                                    # could not put the new one in: the old one goes back
+        os.replace(old, me)
+        raise
     log('updated the exe to %s' % rel['ver'])
     return me
 
@@ -3178,11 +3205,14 @@ def relaunch_as_admin(resume=''):
         w = os.path.join(os.path.dirname(exe), 'pythonw.exe')
         if os.path.isfile(w): exe = w
         args = '-x "%s" --wait-turn' % self_path() + (' --resume %s' % resume if resume else '')
+    old_env = None
     if FROZEN:
         # The new copy picks up this one's environment. Left as it is, it would run out of this copy's
         # temp folder, and this one could not clear that folder when it closes ('Failed to remove
         # temporary directory'). We are about to close anyway, so clean our own environment first.
-        os.environ.clear(); os.environ.update(clean_env())
+        # (Worked out before clearing, or there would be nothing left to clean; put back if you say no.)
+        old_env, new_env = dict(os.environ), clean_env()
+        os.environ.clear(); os.environ.update(new_env)
         try: ctypes.windll.kernel32.SetDllDirectoryW(None)
         except Exception: pass
     se = ctypes.windll.shell32.ShellExecuteW
@@ -3190,6 +3220,8 @@ def relaunch_as_admin(resume=''):
     se.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_int]
     r = se(None, 'runas', exe, args, os.path.dirname(self_path()), 1) or 0
     log('restart as admin: %s' % ('ok' if r > 32 else 'declined or failed (%d)' % r))
+    if r <= 32 and old_env is not None:                  # staying: our own environment back as it was
+        os.environ.clear(); os.environ.update(old_env)
     return r > 32
 
 ADMIN_MSG = ("The game runs as administrator, so Windows won't let Wingman click it. "
@@ -3357,6 +3389,19 @@ def ensure_pkg(mod, pip_name=None, why=''):
 
 class LiveFail(Exception): pass
 
+LIVE_CANCEL = threading.Event()          # set when Go Live gives up, so a slow Discord step stops clicking
+
+def front_is(names):
+    """True if the window in front belongs to a program whose name starts with one of names."""
+    try:
+        ctypes, wintypes, u, _ = _win()
+        fg = u.GetForegroundWindow()
+        pid = wintypes.DWORD(); u.GetWindowThreadProcessId(fg, ctypes.byref(pid))
+        n_ = _proc_name(pid.value).lower()
+        return any(n_.startswith(x) for x in names)
+    except Exception:
+        return False
+
 def _uia_find(auto, root, match, wait=6.0, depth=60):
     """The first control under root that match(control) likes. Discord is a Chromium app: its
     controls only show up to Windows' accessibility once something asks, so the first look can
@@ -3469,6 +3514,9 @@ def _uia_fast_wait(auto, names, wait=4.0):
 def _uia_click(c):
     """A real left click in the middle of the control, for when asking it nicely does nothing."""
     try:
+        # only ever a click on Discord itself: never if Go Live has given up, or the game is in front
+        if LIVE_CANCEL.is_set() or not front_is(('discord',)):
+            log('go live: Discord is not in front, so no click'); return False
         r = c.BoundingRectangle
         if r.right - r.left < 2 or r.bottom - r.top < 2: return False
         x, y = (r.left + r.right) // 2, (r.top + r.bottom) // 2
@@ -3576,9 +3624,13 @@ def discord_join_channel(auto):
             log('go live: "%s" is not on screen, using the quick switcher' % want)
             try:
                 d_ = find_discord_window()
-                if d_: focus_window(d_)
+                if d_: focus_window(d_); time.sleep(0.2)
+                if LIVE_CANCEL.is_set() or not front_is(('discord',)):
+                    log('go live: Discord did not come to the front, so nothing was typed'); return False
                 tap_combo('CTRL+K'); time.sleep(0.7)
+                if not front_is(('discord',)): return False
                 type_text('!' + want.lstrip('#!').strip()); time.sleep(1.2)
+                if not front_is(('discord',)): return False
                 tap_key(0x0D)
             except Exception as e:
                 log('go live, quick switcher: %r' % (e,)); return False
@@ -3897,10 +3949,18 @@ def go_live(cfg, in_game=True, status=lambda t: None, timer=None):
             s_ = load_settings(); s_['live_pause_key'] = c['live_pause_key']; save_settings(s_)
         except Exception: pass
     g = find_game_window()
+    LIVE_CANCEL.clear()
+    def game_front():
+        try: return _win()[2].GetForegroundWindow() == g
+        except Exception: return False
     if in_game:
         if not g: raise LiveFail('the game is not running')
         if game_needs_admin(): raise LiveFail(ADMIN_MSG)
         status('pausing'); focus_window(g); time.sleep(0.3)
+        if not game_front():
+            focus_window(g); time.sleep(0.4)
+            if not game_front():                              # keys only ever go to the game
+                raise LiveFail('the game would not come to the front, so nothing was pressed')
         # the pause key toggles, so pressing it on a paused game would set it going again
         if game_paused(timer):
             log('go live: the game is already paused, so pause was not pressed')
@@ -3916,13 +3976,16 @@ def go_live(cfg, in_game=True, status=lambda t: None, timer=None):
             try: discord_share_game()
             except BaseException as e: box['e'] = e
         th = threading.Thread(target=run_, daemon=True); th.start(); th.join(90)
-        if th.is_alive(): raise LiveFail('Discord took too long to answer')
+        if th.is_alive():
+            LIVE_CANCEL.set()                                 # whatever it was doing, it stops clicking now
+            raise LiveFail('Discord took too long to answer')
         if 'e' in box: raise box['e']
     finally:
         if g and _win()[2].GetForegroundWindow() != g:
             status('back'); time.sleep(0.2); focus_window(g); time.sleep(0.5)
     if in_game:
-        game_chat(c['live_after'])
+        if game_front(): game_chat(c['live_after'])
+        else: log('go live: the game is not in front, so the second chat line was not sent')
 
 STOP = threading.Event()                 # set by the Stop button
 OVERLAY_TOP = [None]                     # the overlay's window, so a click that lands on it can pass through
@@ -6278,12 +6341,12 @@ def single_instance():
     Also leaves its process id where the watchdog can find it to close it later."""
     try:
         import ctypes
-        k32 = ctypes.windll.kernel32
+        k32 = ctypes.WinDLL('kernel32', use_last_error=True)   # so the 'already exists' answer is reliable
         # Restarted as admin: the old copy is still closing, so wait for it rather than bow out.
         tries = 50 if '--wait-turn' in sys.argv else 1
         for i in range(tries):
             h = k32.CreateMutexW(None, False, 'AoE2MapOverlay.SingleInstance')
-            taken = k32.GetLastError() == 183                          # ERROR_ALREADY_EXISTS
+            taken = ctypes.get_last_error() == 183                     # ERROR_ALREADY_EXISTS
             if h and not taken: break
             if h: k32.CloseHandle(h)
             if i == tries - 1: return False
@@ -6636,7 +6699,9 @@ def main():
         # bigger than the box's own padding so the wrap can never push the box out a pixel and
         # set off another resize.
         w = max(BO_WRAP, bo_box.winfo_width() - 34)
-        if bo_now.cget('wraplength') != w - 84:                     # room for the step picture and the speaker
+        try: cur_ = int(str(bo_now.cget('wraplength')))
+        except ValueError: cur_ = -1
+        if cur_ != w - 84:                     # room for the step picture and the speaker
             bo_now.config(wraplength=w - 84); bo_next.config(wraplength=w - 76); bo_live.config(wraplength=w - 10)
             if bo.get('name'): root.after_idle(bo_draw)
     bo_box.bind('<Configure>', bo_wrap, add='+')
@@ -6863,10 +6928,15 @@ def main():
         if not found: return
         steps = found[2]
         now = time.time()
+        if bo['pop'] and pop > bo['pop'] + 3:
+            # a big jump is most likely a misread ('14' as '41'): only believe it if it holds
+            if bo.get('jump') != pop: bo['jump'], bo['jump_t'] = pop, now; return
+            if now - bo.get('jump_t', now) < 3: return
+        bo['jump'] = None
         if pop != bo['pop']:
-            # Only a pop back at a starting count is a new game. Losing villagers mid game is not,
-            # and neither is a misread, so the build never starts again part way through.
-            if pop <= 5 and bo['pop'] >= 8: bo_fresh(force=True)      # back to a starting pop: a new game
+            # Only a pop back at a starting count, with no game known, is a new game. Losing
+            # villagers mid game is not (a drush can do that), and neither is a misread.
+            if pop <= 5 and bo['pop'] >= 8 and not tcw.active: bo_fresh(force=True)
             bo['pop'] = pop; bo['pop_t'] = now
             if not bo['done'] and bo['view'] is None:
                 try: bo_pop_text()                         # 'n of 6' moves on with every villager
@@ -6879,7 +6949,7 @@ def main():
         i = build_step_at(steps, pop + 1)
         if i > bo['i']:
             bo['i'] = i; bo['view'] = None; bo_draw()      # ticked over: back to live
-            if i == len(steps) - 1 and not bo['done_t']: bo['done_t'] = now
+        if bo['i'] == len(steps) - 1 and not bo['done_t']: bo['done_t'] = now
         # the last step has had its time: well past its pop and a minute and a half on
         if (bo['i'] == len(steps) - 1 and bo['done_t'] and now - bo['done_t'] > 90
                 and pop >= steps[-1][0] + 6):
@@ -7048,6 +7118,12 @@ def main():
             u_.RedrawWindow(_ct.c_void_p(_hold['hwnd']), None, None, 0x0001 | 0x0004 | 0x0080 | 0x0100 | 0x0400)
         except Exception:
             pass
+    def refit():
+        try:
+            frame.pack_configure(fill='both', expand=True, padx=2, pady=2)   # re-lays it out to the window
+            root.update_idletasks()
+        except tk.TclError:
+            pass
     def hold_now():
         # the height everything inside asks for: the panel's own request (plus its 2px margin),
         # or the window's, whichever is more
@@ -7055,7 +7131,12 @@ def main():
         if root.winfo_width() != OV_W or root.winfo_height() != h_:
             root.geometry('%dx%d' % (OV_W, h_))
             root.update_idletasks()
+            refit()
             repaint()
+        elif frame.winfo_height() + 4 < h_ - 1:
+            # Windows did not tell Tk the window had grown, so the panel was left at the old size
+            # with the bottom cut off (seen in the log as 'overlay squeezed'): lay it out again
+            refit(); repaint()
         # anything still squeezed for more than a second gets written down, to find out why
         now_ = time.time()
         if frame.winfo_height() + 1 < frame.winfo_reqheight():
@@ -7189,13 +7270,16 @@ def main():
 
     def tc_pulse():
         """Flash whatever is up (silently), each strip between its own two shades."""
-        if tc['win'] is not None and tc['win'].winfo_viewable():
-            tc['flash'] ^= 1
-            tc['label'].config(bg=TC_RED[tc['flash']]); tc['sub'].config(bg=TC_RED[tc['flash']])
-            tc['house'].config(bg=TC_BLUE[tc['flash']])
-            tc['note'].config(bg=TC_GOLD[tc['flash']])
-        if tc.get('note_until') and time.time() >= tc['note_until']:
-            tc['note_until'] = 0; tc_draw()         # the reminder has had its few seconds
+        try:
+            if tc['win'] is not None and tc['win'].winfo_viewable():
+                tc['flash'] ^= 1
+                tc['label'].config(bg=TC_RED[tc['flash']]); tc['sub'].config(bg=TC_RED[tc['flash']])
+                tc['house'].config(bg=TC_BLUE[tc['flash']])
+                tc['note'].config(bg=TC_GOLD[tc['flash']])
+            if tc.get('note_until') and time.time() >= tc['note_until']:
+                tc['note_until'] = 0; tc_draw()         # the reminder has had its few seconds
+        except Exception as e_:
+            if not st.get('pulse_err'): st['pulse_err'] = 1; log('tc pulse: %r' % (e_,))
         try:
             if tcw.pop: bo_follow(tcw.pop[0])
         except Exception: pass
@@ -7347,12 +7431,7 @@ def main():
         """The 'Red found' note sits on the score's line, over on the right. When the two do not
         fit side by side, or the red concede bar has the line, it takes the line above instead."""
         if ' found' not in rec_line.cget('text') or st.get('rolled'): return
-        beside = bool(score_line.winfo_manager()) and score_line.cget('bg') == BG
-        if beside:
-            frame.update_idletasks()
-            beside = score_line.winfo_reqwidth() + rec_line.winfo_reqwidth() + 12 <= 400
-        rec_line.grid(row=4 if beside else 3, column=0, columnspan=4, sticky='e' if beside else 'w', pady=(3, 0))
-        rec_line.lift()                               # the score's label runs the full width under it
+        rec_line.grid(row=4, column=0, columnspan=4, sticky='w', pady=(3, 0))   # its own line, under the build order
 
     def score_notify(mine_, theirs, behind, flag):
         def go():
@@ -7851,6 +7930,7 @@ def main():
             st['last'] = None; st['first'] = None; st['herd'] = None
             watcher.active = False
             tcw.active = False
+            bo['voice_at'] = None                          # nothing more to say until the next game starts
             scout.active = False; scout.stop_game(); score_off()
             title.config(text=HEAD_NAME); idle_size(True)
             state.config(text='WAITING', fg=MUT)           # or the tag goes on saying IN GAME at the menu
@@ -7885,6 +7965,9 @@ def main():
     loadw.started = game_starting
     loadw.start()
 
+    def _alive(w_):
+        try: return bool(w_.winfo_exists())
+        except Exception: return False
     def toggle(widget):
         if widget.winfo_manager(): widget.grid_remove()
         else: widget.grid()
@@ -8088,7 +8171,7 @@ def main():
     def open_cheats():
         """The Godmode panel: buttons for the game's own cheat codes."""
         if st.get('cheat_win') is not None:
-            try: st['cheat_win'].lift(); return
+            try: bring_up(st['cheat_win']); return
             except tk.TclError: st['cheat_win'] = None
         win = tk.Toplevel(root); st['cheat_win'] = win
         win.withdraw()
@@ -8246,7 +8329,7 @@ def main():
         def swap():
             try: w_.lift()
             except tk.TclError: pass
-            if shell_ is not None:
+            if shell_ is not None and hasattr(shell_, 'destroy'):
                 try: shell_.destroy()
                 except tk.TclError: pass
             try: w_.focus_force()
@@ -8254,21 +8337,35 @@ def main():
             w_.after(40, lambda: bring_up(w_))
         fade_in(w_, then=swap)                         # drawn unseen, then solid over the loading frame
 
+    def drop_settings(key):
+        w_ = st.pop(key, None)
+        if w_ is not None and hasattr(w_, 'destroy'):
+            try: w_.destroy()
+            except tk.TclError: pass
+
     def prebuild_settings():
-        """Build Settings ahead of time, out of sight, so the gear opens it straight away."""
+        """Build Settings ahead of time, out of sight, so the gear opens it straight away. Only at
+        the menu (building it is a lot of work for a moment, and a game should not stutter for it),
+        and again when the hidden one is ten minutes old, so what it shows is never stale."""
         if st.get('settings_win') is not None: return
+        if not waiting_now[0]:
+            root.after(20000, prebuild_settings); return
         pre = st.get('settings_pre')
         try:
-            if pre is not None and pre.winfo_exists(): return
+            if pre is not None and pre.winfo_exists():
+                if time.time() - st.get('settings_pre_t', 0) < 600: return
+                drop_settings('settings_pre')                 # old: build a fresh one
         except tk.TclError: pass
-        try: open_settings(show=False)
-        except Exception as e: log('settings prebuild: %r' % (e,))
+        try:
+            open_settings(show=False); st['settings_pre_t'] = time.time()
+        except Exception as e:
+            log('settings prebuild: %r' % (e,)); drop_settings('settings_pre')
 
     def open_settings(show=True):
         if show:
             pre = st.pop('settings_pre', None)                 # built earlier, out of sight: just show it
             try:
-                if pre is not None and pre.winfo_exists():
+                if pre is not None and pre.winfo_exists() and getattr(pre, 'built_ok', False):
                     st['settings_win'] = pre; reveal_settings(pre); return
             except tk.TclError: pass
         if st.get('settings_win') is not None:
@@ -8277,6 +8374,7 @@ def main():
             except tk.TclError: pass
             st['settings_win'] = None
         cfg = load_settings()
+        st_set = {}
         win = tk.Toplevel(root)
         if show: st['settings_win'] = win
         else: st['settings_pre'] = win
@@ -8308,8 +8406,14 @@ def main():
             if page.winfo_reqheight() > room: bar_.pack(side='right', fill='y')
             else: bar_.pack_forget()
         # once it is on screen the window keeps its size; only what there is to scroll changes
-        page.bind('<Configure>', lambda e: board_.configure(scrollregion=board_.bbox('all'))
-                  if win.winfo_ismapped() else fit_())
+        def page_moved(_e=None):
+            if not win.winfo_ismapped(): fit_(); return
+            # on screen the window keeps its size; if something grew past the bottom (more friends,
+            # a long mods report), the scroll bar comes so it can still be reached
+            board_.configure(scrollregion=board_.bbox('all'))
+            if page.winfo_reqheight() > board_.winfo_height() + 2:
+                if not bar_.winfo_manager(): bar_.pack(side='right', fill='y')
+        page.bind('<Configure>', page_moved)
         # smooth scrolling: the wheel sets how far to go, and the page glides there a few pixels a
         # frame instead of jumping a tenth of the page at a time
         board_.configure(yscrollincrement=1)
@@ -8458,7 +8562,6 @@ def main():
                 except tk.TclError: pass                       # the window was closed in the meantime
             try: root.after(0, say)
             except Exception: pass
-        threading.Thread(target=where_am_i, daemon=True).start()
 
         # Ash's position on the one question everyone asks. Near the top of Settings on purpose.
         outer = page
@@ -8605,7 +8708,12 @@ def main():
         lv_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
                           justify='left', wraplength=400)
         def lv_test():
-            merged = load_settings(); merged.update(collect()); save_settings(merged)
+            c_ = collect()
+            if c_.get('live_channel') and not discord_channel_link(c_['live_channel']):
+                lv_check(); lv_msg.config(text="The voice channel needs to be the channel's link first.", fg=REDC); return
+            if st.get('live_busy'):
+                lv_msg.config(text='Go Live is already running. Give it a moment.', fg=GOLDC); return
+            merged = load_settings(); merged.update(c_); save_settings(merged)
             lv_msg.config(text='Trying the Discord part only, no pause or chat...', fg=MUT)
             st['live_start'](False, lambda ok, why: lv_msg.config(
                 text=('Worked. You are live on Discord.' if ok else 'Did not work: ' + why),
@@ -8948,6 +9056,10 @@ def main():
             flat_button(gm_row, 'Open Godmode', open_cheats, fill=True).pack(side='left')
             def lock():
                 c_ = load_settings(); c_['godmode'] = False; save_settings(c_); gm_lock_box()
+                cw_ = st.pop('cheat_win', None)              # and the open panel goes too
+                if cw_ is not None:
+                    try: cw_.destroy()
+                    except tk.TclError: pass
             flat_button(gm_row, 'Lock it again', lock).pack(side='left', padx=(8, 0))
         def gm_lock_box():
             for w_ in gm_row.winfo_children(): w_.destroy()
@@ -9001,11 +9113,11 @@ def main():
         # God Mode: the UI mod this app is built around (it pins the resource bar and the Global
         # Queue, which the idle Town Center alert reads). The button opens its official mod page.
         section('Mods'); field('God Mode mod')
-        gm_row = tk.Frame(outer, bg=INK); gm_row.pack(fill='x', pady=(2, 0))
+        mods_row = tk.Frame(outer, bg=INK); mods_row.pack(fill='x', pady=(2, 0))
         gm_state, gm_text = god_mode_status()
-        flat_button(gm_row, 'Install God Mode' if gm_state == 'missing' else 'Open its mod page',
+        flat_button(mods_row, 'Install God Mode' if gm_state == 'missing' else 'Open its mod page',
                     open_god_mode_page, fill=gm_state == 'missing').pack(side='left')
-        tk.Label(gm_row, text=gm_text, fg=GREEN if gm_state == 'on' else GOLDC if gm_state == 'off' else REDC,
+        tk.Label(mods_row, text=gm_text, fg=GREEN if gm_state == 'on' else GOLDC if gm_state == 'off' else REDC,
                  bg=INK, font=F_SMALL, anchor='w').pack(side='left', padx=(10, 0))
 
         # Mod clashes: two enabled mods shipping the same file means only one does anything; this
@@ -9070,19 +9182,31 @@ def main():
             if c.get('live_channel') and not discord_channel_link(c['live_channel']):
                 lv_check(); msg.config(text="The Go Live voice channel needs to be the channel's link. "
                                             "See the note under it.", fg=REDC); return
-            merged = load_settings(); merged.update(c); save_settings(merged)
+            # Only what you changed here is written. Settings can sit built and hidden for a while,
+            # and anything set elsewhere in the meantime (admin, lock, build order) is kept.
+            merged = load_settings()
+            first_ = st_set.get('initial') or {}
+            for k_, v_ in c.items():
+                if k_ not in first_ or first_[k_] != v_ or k_ not in merged: merged[k_] = v_
+            save_settings(merged)
             tc_settings(); tc_draw()
             scorew.enabled = merged.get('concede_flag', True)
             close_win()
         def test():
             c = collect()
             if not c['webhook']: msg.config(text='Paste the webhook link first.', fg=REDC); return
-            try:
-                post_discord(c['webhook'], 'Test from %s. Invites will look like this:\n' % APP_NAME +
-                             invite_message('aoe2de://0/123456789', '123456789', discord_tags(dict(load_settings(), **c))))
-                msg.config(text='Sent a test message to #%s.' % (c['channel'] or 'discord'), fg=GREEN)
-            except Exception as e:
-                msg.config(text='Discord said no: %s' % e, fg=REDC)
+            msg.config(text='Sending a test message\u2026', fg=MUT)
+            body_ = ('Test from %s. Invites will look like this:\n' % APP_NAME +
+                     invite_message('aoe2de://0/123456789', '123456789', discord_tags(dict(load_settings(), **c))))
+            def work():                                  # off the main thread: Discord can be slow
+                try:
+                    post_discord(c['webhook'], body_)
+                    t_, col_ = 'Sent a test message to #%s.' % (c['channel'] or 'discord'), GREEN
+                except Exception as e:
+                    t_, col_ = 'Discord said no: %s' % e, REDC
+                try: root.after(0, lambda: msg.winfo_exists() and msg.config(text=t_, fg=col_))
+                except Exception: pass
+            threading.Thread(target=work, daemon=True).start()
         def close_win():
             st['settings_win'] = None; win.destroy()
             root.after(1500, prebuild_settings)          # the next one ready and waiting, with what was saved
@@ -9094,6 +9218,9 @@ def main():
         msg = tk.Label(foot, text='', fg='#b8b19f', bg=DEEP, font=F_SMALL, anchor='w',
                        justify='left', wraplength=400)
         msg.pack(fill='x', pady=(10, 0))
+        try: st_set['initial'] = collect()                # what the window showed when it was built
+        except Exception: pass
+        win.built_ok = True                               # all of it is there
         win.update_idletasks()
         # Side by side columns, as many as it takes for everything to fit on the screen, so there
         # is nothing to scroll (scrolling a page of controls smears on Windows). Only a screen too
@@ -9184,15 +9311,15 @@ def main():
             open_settings(); return                        # already open: bring it to the front
         if st.get('settings_shell') is not None: return    # on its way
         # the frame with a spinner straight away, then Settings drops into it
+        st['settings_shell'] = 'coming'                    # a second click meanwhile does nothing
         st['settings_shell'] = settings_shell()
         def go():
             try: open_settings()
             except Exception as e:
                 log('settings open: %r' % (e,))
-            sh_ = st.pop('settings_shell', None)            # if Settings never took its place
-            if sh_ is not None:
-                try: sh_.destroy()
-                except tk.TclError: pass
+                w_ = st.get('settings_win')                 # half built: take it away, so the gear works again
+                if w_ is not None and not getattr(w_, 'built_ok', False): drop_settings('settings_win')
+            drop_settings('settings_shell')                 # if Settings never took its place
         root.after(15, go)
     st['actions'][gear] = open_settings_soon
     root.after(4000, prebuild_settings)
@@ -9459,8 +9586,18 @@ def main():
         r1 = Rule(outer); r1.configure(bg=INK); r1.pack(fill='x', pady=(10, 0))
         btns = tk.Frame(outer, bg=INK); btns.pack(fill='x', pady=(10, 0))
         flat_button(btns, 'Close', close_win, accent=MUT, hot=TXT).pack(side='right')
-        flat_button(btns, 'Check results now', lambda: (threading.Thread(
-            target=lambda: (fill_results(me, force=True), root.after(0, build)), daemon=True).start())).pack(side='left')
+        def check_now():
+            if st.get('checking'): return
+            st['checking'] = True
+            def work():
+                try: fill_results(me, force=True)
+                except Exception as e: log('check results: %r' % (e,))
+                finally:
+                    st['checking'] = False
+                    try: root.after(0, refresh_stats_window)
+                    except Exception: pass
+            threading.Thread(target=work, daemon=True).start()
+        flat_button(btns, 'Check results now', check_now).pack(side='left')
         tk.Label(outer, text='Results come from your own online match history, so nothing is guessed: the game\'s '
                  'service first, then aoe2companion.com for older games. Games against the computer are '
                  'left out. R marks a ranked game, and the number beside it is what the game did to your rating.',
@@ -9534,6 +9671,10 @@ def main():
     def host(send_only=False):
         if st.get('hosting'):                              # the button reads Stop while running
             STOP.set(); host_msg.config(text='Stopping...'); return
+        if not waiting_now[0]:
+            # it clicks through the game's menus: never while a match is on screen
+            host_msg.config(text='The ranked invite works from the main menu, not during a game.', fg=MUT)
+            foot_fit(); return
         hide_admin()
         resume = 'send' if send_only else 'party'
         try: blocked = game_needs_admin()
@@ -9707,6 +9848,12 @@ def main():
         rel = newer_release()
         if not rel or (not FROZEN and find_publish()): return
         def take():
+            st['actions'].pop(host_msg, None)                     # one click only, and the line stops being a link
+            if st.get('updating'): return
+            if not waiting_now[0]:
+                host_msg.config(text='Update after this game: click here at the menu.', fg=MUT)
+                st['actions'][host_msg] = take; return
+            st['updating'] = True
             host_msg.config(text='Getting %s...' % rel['ver'], fg=MUT)
             def work():
                 try:
@@ -9716,12 +9863,14 @@ def main():
                     else:
                         ok_, text_, path_ = update_from_github('Prod')
                         if not path_:
+                            st['updating'] = False
                             root.after(0, lambda t=text_, c=(MUT if ok_ else REDC): host_msg.config(text=t, fg=c))
                             return
                         restart_app(path_)
                     root.after(0, lambda: (root.destroy(), os._exit(0)))
                 except Exception as e:
                     log('update from the bar: %r' % (e,))
+                    st['updating'] = False
                     root.after(0, lambda t='Could not update: %s' % e: host_msg.config(text=t, fg=REDC))
             threading.Thread(target=work, daemon=True).start()
         def show():
@@ -9736,6 +9885,8 @@ def main():
 
     def show_opponents(players):
         for w in opp_area.winfo_children(): w.destroy()
+        for w in [w for w in st['actions'] if not _alive(w)]:
+            st['actions'].pop(w, None)                 # clicks for widgets that no longer exist
         opp_area.grid_configure(pady=(0, 0))
         opp_area.config(width=1, height=1)         # an emptied frame keeps its old size unless told otherwise,
                                                    # which left the panel tall after a game
@@ -10013,11 +10164,15 @@ def main():
             log('showing the overlay: %r' % (e,))
 
     def fast():
-        wake_check()
-        refresh(); hover_fade(); foot_fit()
-        try: feudal_reminder(); castle_reminder()
-        except Exception as e: log('reminder: %r' % (e,))
-        root.after(500, fast)
+        try:
+            wake_check()
+            refresh(); hover_fade(); foot_fit()
+            try: feudal_reminder(); castle_reminder()
+            except Exception as e: log('reminder: %r' % (e,))
+        except Exception as e:
+            if not st.get('fast_err'): st['fast_err'] = 1; log('fast tick: %r' % (e,))
+        finally:
+            root.after(500, fast)
 
     def tick():
         try:
@@ -10042,6 +10197,11 @@ def main():
             elif f != st['last']:
                 try: lob = read_lobby(f)
                 except Exception as e_: lob = None; log('could not read the recording: %r' % (e_,))
+                fails_ = st.setdefault('read_fail', {})
+                if not lob and fails_.get(f, 0) < 6:
+                    # often just too early (the file is still empty): try again next tick
+                    fails_[f] = fails_.get(f, 0) + 1
+                    root.after(POLL_MS, tick); return
                 st['last'] = f
                 log('game seen: %s, %s' % (os.path.basename(f), ('%d players' % len(lob['players'])) if lob else 'settings unreadable'))
                 if lob:
@@ -10051,6 +10211,7 @@ def main():
                         if not bo['voice_at']: bo['voice_at'] = time.time()
                     else:
                         watcher.reset(); st['extra'] = 0; st['castle_note'] = False; st['feudal_note'] = False
+                        if st.get('rolled'): toggle_roll()          # a new game: open up again
                         bo_game_start(f)
                     game_started(f)
                     st['first'], st['herd'] = desc, herd
