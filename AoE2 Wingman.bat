@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v150'
+VERSION = 'v151'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -5103,6 +5103,7 @@ def civ_text(civ, strings, icons):
             lines.append(b if len(b) <= 80 else b[:79].rstrip() + '\u2026')
     shown = uu_counter(civ, strings, icons)[0]         # its first three counters are on the panel already
     for uu in unique_units(blurb):
+        if uu == shown: continue                       # already on its own line above, with what beats it
         strong, beat, maybe = uu_facts(uu, strings, icons) or ('', [], [])
         more = ((beat[3:] if uu == shown else beat) + maybe)[:3]
         strong = strong.split(';')[0].strip()
