@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v142'
+VERSION = 'v143'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -536,35 +536,74 @@ def build_step_at(steps, pop):
 
 # ---------------------------------------------------------------- the build order read out loud
 VOICE_START_S = 7       # seconds into a game before the first step is read out
-BO_LEAD_S = 16          # each step shows (and is read out) about this many seconds before you need it
 BO_DONE = 'Build order done. Now go kill your opponent.'
 # Windows' own speech, in one quiet PowerShell that stays open for the whole session and reads a
 # line at a time from Wingman, so each step is spoken straight away rather than after a slow start.
 # An Australian voice if Windows has one, then British, then whatever the default is.
 VOICE_PS = r"""
-Add-Type -AssemblyName System.Speech
-$s = New-Object System.Speech.Synthesis.SpeechSynthesizer
-try { $s.SetOutputToDefaultAudioDevice() } catch {}
-$v = @($s.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo })
-$pick = $null
-foreach ($c in 'en-AU', 'en-GB', 'en-US') {         # a natural sounding voice first, if one is installed
-  $pick = $v | Where-Object { $_.Culture.Name -eq $c -and $_.Name -match 'Natural|Neural|Online' } | Select-Object -First 1
-  if ($pick) { break }
+# Wingman's voice. Windows' newer voices (the ones the Narrator and Settings > Speech use) through
+# the WinRT speech engine; the older desktop voices if that is not there. Lines come in on stdin
+# and are read one after another, never cut off. '#voice:Name' picks a voice, '#list:path' writes
+# the voices there.
+$mode = 'sapi'
+try {
+  Add-Type -AssemblyName System.Runtime.WindowsRuntime
+  $null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer,Windows.Media.SpeechSynthesis,ContentType=WindowsRuntime]
+  $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
+      $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
+      $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0].MakeGenericMethod(
+      [Windows.Media.SpeechSynthesis.SpeechSynthesisStream])
+  $syn = New-Object Windows.Media.SpeechSynthesis.SpeechSynthesizer
+  $mode = 'winrt'
+} catch { [Console]::Error.WriteLine("winrt voice not available: $_") }
+if ($mode -eq 'sapi') {
+  Add-Type -AssemblyName System.Speech
+  $sp = New-Object System.Speech.Synthesis.SpeechSynthesizer
+  try { $sp.SetOutputToDefaultAudioDevice() } catch {}
 }
-if (-not $pick) {
-  foreach ($c in 'en-AU', 'en-GB', 'en-US') {
-    $pick = $v | Where-Object { $_.Culture.Name -eq $c } | Select-Object -First 1
-    if ($pick) { break }
+function Voices {
+  if ($mode -eq 'winrt') { return @([Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | ForEach-Object { "$($_.DisplayName)|$($_.Language)" }) }
+  return @($sp.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { "$($_.VoiceInfo.Name)|$($_.VoiceInfo.Culture.Name)" })
+}
+function Pick($want) {
+  $all = Voices
+  $hit = $null
+  if ($want) { $hit = $all | Where-Object { $_.Split('|')[0] -eq $want } | Select-Object -First 1 }
+  if (-not $hit) {
+    foreach ($c in 'en-AU', 'en-GB', 'en-US') {
+      $hit = $all | Where-Object { $_.Split('|')[1] -eq $c -and $_ -match 'Natural|Neural' } | Select-Object -First 1
+      if ($hit) { break }
+    }
   }
+  if (-not $hit) {
+    foreach ($c in 'en-AU', 'en-GB', 'en-US') {
+      $hit = $all | Where-Object { $_.Split('|')[1] -eq $c } | Select-Object -First 1
+      if ($hit) { break }
+    }
+  }
+  if (-not $hit) { return }
+  $name = $hit.Split('|')[0]
+  try {
+    if ($mode -eq 'winrt') { $syn.Voice = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | Where-Object { $_.DisplayName -eq $name } | Select-Object -First 1 }
+    else { $sp.SelectVoice($name) }
+    [Console]::Error.WriteLine("voice: $name ($mode)")
+  } catch { [Console]::Error.WriteLine("could not pick $name : $_") }
 }
-if ($pick) { try { $s.SelectVoice($pick.Name) } catch {} }
-$s.Rate = 0
-$s.Volume = 100
+function Say($t) {
+  if ($mode -eq 'winrt') {
+    $st = $asTask.Invoke($null, @($syn.SynthesizeTextToStreamAsync($t))).Result
+    $ns = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($st)
+    $pl = New-Object System.Media.SoundPlayer($ns)
+    $pl.PlaySync(); $pl.Dispose(); $ns.Dispose(); $st.Dispose()
+  } else { $sp.Speak($t) }
+}
+Pick $env:WINGMAN_VOICE
 while ($true) {
   $l = [Console]::In.ReadLine()
   if ($l -eq $null) { break }
-  $s.SpeakAsyncCancelAll()
-  if ($l.Trim()) { [void]$s.SpeakAsync($l) }
+  if ($l.StartsWith('#voice:')) { Pick $l.Substring(7); continue }
+  if ($l.StartsWith('#list:')) { try { Voices | Set-Content -Path $l.Substring(6) -Encoding UTF8 } catch {}; continue }
+  if ($l.Trim()) { try { Say $l } catch { [Console]::Error.WriteLine("say failed: $_") } }
 }
 """
 
@@ -585,39 +624,68 @@ def spoken_step(text):
     return t.strip()
 
 class Voice:
-    """Says one line at a time. A new line cuts off the one before, so it never falls behind."""
+    """Reads lines out one after another, in order, never cutting one off. One quiet PowerShell for
+    the whole session; it comes back by itself if it ever stops."""
+    VOICE_LOG = os.path.join(GAMES if os.path.isdir(GAMES) else tempfile.gettempdir(), 'wingman_voice.log')
     def __init__(self):
+        import queue
         self.p = None
-        self.lock = threading.Lock()
+        self.q = queue.Queue()
+        self.worker = None
     def _start(self):
         import subprocess, base64
         ps = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'WindowsPowerShell',
                           'v1.0', 'powershell.exe')
         if not os.path.exists(ps): ps = 'powershell'
         enc = base64.b64encode(VOICE_PS.encode('utf-16-le')).decode('ascii')
+        env = clean_env(); env['WINGMAN_VOICE'] = str(load_settings().get('voice_name') or '')
+        try: err = open(self.VOICE_LOG, 'w', encoding='utf-8')
+        except OSError: err = subprocess.DEVNULL
         self.p = subprocess.Popen([ps, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
                                    '-EncodedCommand', enc], stdin=subprocess.PIPE,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                  creationflags=0x08000000, env=clean_env())
-    def _send(self, line):
-        with self.lock:
+                                  stdout=subprocess.DEVNULL, stderr=err,
+                                  creationflags=0x08000000, env=env)
+        log('voice: started')
+    def _run(self):
+        while True:
+            line = self.q.get()
             for _ in range(2):
                 try:
                     if self.p is None or self.p.poll() is not None: self._start()
-                    if line is None: return                    # just warming up
-                    self.p.stdin.write((line + '\n').encode('ascii', 'replace'))
-                    self.p.stdin.flush()
-                    return
+                    if line is not None:
+                        self.p.stdin.write((line + '\n').encode('ascii', 'replace')); self.p.stdin.flush()
+                    break
                 except Exception as e:
                     log('voice: %r' % (e,)); self.p = None
+    def _put(self, line):
+        if self.worker is None or not self.worker.is_alive():
+            self.worker = threading.Thread(target=self._run, daemon=True); self.worker.start()
+        self.q.put(line)
     def say(self, text):
         line = re.sub(r'\s+', ' ', str(text or '')).strip()
-        threading.Thread(target=self._send, args=(line,), daemon=True).start()
+        if line: self._put(line)
     def warm(self):
         """Start the speech engine ahead of time, so the first line is not late."""
-        threading.Thread(target=self._send, args=(None,), daemon=True).start()
+        self._put(None)
     def stop(self):
-        if self.p is not None: self.say('')
+        pass                                   # lines are short; the one being read just finishes
+    def set_voice(self, name):
+        self._put('#voice:' + (name or ''))
+    def voices(self, wait=8.0):
+        """[(name, language)] of the voices this PC has, or [] if they could not be read."""
+        path = os.path.join(tempfile.gettempdir(), 'wingman_voices.txt')
+        try: os.remove(path)
+        except OSError: pass
+        self._put('#list:' + path)
+        end = time.time() + wait
+        while time.time() < end:
+            time.sleep(0.2)
+            try:
+                rows = [l_.strip().lstrip('\ufeff') for l_ in open(path, encoding='utf-8-sig') if '|' in l_]
+                if rows: return [tuple(r_.split('|', 1)) for r_ in rows]
+            except OSError:
+                continue
+        return []
 
 VOICE = Voice()
 
@@ -6313,7 +6381,8 @@ def main():
     # the build order strip: one step at a time, because mid game you have no time for a list
     # i is where your pop says you are (live); view is a step you clicked to look at, None for live
     bo = {'name': None, 'i': 0, 'view': None, 'pop': 0, 'hidden': False, 'voice': False, 'said': -1,
-          'voice_at': None, 'game_t': 0, 'pop_t': 0, 'done': False, 'done_t': 0, 'said_done': False}
+          'voice_at': None, 'game_t': 0, 'pop_t': 0, 'done': False, 'done_t': 0, 'said_done': False,
+          'said_set': set()}
     BO_WRAP = 260                               # the narrowest the strip wraps to
     bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=5)
     bo_box.grid(row=3, column=0, columnspan=4, sticky='we', pady=(6, 0)); bo_box.grid_remove()
@@ -6473,7 +6542,7 @@ def main():
 
     def bo_pick(name):
         bo['name'] = name or None
-        bo['i'] = 0; bo['pop'] = 0; bo['said'] = -1; bo['view'] = None
+        bo['i'] = 0; bo['pop'] = 0; bo['said_set'] = set(); bo['view'] = None
         bo['done'] = False; bo['done_t'] = 0; bo['said_done'] = False
         if bo['name']: bo['hidden'] = False
         cfg_ = load_settings(); cfg_['build_order'] = bo['name'] or ''
@@ -6583,9 +6652,7 @@ def main():
         are not there yet ('POP 7 \u203a 8'). Without a reading it falls back to the step's own pop."""
         lo, span = bo.get('span') or (0, '')
         p_ = bo['pop'] if (bo['pop'] and time.time() - getattr(tcw, 'pop_t', 0) < 20) else 0
-        if p_ and p_ < lo: t_ = 'POP %d \u203a %d' % (p_, lo)
-        elif p_: t_ = 'POP %d' % p_
-        else: t_ = 'POP %s' % span
+        t_ = ('POP %d' % p_) if p_ else ('POP %s' % span)      # your pop, as the game shows it
         kw = {'text': t_}
         if fg: kw['fg'] = fg
         if bo_at.cget('text') != t_ or fg: bo_at.config(**kw)
@@ -6611,11 +6678,9 @@ def main():
                 try: bo_pop_text()
                 except Exception: pass
         if bo['done']: return                                # finished: stays that way until the next game
-        # A villager takes 25 game seconds. Move on to the next step about BO_LEAD_S before the
-        # next one comes out, so there is time to read it and get ready.
-        spd = getattr(tcw, 'speed', 1.7) or 1.7
-        ahead = 1 if now - bo['pop_t'] >= max(0.0, 25.0 / spd - BO_LEAD_S) else 0
-        i = build_step_at(steps, pop + ahead)
+        # The strip shows the step for the pop you are on, straight off your pop counter. The
+        # heads-up for the next one is the voice's job (bo_voice_tick) and the NEXT line's.
+        i = build_step_at(steps, pop)
         if i > bo['i']:
             bo['i'] = i; bo['view'] = None; bo_draw()      # ticked over: back to live
             if i == len(steps) - 1 and not bo['done_t']: bo['done_t'] = now
@@ -6630,7 +6695,7 @@ def main():
         cfg_ = load_settings(); cfg_['build_voice'] = bo['voice']; save_settings(cfg_)
         bo_voice_draw()
         if not on: VOICE.stop(); return
-        bo['said'] = -1                                   # say the step you are on now
+        bo['said_set'] = set()                                   # say the step you are on now
         if waiting_now[0] or not bo['voice_at'] or time.time() < bo['voice_at']:
             VOICE.say('Voice on')                          # so you know the sound works
 
@@ -6644,10 +6709,18 @@ def main():
         if bo['done']:
             if not bo['said_done']: bo['said_done'] = True; VOICE.say(BO_DONE)
             return
-        i = max(0, min(bo['i'], len(found[2]) - 1))
-        if i == bo['said']: return
-        bo['said'] = i
-        VOICE.say(spoken_step(found[2][i][2]))
+        steps = found[2]
+        said = bo.setdefault('said_set', set())
+        i = max(0, min(bo['i'], len(steps) - 1))
+        if i not in said:                                  # reached it without a heads-up: say it now
+            said.add(i); VOICE.say(spoken_step(steps[i][2])); return
+        # The heads-up: the moment your pop reaches the one before the next step, the Town Centre
+        # starts training the villager that step is for. That is when it is read out: pop 7, the
+        # 8th villager starts training, you hear 'Send 2 to wood' (a villager takes 25 game seconds,
+        # about 15 real ones, so this lands well before you need it).
+        n_ = i + 1
+        if n_ < len(steps) and n_ not in said and bo['pop'] and steps[n_][0] == bo['pop'] + 1:
+            said.add(n_); VOICE.say(spoken_step(steps[n_][2]))
 
     def bo_fresh(at=None, force=False):
         """Back to the first step for a new game. Called by the recording turning up and by the loading
@@ -6657,7 +6730,7 @@ def main():
             if at and not bo['voice_at']: bo['voice_at'] = at
             return
         bo['game_t'] = now
-        bo['i'] = 0; bo['pop'] = 0; bo['said'] = -1; bo['view'] = None; bo['voice_at'] = at
+        bo['i'] = 0; bo['pop'] = 0; bo['said_set'] = set(); bo['view'] = None; bo['voice_at'] = at
         bo['done'] = False; bo['done_t'] = 0; bo['said_done'] = False; bo['pop_t'] = now
         if bo['voice'] and bo['name']: VOICE.warm()
         try: bo_draw()
@@ -8333,6 +8406,38 @@ def main():
         Check(outer, text='Fill in older results from aoe2companion.com', variable=cr_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
+        # the build order's voice: pick any voice Windows has, and hear it straight away
+        vo_row = tk.Frame(outer, bg=INK); vo_row.pack(fill='x', pady=(10, 0))
+        vo_lab = tk.Label(vo_row, text='Build order voice: %s' % (cfg.get('voice_name') or 'automatic'),
+                          fg=MUT, bg=INK, font=F_SMALL, anchor='w')
+        vo_lab.pack(side='left')
+        def vo_pick():
+            vo_lab.config(text='Build order voice: looking...')
+            def work():
+                got = VOICE.voices()
+                def show():
+                    try:
+                        vo_lab.config(text='Build order voice: %s' % (load_settings().get('voice_name') or 'automatic'))
+                        if not got:
+                            vo_lab.config(text="Build order voice: couldn't list the voices on this PC"); return
+                        eng = sorted([g for g in got if g[1].lower().startswith('en')], key=lambda g: (g[1] != 'en-AU', g[0]))
+                        rest = sorted([g for g in got if g not in eng])
+                        m_ = tk.Menu(win, tearoff=0, bg=INK, fg=TXT, activebackground=PANEL, activeforeground=GOLDD, bd=0)
+                        def choose(nm):
+                            c_ = load_settings(); c_['voice_name'] = nm; save_settings(c_)
+                            VOICE.set_voice(nm); VOICE.say('Send 6 to sheep')
+                            vo_lab.config(text='Build order voice: %s' % (nm or 'automatic'))
+                        m_.add_command(label='Automatic (an Australian voice if there is one)', command=lambda: choose(''))
+                        for nm, lang in eng + rest:
+                            m_.add_command(label='%s  (%s)' % (nm, lang), command=lambda n_=nm: choose(n_))
+                        m_.tk_popup(win.winfo_pointerx(), win.winfo_pointery())
+                        m_.grab_release()
+                    except tk.TclError: pass
+                try: win.after(0, show)
+                except Exception: pass
+            threading.Thread(target=work, daemon=True).start()
+        flat_button(vo_row, 'Change voice', vo_pick).pack(side='right')
 
         # the recorded games pile up; moving the old ones aside keeps the game's list and Wingman quick
         rc_row = tk.Frame(outer, bg=INK); rc_row.pack(fill='x', pady=(10, 0))
