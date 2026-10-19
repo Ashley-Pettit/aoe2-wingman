@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v180'
+VERSION = 'v181'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -2835,6 +2835,7 @@ def latest_release(fresh=False):
     """The newest public release: {'ver': 'v115', 'exe': url, 'bat': url, 'page': url}, or None."""
     if not fresh and _REL.get('t', 0) > time.time() - 600: return _REL.get('rel')
     rel = None
+    _REL['err'] = False
     try:
         import urllib.request
         req = urllib.request.Request(RELEASES_API, headers={'User-Agent': 'AoE2-Wingman',
@@ -2856,6 +2857,13 @@ def latest_release(fresh=False):
                    'page': d.get('html_url')}
     except Exception as e:
         log('release check: %r' % (e,))
+        # GitHub only answers 60 of these an hour per home connection (lots of restarts in a night of
+        # testing uses that up). The plain release page isn't limited, so ask that instead.
+        try:
+            rel = latest_release_page()
+            if rel: log('release check: from the release page instead: %s' % rel['ver'])
+        except Exception as e2:
+            log('release check (page): %r' % (e2,)); _REL['err'] = True
         if FROZEN and not _REL.get('traced'):           # once: where it broke, to fix the exe build by
             _REL['traced'] = True
             try:
@@ -2865,6 +2873,22 @@ def latest_release(fresh=False):
             except Exception: pass
     _REL.update(t=time.time(), rel=rel)
     return rel
+
+def latest_release_page():
+    """The newest release with its Wingman.exe up, from github.com itself rather than the rate-limited API.
+    releases/latest redirects to the newest tag's page; then check the exe is there yet."""
+    import urllib.request
+    hdr = {'User-Agent': 'AoE2-Wingman'}
+    r = urllib.request.urlopen(urllib.request.Request('https://github.com/%s/releases/latest' % REPO, headers=hdr), timeout=15)
+    tag = r.geturl().rstrip('/').rsplit('/', 1)[-1]
+    if not ver_num(tag): return None
+    exe = 'https://github.com/%s/releases/download/%s/Wingman.exe' % (REPO, tag)
+    try:
+        urllib.request.urlopen(urllib.request.Request(exe, headers=hdr, method='HEAD'), timeout=15)
+    except Exception:
+        return None                                         # the release is there, the exe isn't yet
+    return {'ver': 'v%d' % ver_num(tag), 'tag': tag, 'exe': exe, 'bat': None,
+            'page': 'https://github.com/%s/releases/tag/%s' % (REPO, tag)}
 
 def newer_release():
     """The release if it is newer than this copy, else None."""
@@ -9150,7 +9174,9 @@ def main():
                 try:
                     if branch == 'exe':
                         rel = latest_release(fresh=True)
-                        if not rel or not rel.get('exe'):
+                        if not rel and _REL.get('err'):
+                            ok_, text_ = False, "Couldn't reach GitHub. Try again in a bit."
+                        elif not rel or not rel.get('exe'):
                             ok_, text_ = False, 'Still building. Try again soon.'
                         elif ver_num(rel['ver']) <= ver_num(VERSION):
                             ok_, text_ = True, 'Up to date'
