@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v169'
+VERSION = 'v170'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7755,14 +7755,43 @@ def main():
                     seen['few'] += 1
                     if seen['few'] == 3: log('tc ring: only %d pixels in your colour %s on the minimap so far' % (int(m.sum()), col))
                     continue
-                ys_, xs_ = np.nonzero(m)
-                px, py = float(np.median(xs_)), float(np.median(ys_))          # the middle of your start
+                # The map itself, off the screen rather than the layout file: everything you have not
+                # explored is pure black, so the black diamond's far corners are the map's corners.
+                blk = bgr.max(axis=2) < 14
+                how = 'layout'
+                if int(blk.sum()) > 2000:
+                    bys, bxs = np.nonzero(blk)
+                    x0_, x1_ = np.percentile(bxs, [0.1, 99.9]); y0_, y1_ = np.percentile(bys, [0.1, 99.9])
+                    a2, b2 = (x1_ - x0_) / 2.0, (y1_ - y0_) / 2.0
+                    if a2 > 0.6 * a and 1.6 < a2 / max(b2, 1) < 2.4:
+                        cx, cy, a, b = (x0_ + x1_) / 2.0, (y0_ + y1_) / 2.0, a2, b2
+                        how = 'screen'
+                # Your Town Centre: the biggest solid block of your colour (a TC is the largest building,
+                # and the villagers, sheep and scout round it are single dots).
+                wx, wy = max(3, int(a / 18)), max(2, int(b / 18))
+                ii = np.pad(m.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+                box_sum = ii[wy:, wx:] - ii[:-wy, wx:] - ii[wy:, :-wx] + ii[:-wy, :-wx]
+                ty, tx = np.unravel_index(int(box_sum.argmax()), box_sum.shape)
+                sub = m[ty:ty + wy, tx:tx + wx]
+                sy_, sx_ = np.nonzero(sub)
+                px, py = float(tx + sx_.mean()), float(ty + sy_.mean())
                 k = ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2
                 k = k ** 0.5
+                try:                                             # a picture of what it saw, to check it by
+                    from PIL import Image, ImageDraw
+                    im_ = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1].astype(np.uint8)))
+                    d_ = ImageDraw.Draw(im_)
+                    d_.ellipse((cx - a * k, cy - b * k, cx + a * k, cy + b * k), outline=(242, 226, 168))
+                    d_.polygon([(cx - a, cy), (cx, cy - b), (cx + a, cy), (cx, cy + b)], outline=(80, 160, 255))
+                    d_.rectangle((px - 3, py - 3, px + 3, py + 3), outline=(255, 0, 255))
+                    os.makedirs(TC_DEBUG, exist_ok=True)
+                    im_.resize((im_.width * 2, im_.height * 2)).save(os.path.join(TC_DEBUG, 'tc_ring.png'))
+                except Exception as e:
+                    log('tc ring picture: %r' % (e,))
                 if k < 0.2:
                     log('tc ring: your start is near the middle of the map, so no ring'); return
-                log('tc ring: your start at %d,%d of the minimap (box %d,%d %dx%d), ring %.2f of the way out'
-                    % (px, py, x + bx, y + by, bw, bh, k))
+                log('tc ring: your TC at %d,%d of the minimap (box %d,%d %dx%d, map from the %s %d,%d %dx%d), ring %.2f of the way out'
+                    % (px, py, x + bx, y + by, bw, bh, how, cx, cy, a, b, k))
                 def put():
                     if st.get('last') == game and load_settings().get('tc_orbit'):
                         orbit_show((x + bx, y + by, bw, bh), cx, cy, a, b, k)
@@ -7779,10 +7808,13 @@ def main():
             w_ = orbit.get('win')
             if not load_settings_cached().get('tc_orbit'): orbit['done'] = None    # switched on again later: look again
             if (w_ is None and st.get('last') and tcw.active and st.get('my_colour') is not None
+                    and tcw.game_minutes(time.time()) < 12
                     and load_settings_cached().get('tc_orbit') and orbit.get('searching') != st['last']
                     and orbit.get('done') != st['last']):
                 orbit['searching'] = orbit['done'] = st['last']   # one search per game (or per switching it on)
                 threading.Thread(target=orbit_find, args=(st['my_colour'], st['last']), daemon=True).start()
+            if w_ is not None and tcw.active and tcw.game_minutes(time.time()) >= 12:
+                log('tc ring: 12 minutes in, so it goes'); orbit_off(); w_ = None   # done == this game: not again
             if w_ is not None:
                 if st.get('last') != orbit.get('game') or not load_settings_cached().get('tc_orbit'):
                     if not load_settings_cached().get('tc_orbit'): orbit['done'] = None   # on again: look again
