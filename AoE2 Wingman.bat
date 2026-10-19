@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v167'
+VERSION = 'v168'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -640,6 +640,70 @@ while ($true) {
   if ($l.Trim()) { try { Say $l } catch { [Console]::Error.WriteLine("say failed: $_") } }
 }
 """
+
+def replay_stats(path, stop_at=None):
+    """What each player did, read from the game's own recording after it is over: when they clicked
+    each age, villagers queued, how many actions a minute, and when they resigned. The body of a
+    recording is a list of every command each player gave, with the game clock between them.
+    (The layout follows the open source aoc-mgz reader by happyleavesaoc, MIT licence.)"""
+    import io as _io
+    with open(path, 'rb') as fh: d = fh.read()
+    hl = struct.unpack_from('<I', d, 0)[0]
+    b = _io.BytesIO(d[hl:])
+    first, = struct.unpack('<I', b.read(4))
+    if first != 500: b.read(4)
+    b.read(20)
+    a, bb, _ = struct.unpack('<III', b.read(12))
+    if a != 0: b.seek(-12, 1)
+    if bb == 2: b.seek(-8, 1)
+    t = 0; out = {}
+    AGES = {101: 'feudal', 102: 'castle', 103: 'imperial'}
+    def pl(pid):
+        return out.setdefault(pid, {'acts': 0, 'feudal': None, 'castle': None, 'imperial': None,
+                                    'vils': 0, 'resign': None})
+    while True:
+        raw = b.read(4)
+        if len(raw) < 4: break
+        op, = struct.unpack('<I', raw)
+        try:
+            if op == 1:                                   # a command
+                length, = struct.unpack('<I', b.read(4))
+                aid = b.read(1)[0]
+                ab = b.read(length - 1); b.read(4)
+                if aid == 255: break                      # the post game block: the end
+                if len(ab) < 3: continue
+                pid, ln = struct.unpack_from('<bh', ab, 0)
+                if len(ab) != ln + 3: continue            # an older layout: not a recent game
+                if not 1 <= pid <= 8: continue
+                p = pl(pid); p['acts'] += 1
+                if aid == 101:                            # research
+                    tech = struct.unpack_from('<Ihh', ab, 3)[2]
+                    if tech in AGES and p[AGES[tech]] is None: p[AGES[tech]] = t / 1000.0
+                elif aid == 129:                          # queue a unit
+                    sel, btype, unit, amount = struct.unpack_from('<h4xhhh', ab, 3)
+                    if unit in (83, 293): p['vils'] += amount
+                elif aid == 11 and p['resign'] is None:
+                    p['resign'] = t / 1000.0
+            elif op == 2:                                 # the clock moves on
+                inc, marker = struct.unpack('<II', b.read(8))
+                if marker:
+                    b.seek(-4, 1)
+                else:
+                    chk, is_de = struct.unpack('<4xI4xI', b.read(16))
+                    if not is_de: b.read(8)
+                    else: b.seek(-16, 1); b.read(4 * 8 * 11 + 4)
+                t += inc
+                if stop_at and t / 1000.0 > stop_at: break
+            elif op == 3: b.read(12)                      # view lock
+            elif op == 4:                                 # chat
+                _, ln = struct.unpack('<II', b.read(8)); b.read(ln)
+            else:
+                break
+        except (struct.error, IndexError):
+            break
+    for p in out.values():
+        p['apm'] = round(p['acts'] / max(1.0, t / 60000.0))
+    return {'length': t / 1000.0, 'players': out}
 
 def spoken_step(text):
     """A build step as something to say: '6 to sheep' becomes 'Send 6 to sheep',
@@ -7043,6 +7107,33 @@ def main():
         sp_.append((tip, GOLDD))
         return sp_
 
+    def an_replay_lines(rec, me_num, opps):
+        """From the recording itself, now the game is over: when each of you clicked up, and how busy
+        your hands were. Same file the analysis websites read, so the numbers are the game's own."""
+        if not rec or not me_num: return []
+        r_ = replay_stats(rec)
+        ps = r_['players']
+        if me_num not in ps: return []
+        out = []
+        short = lambda n: n if len(n) <= 12 else n[:11] + '\u2026'
+        for key, label in (('feudal', 'Feudal'), ('castle', 'Castle'), ('imperial', 'Imperial')):
+            mine_t = ps[me_num].get(key)
+            theirs = [(nm, ps.get(num, {}).get(key)) for nm, num in opps[:3]]
+            if mine_t is None and not any(t for _, t in theirs): continue
+            bits = ['you %s' % (mmss(mine_t) if mine_t is not None else 'never')]
+            bits += ['%s %s' % (short(nm), mmss(t) if t is not None else 'never') for nm, t in theirs]
+            out.append(('%s clicked: %s.' % (label, ', '.join(bits)), TXT))
+        apm = ['you %d' % ps[me_num]['apm']] + ['%s %d' % (short(nm), ps[num]['apm']) for nm, num in opps[:3] if num in ps]
+        out.append(('Actions a minute: %s.' % ', '.join(apm), TXT))
+        return out
+
+    def an_render(lines_):
+        for w in card_an.winfo_children(): w.destroy()
+        for t_, col_ in lines_:
+            l_ = tk.Label(card_an, text=t_, fg=col_, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
+                          wraplength=PANEL_W - 30)
+            l_.pack(fill='x', anchor='w', pady=(1, 0)); bind_all(l_); st['actions'][l_] = hide_card
+
     def an_finish():
         """The game is over: put the notes on the card, at the menu."""
         if not an or not an.get('t0'): return
@@ -7053,8 +7144,22 @@ def main():
         try: lines_ = an_lines()
         except Exception as e:
             log('post game: %r' % (e,)); an.clear(); return
+        rec_, me_, opps_ = an.get('rec'), an.get('me_num'), list(an.get('opps') or [])
         an.clear()
         log('post game: %s' % ' | '.join(t for t, _ in lines_))
+        def more():                                           # the recording, read off the main thread
+            time.sleep(3)                                     # the game finishes writing it first
+            try: extra = an_replay_lines(rec_, me_, opps_)
+            except Exception as e:
+                log('post game, recording: %r' % (e,)); return
+            if not extra: return
+            log('post game, recording: %s' % ' | '.join(t for t, _ in extra))
+            def show():
+                if st.get('last') is not None or not card_an.winfo_children(): return   # a new game, or closed
+                calm(an_render)(extra + lines_)
+            try: root.after(0, show)
+            except Exception: pass
+        threading.Thread(target=more, daemon=True).start()
         for w in card_an.winfo_children(): w.destroy()
         for t_, col_ in lines_:
             l_ = tk.Label(card_an, text=t_, fg=col_, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
@@ -7574,6 +7679,104 @@ def main():
     def score_off():
         scorew.active = False
         score_line.config(text=''); score_line.grid_remove()
+
+    # ---- beta: where their Town Centre could be, as a ring on your minimap
+    # On the usual maps every player starts the same distance from the middle of the map. So once
+    # your own Town Centre is on the minimap (it is, from the first second), a ring through it round
+    # the middle of the map shows every spot their Town Centre could be. Nothing about them is read:
+    # only your own start and the shape of the map, which you already know. Like the TC Map Orbit mod.
+    orbit = {'win': None, 'game': None, 'box': None}
+    ORBIT_KEY = '#010203'
+    def orbit_off():
+        w_ = orbit.get('win'); orbit['win'] = None; orbit['game'] = None
+        if w_ is not None:
+            try: w_.destroy()
+            except tk.TclError: pass
+    def orbit_show(box, cx, cy, a, b, k):
+        """Draw the ring: an ellipse on the minimap's diamond, through your Town Centre."""
+        orbit_off()
+        bx, by, bw, bh = box
+        try:
+            w_ = tk.Toplevel(root); w_.overrideredirect(True); w_.attributes('-topmost', True)
+            try: w_.attributes('-transparentcolor', ORBIT_KEY)
+            except tk.TclError: w_.destroy(); return
+            w_.geometry('%dx%d+%d+%d' % (bw, bh, bx, by))
+            c_ = tk.Canvas(w_, width=bw, height=bh, bg=ORBIT_KEY, highlightthickness=0); c_.pack()
+            ra, rb = a * k, b * k
+            c_.create_oval(cx - ra, cy - rb, cx + ra, cy + rb, outline='#1a1206', width=4)      # a dark edge so it reads on any ground
+            c_.create_oval(cx - ra, cy - rb, cx + ra, cy + rb, outline='#f2e2a8', width=2, dash=(7, 5))
+            w_.update_idletasks()
+            try:
+                import ctypes
+                u_ = ctypes.windll.user32
+                h_ = u_.GetParent(w_.winfo_id()) or w_.winfo_id()
+                u_.SetWindowLongW(h_, -20, u_.GetWindowLongW(h_, -20) | 0x20 | 0x80 | 0x08000000 | 0x80000)
+                u_.SetWindowDisplayAffinity(h_, 0x11)       # never in Wingman's own minimap reads, or a stream
+            except Exception:
+                pass
+            orbit['win'] = w_; orbit['game'] = st.get('last')
+        except tk.TclError:
+            pass
+    def orbit_find(colour_idx, game):
+        """Off the main thread: find your own colour on the minimap a few seconds in (your Town
+        Centre, villagers and scout are all still round it), and work out the ring."""
+        try:
+            if not ensure_numpy(): return
+            import numpy as np
+            col = minimap_colours().get(colour_idx)
+            if not col: log('tc ring: no minimap colour for you'); return
+            grab = _grabber()
+            for attempt in range(20):
+                time.sleep(3)
+                if st.get('last') != game: return               # that game is over
+                h_ = find_game_window()
+                if not h_ or _win()[2].GetForegroundWindow() != h_: continue
+                x, y, w, hh = client_rect(h_)
+                box = minimap_rect(w, hh)
+                if not box: log('tc ring: could not find the minimap'); return
+                bx, by, bw, bh = box
+                PAD = 0.06
+                cx, cy = bw / 2.0, bh / 2.0
+                a, b = bw / (2 * (1 + 2 * PAD)), bh / (2 * (1 + 2 * PAD))
+                raw, gw, gh = grab((x + bx, y + by, bw, bh, 1))
+                bgr = np.frombuffer(raw, dtype=np.uint8).reshape(gh, gw, 4)[:, :, :3].astype(np.int16)
+                m = (np.abs(bgr - np.array([col[2], col[1], col[0]], dtype=np.int16)).sum(axis=2) <= 34)
+                ys, xs = np.mgrid[0:gh, 0:gw]
+                m &= (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 0.97       # inside the map, not beside it
+                if int(m.sum()) < 8: continue
+                ys_, xs_ = np.nonzero(m)
+                px, py = float(np.median(xs_)), float(np.median(ys_))          # the middle of your start
+                k = ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2
+                k = k ** 0.5
+                if k < 0.2:
+                    log('tc ring: your start is near the middle of the map, so no ring'); return
+                log('tc ring: your start at %d,%d of the minimap, ring %.2f of the way out' % (px, py, k))
+                root.after(0, lambda: st.get('last') == game and load_settings().get('tc_orbit') and
+                           orbit_show((x + bx, y + by, bw, bh), cx, cy, a, b, k))
+                return
+            log('tc ring: never saw your start on the minimap')
+        except Exception as e:
+            log('tc ring: %r' % (e,))
+    def orbit_tick():
+        """Only over the game: hidden whenever something else is in front, gone when the game ends."""
+        try:
+            w_ = orbit.get('win')
+            if w_ is not None:
+                if st.get('last') != orbit.get('game') or not load_settings_cached().get('tc_orbit'):
+                    orbit_off()
+                else:
+                    h_ = find_game_window()
+                    front = bool(h_) and _win()[2].GetForegroundWindow() == h_
+                    if front and not w_.winfo_viewable(): w_.deiconify(); w_.lift()
+                    elif not front and w_.winfo_viewable(): w_.withdraw()
+        except Exception:
+            pass
+        root.after(700, orbit_tick)
+    _SETC = {'t': 0, 'c': {}}
+    def load_settings_cached():
+        if time.time() - _SETC['t'] > 3: _SETC['c'], _SETC['t'] = load_settings(), time.time()
+        return _SETC['c']
+    root.after(2000, orbit_tick)
 
     def ping_at(x, y, colour):
         """A ring drawn on the screen over the spot on your minimap where the opponent turned up.
@@ -9062,12 +9265,20 @@ def main():
 
         field('Opponent spotted')
         sc_on = tk.BooleanVar(value=cfg.get('scout_callout', False))
+        orb_on = tk.BooleanVar(value=cfg.get('tc_orbit', False))
         sp_on = tk.BooleanVar(value=cfg.get('scout_ping', True))
         for var, txt in ((sc_on, "Call out opponents ('Red found')"),
                          (sp_on, 'Ring the spot on the minimap as well')):
             Check(outer, text=txt, variable=var, fg=TXT, bg=INK,
                            selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                            font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        field('Beta')
+        Check(outer, text="Ring on the minimap where their TC could be", variable=orb_on, fg=TXT, bg=INK,
+              selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+              font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        tk.Label(outer, text='Players start the same distance from the middle of the map, so a ring through '
+                             'your own TC shows where theirs could be. Being tested: it may be off on odd maps.',
+                 fg=FAINT, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=400).pack(fill='x', pady=(2, 0))
         voice_row = tk.Frame(outer, bg=INK); voice_row.pack(fill='x', pady=(4, 0))
         voice_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_TINY, anchor='w',
                              justify='left', wraplength=400)
@@ -9284,7 +9495,7 @@ def main():
             hb, hg, h20 = house_cfg()
             return {'house_bands': hb, 'house_grace': hg, 'house_cap20': h20,
                     'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(),
-                    'tc_alert': bool(tc_on.get()), 'scout_callout': bool(sc_on.get()),
+                    'tc_alert': bool(tc_on.get()), 'scout_callout': bool(sc_on.get()), 'tc_orbit': bool(orb_on.get()),
                     'scout_ping': bool(sp_on.get()),
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
                     'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
@@ -10355,9 +10566,17 @@ def main():
                     except OSError: began = None
                     tcw.reset(civ_name(mine_p['civ'], strings) if mine_p else None, began)
                     tc['snooze'] = False; tcw.active = mine_p is not None   # not while watching someone else
+                    if an:                                        # for the post game notes: who is who
+                        an['rec'] = f
+                        an['me_num'] = mine_p.get('number') if mine_p else None
+                        an['opps'] = [(pp['name'], pp.get('number')) for pp in lob['players'] if pp is not mine_p and
+                                      (not mine_p or mine_p.get('team', 0) <= 1 or pp.get('team') != mine_p.get('team'))]
                     st['watch_t'] = time.time()
                     if mine_p is None: log('you are not in the player list (profile %s), so the in-game alerts stay off' % me)
                     start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')), recording=f)
+                    if mine_p is not None and load_settings().get('tc_orbit') and mine_p.get('colour') is not None:
+                        orbit_off()
+                        threading.Thread(target=orbit_find, args=(mine_p['colour'], f), daemon=True).start()
                     scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
                                  [p['name'] for p in lob['players'] if p is not mine_p], len(lob['players']),
                                  [p['name'] for p in lob['players'] if mine_p and p is not mine_p
