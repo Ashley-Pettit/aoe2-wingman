@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v178'
+VERSION = 'v179'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -1014,6 +1014,8 @@ class _Eval:
         self.herd_groups = []        # sizes of the herds you have to go and find (one 'found' message each)
         self.cur = ''
         self.depth = 0
+        self.circle = None           # (radius %, spread %) the script places player lands at
+        self.in_pl = False
 
     def val(self, toks, i):                       # read a number / const / (expression) / rnd(a,b)
         t = toks[i]
@@ -1078,6 +1080,15 @@ class _Eval:
                 self.defs.discard(toks[i + 1]); i += 2; continue
             if tl == '#const':
                 name = toks[i + 1]; v, i = self.val(toks, i + 2); self.consts[name] = v; continue
+            if tl == 'create_player_lands':
+                self.in_pl = True; i += 1; continue
+            if self.in_pl and t == '}':
+                self.in_pl = False; i += 1; continue
+            if self.in_pl and tl == 'circle_radius':
+                r_, i = self.val(toks, i + 1)
+                sp_ = 0
+                if i < n and re.match(r'^(\(|rnd\(|-?[0-9])', toks[i]): sp_, i = self.val(toks, i)
+                self.circle = (r_, sp_); continue
             if tl == 'create_object':
                 nm = toks[i + 1]
                 obj = dict(name=nm, oid=self.consts.get(nm), n=1, groups=None, pscale=False, mscale=False, gaia=False, every=False, maxd=None, file=self.cur)
@@ -1111,6 +1122,23 @@ class _Eval:
             i += 1
         self.depth -= 1
         self.cur = prev_file
+
+def circle_facts(inst, script, size, players):
+    """How far from the middle the map script puts each player: (low %, high %, spread %) from its
+    circle_radius, or None when it doesn't say. Spread 0 means every player is the same distance out."""
+    import random
+    if not (inst and script and size): return None
+    folder = os.path.join(inst, 'resources', '_common', 'drs', 'gamedata_x2')
+    path = os.path.join(folder, script)
+    if rms_tokens(path) is None: return None
+    rads, spread = [], 0
+    for k in range(12):
+        e = _Eval(folder, size, max(1, players), random.Random(k))
+        e.run(os.path.join(folder, 'random_map.def'))
+        e.run(path)
+        if not e.circle: return None
+        rads.append(float(e.circle[0])); spread = max(spread, float(e.circle[1] or 0))
+    return (min(rads), max(rads), spread)
 
 def script_facts(inst, script, size, players):
     """Relics and your starting herd, worked out from the map script. Values are (min, max) or None."""
@@ -7897,6 +7925,17 @@ def main():
                 if ex_px: px, py = ex_px; tc_how = 'ground you can see'
                 k = ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2
                 k = k ** 0.5
+                # Same distance out as you, unless the map script says starts vary (Arabia 1v1: each
+                # player 27-39% out). Then the ring goes at the script's usual distance instead, since
+                # where you landed says nothing about where they did.
+                circ_ = st.get('circle'); why_ = 'same distance out as you'
+                if circ_ and circ_[2] > 2:                          # a point or two either way: yours is still the best guide
+                    k_own = k
+                    k = (circ_[0] + circ_[1]) / 2.0 * (2 ** 0.5) / 100.0       # % of the map's width, as a share of the way to a corner
+                    reach_ = 2 * circ_[2] * (2 ** 0.5) / 100.0                # can't be further from yours than both spreads
+                    k = min(max(k, k_own - reach_), k_own + reach_)
+                    why_ = 'the map puts starts %g-%g%% out, you were %.2f' % (
+                        (circ_[0] + circ_[1]) / 2.0 - circ_[2], (circ_[0] + circ_[1]) / 2.0 + circ_[2], k_own)
                 try:                                             # a picture of what it saw, to check it by
                     from PIL import Image, ImageDraw
                     im_ = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1].astype(np.uint8)))
@@ -7911,8 +7950,8 @@ def main():
                     log('tc ring picture: %r' % (e,))
                 if k < 0.1:
                     log('tc ring: your start is right in the middle of the map, so no ring'); return
-                log('tc ring: your TC at %d,%d of the minimap (from the %s; box %d,%d %dx%d, map from the %s %d,%d %dx%d), ring %.2f of the way out'
-                    % (px, py, tc_how, x + bx, y + by, bw, bh, how, cx, cy, a, b, k))
+                log('tc ring: your TC at %d,%d of the minimap (from the %s; box %d,%d %dx%d, map from the %s %d,%d %dx%d), ring %.2f of the way out (%s)'
+                    % (px, py, tc_how, x + bx, y + by, bw, bh, how, cx, cy, a, b, k, why_))
                 def put():
                     if st.get('last') == game and load_settings().get('tc_orbit'):
                         orbit_show((x + bx, y + by, bw, bh), cx, cy, a, b, k)
@@ -10833,6 +10872,13 @@ def main():
                     if mine_p is None: log('you are not in the player list (profile %s), so the in-game alerts stay off' % me)
                     start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')), recording=f)
                     st['my_colour'] = mine_p.get('colour') if mine_p is not None else None
+                    st['circle'] = None                           # where the map script puts each start
+                    try:
+                        if lob['selected'] == lob['resolved'] and maps.get(lob['resolved']):   # never for a hidden map
+                            st['circle'] = circle_facts(INST[0], maps[lob['resolved']].get('script_filename'),
+                                                        lob.get('size'), len(lob['players']))
+                    except Exception as e:
+                        log('tc ring: could not read the map script: %r' % (e,))
                     orbit_off()                                   # the ring comes back on its own once your start is found
                     scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
                                  [p['name'] for p in lob['players'] if p is not mine_p], len(lob['players']),
