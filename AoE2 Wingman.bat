@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v179'
+VERSION = 'v180'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7757,8 +7757,9 @@ def main():
         if w_ is not None:
             try: w_.destroy()
             except tk.TclError: pass
-    def orbit_show(box, cx, cy, a, b, k):
-        """Draw the ring: an ellipse on the minimap's diamond, through your Town Centre."""
+    def orbit_show(box, cx, cy, a, b, k, arc=None):
+        """Draw the ring: an ellipse on the minimap's diamond, through your Town Centre. arc is
+        (from, length) in degrees round the map: in team games only the enemy's side is drawn."""
         orbit_off()
         bx, by, bw, bh = box
         try:
@@ -7774,12 +7775,13 @@ def main():
             n_ = max(48, int(2 * math.pi * ((ra * ra + rb * rb) / 2.0) ** 0.5 / 6))
             n_ += n_ % 2
             pts_ = [(cx + ra * math.cos(2 * math.pi * i / n_), cy + rb * math.sin(2 * math.pi * i / n_)) for i in range(n_ + 1)]
-            segs_ = []
+            segs_ = []; off_ = set()
             for i in range(n_):
                 (x1, y1), (x2, y2) = pts_[i], pts_[i + 1]
+                if arc and (360.0 * (i + 0.5) / n_ - arc[0]) % 360.0 > arc[1]:
+                    segs_.append(([], (0, 0), (0, 0))); off_.add(i); continue    # your team's side: not drawn
                 ids_ = [c_.create_line(x1, y1, x2, y2, fill='#1a1206', width=4, capstyle='round')]   # a dark edge so it reads on any ground
-                if i % 2 == 0:
-                    ids_.append(c_.create_line(x1, y1, x2, y2, fill='#f2e2a8', width=2))           # dashes
+                ids_.append(c_.create_line(x1, y1, x2, y2, fill='#f2e2a8', width=2, capstyle='round'))   # solid
                 # where to look for explored ground: just inside and just outside this piece, not
                 # under it, since the ring itself now shows up in screen grabs (and screenshots)
                 tm_ = 2 * math.pi * (i + 0.5) / n_
@@ -7788,7 +7790,7 @@ def main():
                 nl_ = (nx_ * nx_ + ny_ * ny_) ** 0.5 or 1
                 nx_, ny_ = nx_ / nl_ * 5, ny_ / nl_ * 5
                 segs_.append((ids_, (mx_ - nx_, my_ - ny_), (mx_ + nx_, my_ + ny_)))
-            orbit['canvas'] = c_; orbit['segs'] = segs_; orbit['hid'] = set()
+            orbit['canvas'] = c_; orbit['segs'] = segs_; orbit['hid'] = off_
             w_.update_idletasks()
             try:
                 import ctypes
@@ -7801,6 +7803,44 @@ def main():
             orbit['win'] = w_; orbit['game'] = st.get('last')
         except tk.TclError:
             pass
+    def orbit_team_arc(bgr, np, cx, cy, a, b, px, py, xs, ys):
+        """Team games: where your teammates start (you see their bases from the off), and so which
+        side of the ring the enemy is on. Players go round the map evenly spaced with each team
+        side by side, so the enemy fills the gap your team leaves. (from, length) in degrees, or None."""
+        import math
+        allies, n_pl = st.get('ally_colours') or [], st.get('n_players') or 2
+        if not allies or n_pl < 3: return None
+        cols = minimap_colours()
+        inner_ = (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 0.97
+        def ang(x_, y_): return math.degrees(math.atan2((y_ - cy) / b, (x_ - cx) / a)) % 360.0
+        team = [ang(px, py)]
+        w_ = max(4, int(round(a / 10.0)))
+        for ci in allies:
+            col = cols.get(ci)
+            if not col: return None
+            m = (np.abs(bgr.astype(np.int16) - np.array([col[2], col[1], col[0]], dtype=np.int16)).sum(axis=2) <= 34) & inner_
+            if int(m.sum()) < 8:
+                log('tc ring: teammate colour %s not on the minimap yet, so the whole ring' % ci); return None
+            ii = np.pad(m.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+            bs = ii[w_:, w_:] - ii[:-w_, w_:] - ii[w_:, :-w_] + ii[:-w_, :-w_]
+            ty, tx = np.unravel_index(int(bs.argmax()), bs.shape)
+            sy, sx = np.nonzero(m[max(0, ty - w_):ty + 2 * w_, max(0, tx - w_):tx + 2 * w_])
+            ax_, ay_ = max(0, tx - w_) + sx.mean(), max(0, ty - w_) + sy.mean()
+            if ((ax_ - cx) / a) ** 2 + ((ay_ - cy) / b) ** 2 < 0.01: return None    # right in the middle: no angle
+            team.append(ang(ax_, ay_))
+        step = 360.0 / n_pl
+        t_ = sorted(team)
+        gaps = [((t_[(i + 1) % len(t_)] - t_[i]) % 360.0, i) for i in range(len(t_))]
+        gap, gi = max(gaps)
+        span = 360.0 - gap
+        if span > (len(team) - 1) * step + step * 0.6:
+            log('tc ring: your team is spread round the map (not placed together), so the whole ring'); return None
+        start = (t_[gi] + step / 2.0) % 360.0                 # just past the last of your team...
+        length = gap - step                                   # ...to just before the first
+        if length < step * 0.5: return None
+        log('tc ring: your team at %s degrees, so the enemy side is %d to %d' % (
+            ', '.join('%d' % v for v in team), start, (start + length) % 360))
+        return (start, length)
     def orbit_find(colour_idx, game):
         """Off the main thread: find your own colour on the minimap a few seconds in (your Town
         Centre, villagers and scout are all still round it), and work out the ring."""
@@ -7950,11 +7990,14 @@ def main():
                     log('tc ring picture: %r' % (e,))
                 if k < 0.1:
                     log('tc ring: your start is right in the middle of the map, so no ring'); return
+                arc_ = None
+                try: arc_ = orbit_team_arc(bgr, np, cx, cy, a, b, px, py, xs, ys)
+                except Exception as e: log('tc ring: team side: %r' % (e,))
                 log('tc ring: your TC at %d,%d of the minimap (from the %s; box %d,%d %dx%d, map from the %s %d,%d %dx%d), ring %.2f of the way out (%s)'
                     % (px, py, tc_how, x + bx, y + by, bw, bh, how, cx, cy, a, b, k, why_))
                 def put():
                     if st.get('last') == game and load_settings().get('tc_orbit'):
-                        orbit_show((x + bx, y + by, bw, bh), cx, cy, a, b, k)
+                        orbit_show((x + bx, y + by, bw, bh), cx, cy, a, b, k, arc_)
                         orbit['fit'] = (x + bx, y + by, bw, bh, cx, cy, a, b, k)
                         log('tc ring: drawn' if orbit.get('win') is not None else 'tc ring: could not draw it')
                 root.after(0, put)
@@ -10873,6 +10916,9 @@ def main():
                     start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')), recording=f)
                     st['my_colour'] = mine_p.get('colour') if mine_p is not None else None
                     st['circle'] = None                           # where the map script puts each start
+                    st['n_players'] = len(lob['players'])
+                    st['ally_colours'] = [pp.get('colour') for pp in lob['players'] if mine_p is not None and pp is not mine_p
+                                          and mine_p.get('team', 0) > 1 and pp.get('team') == mine_p.get('team')]
                     try:
                         if lob['selected'] == lob['resolved'] and maps.get(lob['resolved']):   # never for a hidden map
                             st['circle'] = circle_facts(INST[0], maps[lob['resolved']].get('script_filename'),
