@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v171'
+VERSION = 'v172'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7734,7 +7734,7 @@ def main():
             if not col: log('tc ring: no minimap colour for you'); return
             grab = _grabber()
             for attempt in range(20):
-                time.sleep(3)
+                time.sleep(1 if attempt < 3 else 3)              # soon: the camera starts on your TC
                 if st.get('last') != game: return               # that game is over
                 h_ = find_game_window()
                 if not h_ or _win()[2].GetForegroundWindow() != h_:
@@ -7785,15 +7785,31 @@ def main():
                         if 1.6 < a2 / max(b2, 1) < 2.4:
                             cx, cy, a, b = (x0_ + x1_) / 2.0, (y0_ + y1_) / 2.0, a2, b2
                             how = 'screen'
-                # Your Town Centre: the biggest solid block of your colour (a TC is the largest building,
-                # and the villagers, sheep and scout round it are single dots).
-                wx, wy = max(3, int(a / 18)), max(2, int(b / 18))
-                ii = np.pad(m.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
-                box_sum = ii[wy:, wx:] - ii[:-wy, wx:] - ii[wy:, :-wx] + ii[:-wy, :-wx]
-                ty, tx = np.unravel_index(int(box_sum.argmax()), box_sum.shape)
-                sub = m[ty:ty + wy, tx:tx + wx]
-                sy_, sx_ = np.nonzero(sub)
-                px, py = float(tx + sx_.mean()), float(ty + sy_.mean())
+                # Your Town Centre. The game opens with the camera on it, and the minimap draws the
+                # camera as a white box: so early on, the middle of that box is your TC. Checked
+                # against your own colour being inside it, in case you have already looked away.
+                px = py = None; tc_how = 'camera'
+                ys, xs = np.mgrid[0:gh, 0:gw]
+                inside_ = (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 1.0
+                wh = (bgr.min(axis=2) > 200) & inside_
+                rows_ = np.nonzero(wh.sum(axis=1) >= 15)[0]; cols_ = np.nonzero(wh.sum(axis=0) >= 8)[0]
+                if len(rows_) >= 2 and len(cols_) >= 2:
+                    t_, b_, l_, r_ = rows_.min(), rows_.max(), cols_.min(), cols_.max()
+                    vw, vh = r_ - l_, b_ - t_
+                    if 15 <= vw <= a and 8 <= vh <= b and 1.1 < vw / float(max(vh, 1)) < 3.0 \
+                            and int(m[t_:b_ + 1, l_:r_ + 1].sum()) >= 8:
+                        px, py = (l_ + r_) / 2.0, (t_ + b_) / 2.0
+                if px is None:
+                    # otherwise the most solid block of your colour: a TC is the biggest building, and
+                    # walls (Arena) are thin lines, so the block has to be mostly filled in
+                    tc_how = 'colour'
+                    wx, wy = max(3, int(a / 20)), max(2, int(b / 20))
+                    ii = np.pad(m.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+                    box_sum = ii[wy:, wx:] - ii[:-wy, wx:] - ii[wy:, :-wx] + ii[:-wy, :-wx]
+                    ty, tx = np.unravel_index(int(box_sum.argmax()), box_sum.shape)
+                    sub = m[ty:ty + wy, tx:tx + wx]
+                    sy_, sx_ = np.nonzero(sub)
+                    px, py = float(tx + sx_.mean()), float(ty + sy_.mean())
                 k = ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2
                 k = k ** 0.5
                 try:                                             # a picture of what it saw, to check it by
@@ -7809,8 +7825,8 @@ def main():
                     log('tc ring picture: %r' % (e,))
                 if k < 0.1:
                     log('tc ring: your start is right in the middle of the map, so no ring'); return
-                log('tc ring: your TC at %d,%d of the minimap (box %d,%d %dx%d, map from the %s %d,%d %dx%d), ring %.2f of the way out'
-                    % (px, py, x + bx, y + by, bw, bh, how, cx, cy, a, b, k))
+                log('tc ring: your TC at %d,%d of the minimap (from the %s; box %d,%d %dx%d, map from the %s %d,%d %dx%d), ring %.2f of the way out'
+                    % (px, py, tc_how, x + bx, y + by, bw, bh, how, cx, cy, a, b, k))
                 def put():
                     if st.get('last') == game and load_settings().get('tc_orbit'):
                         orbit_show((x + bx, y + by, bw, bh), cx, cy, a, b, k)
