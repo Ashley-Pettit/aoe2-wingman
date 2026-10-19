@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v181'
+VERSION = 'v182'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6566,7 +6566,7 @@ def main():
         log('window icon: %r' % (e,))
     pick_fonts()
     root.overrideredirect(True); root.attributes('-topmost', True)
-    try: root.attributes('-alpha', 0.97)          # solid enough that the game does not show through the text
+    try: root.attributes('-alpha', 0.0)           # built out of sight, then faded in once it's all in place
     except tk.TclError: pass
     BG, FG, GOLD, RED = INK, TXT, GOLDC, REDC
     root.configure(bg=RIM)                          # a bronze edge around the panel, like the game's frames
@@ -7462,16 +7462,55 @@ def main():
     # and applied together, straight away, rather than the size catching up a moment later. That
     # moment was the text hanging below the edge and the black strip while it grew.
     _calm = {'n': 0}
-    def calm(fn):
+    _fx = {'n': 0}
+    def overlay_fade(frm=0.0, ms=150):
+        """Ease the overlay up from see-through to its usual look over a few frames."""
+        _fx['n'] += 1; me_ = _fx['n']
+        st['fading'] = True; st['alpha'] = None          # hover_fade waits, then sets it fresh
+        steps = 8
+        def step(i):
+            if _fx['n'] != me_: return                   # a newer fade took over
+            try:
+                px_, py_ = root.winfo_pointerxy()
+                inside = (root.winfo_rootx() <= px_ < root.winfo_rootx() + root.winfo_width() and
+                          root.winfo_rooty() <= py_ < root.winfo_rooty() + root.winfo_height())
+                to = 0.97 if inside else 0.88
+                t = i / float(steps); e = 1 - (1 - t) ** 3                 # quick start, soft landing
+                root.attributes('-alpha', frm + (to - frm) * e)
+                if i >= steps:
+                    st['alpha'] = to; st['fading'] = False; return
+                root.after(max(10, ms // steps), lambda: step(i + 1))
+            except Exception:
+                st['fading'] = False                     # never leave it half see-through
+        step(0)
+    def calm(fn, hide=False):
+        # hide=True: a part that is rebuilt in several passes (the opponents, the game starting or
+        # ending), so it goes out of sight before the first pass, not after
         def run_(*a, **k):
             if _calm['n']: return fn(*a, **k)              # already inside one: the outer one sizes it
             _calm['n'] += 1
+            hid = False
             try:
+                h0 = root.winfo_height()
+                try: shown = bool(root.winfo_viewable())
+                except tk.TclError: shown = False
+                if hide and shown:
+                    try: root.attributes('-alpha', 0.0); hid = True
+                    except tk.TclError: pass
                 r_ = fn(*a, **k)
-                try: root.update_idletasks(); hold_now(); root.update_idletasks()
+                try:
+                    root.update_idletasks()
+                    # A part opening or closing: hide the overlay for the instant it takes to lay
+                    # the new shape out and draw it (that instant was the overlap and the black
+                    # strip), then ease it back in. Small changes, like the next build step, just swap.
+                    h1 = max(root.winfo_reqheight(), frame.winfo_reqheight() + 4)
+                    if not hid and shown and abs(h1 - h0) > 14:
+                        root.attributes('-alpha', 0.0); hid = True
+                    hold_now(); root.update_idletasks(); repaint()
                 except Exception: pass
             finally:
                 _calm['n'] -= 1
+                if hid: overlay_fade(0.2, 140)
             return r_
         return run_
     def hold_size():
@@ -7487,7 +7526,7 @@ def main():
         except Exception: pass
     root.geometry('%dx%d' % (OV_W, root.winfo_reqheight()))
     root.after(20, hold_size)
-    bo_draw = calm(bo_draw); idle_size = calm(idle_size)
+    bo_draw = calm(bo_draw); idle_size = calm(idle_size, True)
     st = {'drag': None, 'last': None, 'actions': {}, 'shift': False,
           'first': None, 'herd': None, 'extra': 0}
     root.update_idletasks()
@@ -7962,12 +8001,6 @@ def main():
                 for dy_ in range(-r_, r_ + 1):
                     for dx_ in range(-r_, r_ + 1):
                         core_ &= pad_[r_ + dy_:r_ + dy_ + gh, r_ + dx_:r_ + dx_ + gw]
-                ns_, area_ = int(core_.sum()), int(inner_.sum())
-                ex_px = None
-                if 30 <= ns_ <= area_ * 0.04:
-                    # the middle of the patch: your villagers stand round the TC, and on some minimap
-                    # styles the TC isn't drawn any bigger than them, so don't snap to a square
-                    ex_px = (float(xs[core_].mean()), float(ys[core_].mean()))
                 wh = (bgr.min(axis=2) > 200) & inside_
                 mm = m
                 rows_ = np.nonzero(wh.sum(axis=1) >= 15)[0]; cols_ = np.nonzero(wh.sum(axis=0) >= 8)[0]
@@ -7986,7 +8019,15 @@ def main():
                 y0_, x0_ = max(0, ty - w_), max(0, tx - w_)         # the whole building, not just the window
                 sy_, sx_ = np.nonzero(mm[y0_:ty + 2 * w_, x0_:tx + 2 * w_])
                 px, py = float(x0_ + sx_.mean()), float(y0_ + sy_.mean())
-                if ex_px: px, py = ex_px; tc_how = 'ground you can see'
+                # Only your own patch: in team games your teammates' ground shows too, and the middle
+                # of both would be nowhere. So just the seen ground round your colour's spot.
+                near_ = (((xs - px) / (a / 5.0)) ** 2 + ((ys - py) / (b / 5.0)) ** 2) <= 1.0
+                core_ &= near_
+                ns_, area_ = int(core_.sum()), int(inner_.sum())
+                if 30 <= ns_ <= area_ * 0.04:
+                    # the middle of the patch: your villagers stand round the TC, and on some minimap
+                    # styles the TC isn't drawn any bigger than them, so don't snap to a square
+                    px, py = float(xs[core_].mean()), float(ys[core_].mean()); tc_how = 'ground you can see'
                 k = ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2
                 k = k ** 0.5
                 # Same distance out as you, unless the map script says starts vary (Arabia 1v1: each
@@ -8786,7 +8827,7 @@ def main():
             else: host_row.grid_remove()
 
     def show_footer(on):
-        calm(_show_footer)(on)
+        calm(_show_footer, True)(on)
     def _show_footer(on):
         """The party invite button only makes sense at the menu. Out of a game it is there, in the
         header; in a game the state tag takes its place, so there is nothing to fat finger while you play."""
@@ -8829,6 +8870,7 @@ def main():
     def hover_fade():
         """Solid while the mouse is over it, faded while you are playing. Polled, because
         Tk fires a Leave on the window every time the pointer crosses into one of its labels."""
+        if st.get('fading'): return                         # mid fade-in: it lands on the right value
         try:
             px_, py_ = root.winfo_pointerxy()
             inside = (root.winfo_rootx() <= px_ < root.winfo_rootx() + root.winfo_width() and
@@ -10832,7 +10874,7 @@ def main():
                     except Exception as e:
                         log('openings lookup failed: %r' % (e,))
                 if pp_ok(p, i): threading.Thread(target=habits, daemon=True).start()
-    show_opponents = calm(show_opponents)
+    show_opponents = calm(show_opponents, True)
 
     def pp_ok(p, i):
         return bool(p.get('profile')) and i < 4 and load_settings().get('opp_openings', True)
@@ -10969,6 +11011,23 @@ def main():
 
     bo_draw()                                     # after foot_fit exists, so the card can resize
 
+    def first_show():
+        try:
+            root.update_idletasks(); hold_now(); repaint()
+            overlay_fade(0.0, 260)
+        except Exception:
+            try: root.attributes('-alpha', 0.97)
+            except tk.TclError: pass
+    root.after(120, first_show)                   # once the first layout has settled
+    def never_hidden():
+        # belt and braces: whatever happens, the overlay can't be left see-through
+        try:
+            if not st.get('fading') and float(root.attributes('-alpha')) < 0.5:
+                log('overlay was see-through with no fade running: shown')
+                root.attributes('-alpha', 0.97); st['alpha'] = 0.97
+        except Exception: pass
+        root.after(2000, never_hidden)
+    root.after(2500, never_hidden)
     tick(); fast(); root.mainloop()
 
 if __name__ == '__main__':
