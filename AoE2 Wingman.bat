@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v168'
+VERSION = 'v169'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7685,7 +7685,7 @@ def main():
     # your own Town Centre is on the minimap (it is, from the first second), a ring through it round
     # the middle of the map shows every spot their Town Centre could be. Nothing about them is read:
     # only your own start and the shape of the map, which you already know. Like the TC Map Orbit mod.
-    orbit = {'win': None, 'game': None, 'box': None}
+    orbit = {'win': None, 'game': None, 'box': None, 'searching': None, 'done': None}
     ORBIT_KEY = '#010203'
     def orbit_off():
         w_ = orbit.get('win'); orbit['win'] = None; orbit['game'] = None
@@ -7720,6 +7720,13 @@ def main():
     def orbit_find(colour_idx, game):
         """Off the main thread: find your own colour on the minimap a few seconds in (your Town
         Centre, villagers and scout are all still round it), and work out the ring."""
+        log('tc ring: looking for your start on the minimap (colour %s)' % colour_idx)
+        try:
+            orbit_find_(colour_idx, game)
+        finally:
+            orbit['searching'] = None
+    def orbit_find_(colour_idx, game):
+        seen = {'front': 0, 'few': 0}
         try:
             if not ensure_numpy(): return
             import numpy as np
@@ -7730,7 +7737,8 @@ def main():
                 time.sleep(3)
                 if st.get('last') != game: return               # that game is over
                 h_ = find_game_window()
-                if not h_ or _win()[2].GetForegroundWindow() != h_: continue
+                if not h_ or _win()[2].GetForegroundWindow() != h_:
+                    seen['front'] += 1; continue
                 x, y, w, hh = client_rect(h_)
                 box = minimap_rect(w, hh)
                 if not box: log('tc ring: could not find the minimap'); return
@@ -7743,26 +7751,41 @@ def main():
                 m = (np.abs(bgr - np.array([col[2], col[1], col[0]], dtype=np.int16)).sum(axis=2) <= 34)
                 ys, xs = np.mgrid[0:gh, 0:gw]
                 m &= (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 0.97       # inside the map, not beside it
-                if int(m.sum()) < 8: continue
+                if int(m.sum()) < 8:
+                    seen['few'] += 1
+                    if seen['few'] == 3: log('tc ring: only %d pixels in your colour %s on the minimap so far' % (int(m.sum()), col))
+                    continue
                 ys_, xs_ = np.nonzero(m)
                 px, py = float(np.median(xs_)), float(np.median(ys_))          # the middle of your start
                 k = ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2
                 k = k ** 0.5
                 if k < 0.2:
                     log('tc ring: your start is near the middle of the map, so no ring'); return
-                log('tc ring: your start at %d,%d of the minimap, ring %.2f of the way out' % (px, py, k))
-                root.after(0, lambda: st.get('last') == game and load_settings().get('tc_orbit') and
-                           orbit_show((x + bx, y + by, bw, bh), cx, cy, a, b, k))
+                log('tc ring: your start at %d,%d of the minimap (box %d,%d %dx%d), ring %.2f of the way out'
+                    % (px, py, x + bx, y + by, bw, bh, k))
+                def put():
+                    if st.get('last') == game and load_settings().get('tc_orbit'):
+                        orbit_show((x + bx, y + by, bw, bh), cx, cy, a, b, k)
+                        log('tc ring: drawn' if orbit.get('win') is not None else 'tc ring: could not draw it')
+                root.after(0, put)
                 return
-            log('tc ring: never saw your start on the minimap')
+            log('tc ring: never saw your start on the minimap (game not in front %d times, too few pixels %d times)'
+                % (seen['front'], seen['few']))
         except Exception as e:
             log('tc ring: %r' % (e,))
     def orbit_tick():
         """Only over the game: hidden whenever something else is in front, gone when the game ends."""
         try:
             w_ = orbit.get('win')
+            if not load_settings_cached().get('tc_orbit'): orbit['done'] = None    # switched on again later: look again
+            if (w_ is None and st.get('last') and tcw.active and st.get('my_colour') is not None
+                    and load_settings_cached().get('tc_orbit') and orbit.get('searching') != st['last']
+                    and orbit.get('done') != st['last']):
+                orbit['searching'] = orbit['done'] = st['last']   # one search per game (or per switching it on)
+                threading.Thread(target=orbit_find, args=(st['my_colour'], st['last']), daemon=True).start()
             if w_ is not None:
                 if st.get('last') != orbit.get('game') or not load_settings_cached().get('tc_orbit'):
+                    if not load_settings_cached().get('tc_orbit'): orbit['done'] = None   # on again: look again
                     orbit_off()
                 else:
                     h_ = find_game_window()
@@ -8643,12 +8666,18 @@ def main():
         except Exception as e:
             log('bring window up: %r' % (e,))
 
+    def settings_y(w_):
+        """Top of the Settings window: centred, but never so low that Save and Close sit behind
+        the taskbar (about 48 pixels) once the title bar (about 31) is added on top."""
+        sh_, h_ = w_.winfo_screenheight(), w_.winfo_reqheight()
+        return max(0, min((sh_ - h_) // 2 - 24, sh_ - 48 - 31 - h_))
+
     def reveal_settings(w_):
         """Put a built Settings window on screen, in the middle, ready to use."""
         w_.update_idletasks()
         geo = (w_.winfo_reqwidth(), w_.winfo_reqheight(),
                max(0, (w_.winfo_screenwidth() - w_.winfo_reqwidth()) // 2),
-               max(0, (w_.winfo_screenheight() - w_.winfo_reqheight()) // 2 - 24))
+               settings_y(w_))
         st['settings_geo'] = geo                       # the loading frame opens at this size next time
         w_.geometry('+%d+%d' % geo[2:])
         shell_ = st.pop('settings_shell', None)
@@ -8726,7 +8755,7 @@ def main():
         board_.create_window((0, 0), window=page, anchor='nw')
         outer = page
         def fit_(_=None):
-            room = win.winfo_screenheight() - 200               # leave space for the title, the Save row and the taskbar
+            room = win.winfo_screenheight() - 186               # leave space for the title, the Save row and the taskbar
             board_.configure(scrollregion=board_.bbox('all'), width=page.winfo_reqwidth(),
                              height=min(page.winfo_reqheight(), room))
             if page.winfo_reqheight() > room: bar_.pack(side='right', fill='y')
@@ -8772,8 +8801,8 @@ def main():
             """A card with a gold heading; what follows goes in it. The notes stay in the code as a
             record of how each part works, but are not shown: Settings reads cleaner without them."""
             nonlocal outer
-            card = tk.Frame(page, bg=INK, highlightthickness=1, highlightbackground=EDGE, padx=14, pady=9)
-            card.pack(fill='x', pady=(8, 0))
+            card = tk.Frame(page, bg=INK, highlightthickness=1, highlightbackground=EDGE, padx=14, pady=7)
+            card.pack(fill='x', pady=(7, 0))
             tk.Label(card, text=label, fg=GOLD, bg=INK, font=F_HEAD, anchor='w').pack(fill='x', pady=(0, 7))
             outer = card
             cards_[label] = card
@@ -9272,13 +9301,6 @@ def main():
             Check(outer, text=txt, variable=var, fg=TXT, bg=INK,
                            selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                            font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
-        field('Beta')
-        Check(outer, text="Ring on the minimap where their TC could be", variable=orb_on, fg=TXT, bg=INK,
-              selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
-              font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
-        tk.Label(outer, text='Players start the same distance from the middle of the map, so a ring through '
-                             'your own TC shows where theirs could be. Being tested: it may be off on odd maps.',
-                 fg=FAINT, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=400).pack(fill='x', pady=(2, 0))
         voice_row = tk.Frame(outer, bg=INK); voice_row.pack(fill='x', pady=(4, 0))
         voice_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_TINY, anchor='w',
                              justify='left', wraplength=400)
@@ -9382,33 +9404,13 @@ def main():
         rc_btn = flat_button(rc_row, 'Move the old ones', rc_tidy)
         threading.Thread(target=rc_count, daemon=True).start()
 
-        section('Godmode')
-        gm_row = tk.Frame(outer, bg=INK); gm_row.pack(fill='x', pady=(2, 0))
-        gm_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w')
-        def gm_open_btn():
-            for w_ in gm_row.winfo_children(): w_.destroy()
-            flat_button(gm_row, 'Open Godmode', open_cheats, fill=True).pack(side='left')
-            def lock():
-                c_ = load_settings(); c_['godmode'] = False; save_settings(c_); gm_lock_box()
-                cw_ = st.pop('cheat_win', None)              # and the open panel goes too
-                if cw_ is not None:
-                    try: cw_.destroy()
-                    except tk.TclError: pass
-            flat_button(gm_row, 'Lock it again', lock).pack(side='left', padx=(8, 0))
-        def gm_lock_box():
-            for w_ in gm_row.winfo_children(): w_.destroy()
-            e_ = tk.Entry(gm_row, width=18, show='\u2022'); style_entry(e_); e_.pack(side='left', ipady=2)
-            def unlock(_=None):
-                if e_.get().strip() == GODMODE_WORD:
-                    c_ = load_settings(); c_['godmode'] = True; save_settings(c_)
-                    gm_msg.config(text='Unlocked.', fg=GREEN); gm_open_btn()
-                else:
-                    gm_msg.config(text='Not the password.', fg=REDC); e_.delete(0, 'end')
-            e_.bind('<Return>', unlock)
-            flat_button(gm_row, 'Unlock', unlock).pack(side='left', padx=(8, 0))
-        if cfg.get('godmode'): gm_open_btn()
-        else: gm_lock_box()
-        gm_msg.pack(fill='x', pady=(4, 0))
+        field('Beta')
+        Check(outer, text="Ring on the minimap where their TC could be", variable=orb_on, fg=TXT, bg=INK,
+              selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+              font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        tk.Label(outer, text='Everyone starts the same distance from the middle, so a ring through your TC '
+                             'shows where theirs could be. Being tested.',
+                 fg=FAINT, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=380).pack(fill='x', pady=(3, 0))
 
         section('Running as administrator',
                 'Only matters for the party invite. If the game runs as admin, Windows ignores clicks from '
@@ -9419,14 +9421,14 @@ def main():
                        variable=ad_on, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
                        activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
         ad_row = tk.Frame(outer, bg=INK); ad_row.pack(fill='x', pady=(6, 0))
-        ad_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
-                          justify='left', wraplength=400)
-        ad_msg.pack(fill='x', pady=(6, 0))
+        ad_msg = tk.Label(ad_row, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
+                          justify='left', wraplength=210)        # beside the button, not a row of its own
         def admin_state():
             me_ = 'Wingman is running as admin.' if overlay_is_admin() else 'Wingman is running normally.'
             try: flags = admin_flags()
             except Exception: flags = []
-            if not flags: return me_ + ' Nothing is set to make the game or Steam run as admin.', GREEN
+            if not flags: return ('All good: nothing runs as admin.' if not overlay_is_admin()
+                                  else me_ + ' Nothing else is set to.'), GREEN
             names = sorted({os.path.basename(n) for _, n, _ in flags})
             return me_ + ' Set to always run as admin: %s.' % ', '.join(names), GOLDC
         def ad_refresh():
@@ -9442,6 +9444,7 @@ def main():
             elif cleared:
                 ad_msg.config(text='Done. Close Steam fully and open it again, then start the game.', fg=GREEN)
         flat_button(ad_row, 'Stop the game needing admin', ad_fix).pack(side='left')
+        ad_msg.pack(side='left', padx=(10, 0), fill='x', expand=True)
         win.after(50, ad_refresh)                        # after the window is up, so it opens straight away
 
         # God Mode: the UI mod this app is built around (it pins the resource bar and the Global
@@ -9490,6 +9493,33 @@ def main():
                 except Exception: pass
             threading.Thread(target=work, daemon=True).start()
         flat_button(clash_row, 'Check my mods', run_clash_check).pack(side='left')
+        field('Godmode panel')
+        gm_row = tk.Frame(outer, bg=INK); gm_row.pack(fill='x', pady=(2, 0))
+        gm_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w')
+        def gm_open_btn():
+            for w_ in gm_row.winfo_children(): w_.destroy()
+            flat_button(gm_row, 'Open Godmode', open_cheats, fill=True).pack(side='left')
+            def lock():
+                c_ = load_settings(); c_['godmode'] = False; save_settings(c_); gm_lock_box()
+                cw_ = st.pop('cheat_win', None)              # and the open panel goes too
+                if cw_ is not None:
+                    try: cw_.destroy()
+                    except tk.TclError: pass
+            flat_button(gm_row, 'Lock it again', lock).pack(side='left', padx=(8, 0))
+        def gm_lock_box():
+            for w_ in gm_row.winfo_children(): w_.destroy()
+            e_ = tk.Entry(gm_row, width=18, show='\u2022'); style_entry(e_); e_.pack(side='left', ipady=2)
+            def unlock(_=None):
+                if e_.get().strip() == GODMODE_WORD:
+                    c_ = load_settings(); c_['godmode'] = True; save_settings(c_)
+                    gm_msg.config(text='Unlocked.', fg=GREEN); gm_open_btn()
+                else:
+                    gm_msg.config(text='Not the password.', fg=REDC); e_.delete(0, 'end')
+            e_.bind('<Return>', unlock)
+            flat_button(gm_row, 'Unlock', unlock).pack(side='left', padx=(8, 0))
+        if cfg.get('godmode'): gm_open_btn()
+        else: gm_lock_box()
+        gm_msg.pack(fill='x', pady=(4, 0))
 
         def collect():
             hb, hg, h20 = house_cfg()
@@ -9549,9 +9579,10 @@ def main():
         btns = tk.Frame(foot, bg=DEEP); btns.pack(fill='x', pady=(0, 0))
         flat_button(btns, 'Save', save, fill=True).pack(side='left')
         flat_button(btns, 'Close', close_win, accent=MUT, hot='#cfc8b6').pack(side='right')
-        msg = tk.Label(foot, text='', fg='#b8b19f', bg=DEEP, font=F_SMALL, anchor='w',
-                       justify='left', wraplength=400)
-        msg.pack(fill='x', pady=(10, 0))
+        # what Save has to say sits between Save and Close: no extra row taking up the screen
+        msg = tk.Label(btns, text='', fg='#b8b19f', bg=DEEP, font=F_SMALL, anchor='w',
+                       justify='left', wraplength=520)
+        msg.pack(side='left', fill='x', expand=True, padx=(14, 14))
         try: st_set['initial'] = collect()                # what the window showed when it was built
         except Exception: pass
         win.built_ok = True                               # all of it is there
@@ -9561,9 +9592,9 @@ def main():
         # small for that still scrolls. The cards keep their order, top to bottom, left to right.
         try:
             kids = list(page.pack_slaves())
-            hs = [c_.winfo_reqheight() + 8 for c_ in kids]
+            hs = [c_.winfo_reqheight() + 7 for c_ in kids]
             cw = max(c_.winfo_reqwidth() for c_ in kids)
-            room = win.winfo_screenheight() - 200 - 20          # what fit_ allows, less the page's own padding
+            room = win.winfo_screenheight() - 186 - 16          # what fit_ allows, less the page's own padding
             most = max(1, min(4, (win.winfo_screenwidth() - 70) // (cw + 16)))
             def groups(limit):
                 out_, cur, tot = [], [], 0
@@ -9585,9 +9616,17 @@ def main():
                 for c_, h_ in zip(kids, hs):
                     j = tot.index(min(tot)); cols[j].append(c_); tot[j] += h_
                 return [c for c in cols if c], max(tot)
+            def biggest_first(n_):
+                # the tallest cards placed first, each under the shortest column; then each column
+                # keeps the cards in their usual order, top to bottom
+                cols, tot = [[] for _ in range(n_)], [0] * n_
+                for i_ in sorted(range(len(kids)), key=lambda i_: -hs[i_]):
+                    j = tot.index(min(tot)); cols[j].append(i_); tot[j] += hs[i_]
+                cols = sorted([sorted(c) for c in cols if c], key=lambda c: c[0])
+                return [[kids[i_] for i_ in c] for c in cols], max(tot)
             def plan(n_):
-                a_ = (groups(best(n_)), best(n_)); b_ = shortest(n_)
-                return a_ if a_[1] <= b_[1] else b_
+                opts = [(groups(best(n_)), best(n_)), shortest(n_), biggest_first(n_)]
+                return min(opts, key=lambda o: o[1])
             n_ = next((k for k in range(1, most + 1) if plan(k)[1] <= room), most)
             grps, tall = plan(n_)
             log('settings: %d columns, tallest %d of %d (screen %dx%d)' % (n_, tall, room,
@@ -9612,7 +9651,7 @@ def main():
             try:                                           # so the loading frame opens at the right size
                 st['settings_geo'] = (win.winfo_reqwidth(), win.winfo_reqheight(),
                                       max(0, (win.winfo_screenwidth() - win.winfo_reqwidth()) // 2),
-                                      max(0, (win.winfo_screenheight() - win.winfo_reqheight()) // 2 - 24))
+                                      settings_y(win))
             except tk.TclError: pass
     def busy_spinner(text):
         """A small gold spinner by the overlay while something takes a moment to build.
@@ -10574,9 +10613,8 @@ def main():
                     st['watch_t'] = time.time()
                     if mine_p is None: log('you are not in the player list (profile %s), so the in-game alerts stay off' % me)
                     start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')), recording=f)
-                    if mine_p is not None and load_settings().get('tc_orbit') and mine_p.get('colour') is not None:
-                        orbit_off()
-                        threading.Thread(target=orbit_find, args=(mine_p['colour'], f), daemon=True).start()
+                    st['my_colour'] = mine_p.get('colour') if mine_p is not None else None
+                    orbit_off()                                   # the ring comes back on its own once your start is found
                     scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
                                  [p['name'] for p in lob['players'] if p is not mine_p], len(lob['players']),
                                  [p['name'] for p in lob['players'] if mine_p and p is not mine_p
