@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v177'
+VERSION = 'v178'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7752,7 +7752,14 @@ def main():
                 ids_ = [c_.create_line(x1, y1, x2, y2, fill='#1a1206', width=4, capstyle='round')]   # a dark edge so it reads on any ground
                 if i % 2 == 0:
                     ids_.append(c_.create_line(x1, y1, x2, y2, fill='#f2e2a8', width=2))           # dashes
-                segs_.append((ids_, (x1 + x2) / 2.0, (y1 + y2) / 2.0))
+                # where to look for explored ground: just inside and just outside this piece, not
+                # under it, since the ring itself now shows up in screen grabs (and screenshots)
+                tm_ = 2 * math.pi * (i + 0.5) / n_
+                mx_, my_ = cx + ra * math.cos(tm_), cy + rb * math.sin(tm_)
+                nx_, ny_ = math.cos(tm_) / max(ra, 1), math.sin(tm_) / max(rb, 1)
+                nl_ = (nx_ * nx_ + ny_ * ny_) ** 0.5 or 1
+                nx_, ny_ = nx_ / nl_ * 5, ny_ / nl_ * 5
+                segs_.append((ids_, (mx_ - nx_, my_ - ny_), (mx_ + nx_, my_ + ny_)))
             orbit['canvas'] = c_; orbit['segs'] = segs_; orbit['hid'] = set()
             w_.update_idletasks()
             try:
@@ -7760,7 +7767,7 @@ def main():
                 u_ = ctypes.windll.user32
                 h_ = u_.GetParent(w_.winfo_id()) or w_.winfo_id()
                 u_.SetWindowLongW(h_, -20, u_.GetWindowLongW(h_, -20) | 0x20 | 0x80 | 0x08000000 | 0x80000)
-                u_.SetWindowDisplayAffinity(h_, 0x11)       # never in Wingman's own minimap reads, or a stream
+                # left visible to screenshots, so you can show it; Wingman's own reads look beside it
             except Exception:
                 pass
             orbit['win'] = w_; orbit['game'] = st.get('last')
@@ -7929,11 +7936,14 @@ def main():
             bgr = np.frombuffer(raw, dtype=np.uint8).reshape(gh, gw, 4)[:, :, :3]
             seen_ = (bgr.max(axis=2) >= 14) & ~(bgr.min(axis=2) > 200)    # not black; not the camera box
             new_ = []
-            for i, (_ids, mx, my) in enumerate(segs_):
+            for i, (_ids, pin, pout) in enumerate(segs_):
                 if i in orbit['hid']: continue
-                x0, y0 = int(round(mx)) - 1, int(round(my)) - 1
-                if x0 < 0 or y0 < 0 or x0 + 3 > gw or y0 + 3 > gh: continue
-                if int(seen_[y0:y0 + 3, x0:x0 + 3].sum()) >= 6: new_.append(i)
+                got, n9 = 0, 0
+                for (mx, my) in (pin, pout):
+                    x0, y0 = int(round(mx)) - 1, int(round(my)) - 1
+                    if x0 < 0 or y0 < 0 or x0 + 3 > gw or y0 + 3 > gh: continue
+                    got += int(seen_[y0:y0 + 3, x0:x0 + 3].sum()); n9 += 9
+                if n9 and got >= n9 * 2 // 3: new_.append(i)
             if new_:
                 c_ = orbit.get('canvas')
                 def hide():
