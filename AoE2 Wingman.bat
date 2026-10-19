@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v166'
+VERSION = 'v167'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6973,10 +6973,106 @@ def main():
                 and pop >= steps[-1][0] + 6):
             bo['done'] = True; bo['view'] = None; bo_draw(); log('build order done')
 
+    # ---- post game: what happened, from what Wingman already watched during the game
+    an = {}
+    def an_game_s(t_real):
+        """Game seconds at a moment in real time."""
+        try: return max(0.0, tcw.game_minutes(t_real) * 60.0)
+        except Exception: return 0.0
+    def an_start():
+        an.clear()
+        an.update(t0=time.time(), idle=0.0, idle_n=0, idle_max=(0.0, 0.0), house=0.0, house_n=0,
+                  pops={}, first={}, maxpop=0, state=None, since=0.0)
+    def an_close_state(now):
+        prev, since = an.get('state'), an.get('since') or 0
+        if not prev or not since: return
+        d = (now - since) * getattr(tcw, 'speed', 1.7)           # in game seconds
+        if 'idle' in prev and d >= 3:                            # a flicker is not an idle TC
+            an['idle'] += d; an['idle_n'] += 1
+            if d > an['idle_max'][0]: an['idle_max'] = (d, an_game_s(since))
+        if 'house' in prev and d >= 3:
+            an['house'] += d; an['house_n'] += 1
+    def an_state(state):
+        if not an or not tcw.active: return
+        now = time.time()
+        if state == an.get('state'): return
+        an_close_state(now)
+        an['state'], an['since'] = state, now
+    def an_pop(pop):
+        if not an or not tcw.active or not pop: return
+        g_ = an_game_s(time.time())
+        an['maxpop'] = max(an['maxpop'], pop)
+        if pop not in an['first'] and pop <= 60: an['first'][pop] = g_   # when each pop was first reached
+        for mark in (10, 15, 20):
+            if g_ >= mark * 60 and mark not in an['pops']: an['pops'][mark] = pop
+
+    def an_lines():
+        """The post game notes: plain lines, the most useful one last."""
+        sp_ = []
+        found_ = build_by_name(bo.get('name'))
+        steps_ = found_[2] if found_ else []
+        click = next((lo for lo, hi, t in steps_ if 'click feudal' in t.lower()), None)
+        if click and click > 4:
+            perfect = (click - 4) * 25                           # a Town Centre that never stops
+            got = an['first'].get(click)
+            if got:
+                late = got - perfect
+                sp_.append(('Pop %d (the Feudal click) at %s. A busy TC gets there at %s%s.'
+                            % (click, mmss(got), mmss(perfect),
+                               '' if late < 10 else ', so %s behind' % mmss(late)), TXT))
+        if an['idle'] >= 5:
+            big, at = an['idle_max']
+            sp_.append(('TC idle %s in total, %d time%s. Longest %s, at %s.'
+                        % (mmss(an['idle']), an['idle_n'], '' if an['idle_n'] == 1 else 's', mmss(big), mmss(at)), TXT))
+        else:
+            sp_.append(('Your TC never sat idle. Lovely.', GREEN))
+        if an['house_n']:
+            sp_.append(('The house warning came up %d time%s.' % (an['house_n'], '' if an['house_n'] == 1 else 's'), TXT))
+        pops_ = ['%d at %d min' % (an['pops'][m], m) for m in (10, 15, 20) if m in an['pops']]
+        if pops_: sp_.append(('Pop ' + ', '.join(pops_) + '.', TXT))
+        if steps_:
+            if bo.get('done'): sp_.append(('Build order followed to the end.', TXT))
+            else: sp_.append(('Build order: got to step %d of %d.' % (min(bo['i'] + 1, len(steps_)), len(steps_)), TXT))
+        vils = int(an['idle'] // 25)
+        if vils >= 2:
+            tip = 'Next game: keep the TC busy. That idle time is about %d villagers you did not make.' % vils
+        elif an['house_n'] >= 2:
+            tip = 'Next game: get your houses up a little earlier.'
+        else:
+            tip = 'Solid start. Keep it going.'
+        sp_.append((tip, GOLDD))
+        return sp_
+
+    def an_finish():
+        """The game is over: put the notes on the card, at the menu."""
+        if not an or not an.get('t0'): return
+        now = time.time()
+        if now - an['t0'] < 150:                              # too short to say anything useful
+            an.clear(); return
+        an_close_state(now); an['state'] = None
+        try: lines_ = an_lines()
+        except Exception as e:
+            log('post game: %r' % (e,)); an.clear(); return
+        an.clear()
+        log('post game: %s' % ' | '.join(t for t, _ in lines_))
+        for w in card_an.winfo_children(): w.destroy()
+        for t_, col_ in lines_:
+            l_ = tk.Label(card_an, text=t_, fg=col_, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
+                          wraplength=PANEL_W - 30)
+            l_.pack(fill='x', anchor='w', pady=(1, 0)); bind_all(l_); st['actions'][l_] = hide_card
+        card_an.grid()
+        if not card_word.cget('text') or st.get('card') is None:
+            card.config(highlightbackground=EDGE)
+            card_word.config(text='LAST GAME', fg=GOLDC); card_elo.config(text=''); card_line.config(text='')
+            card_line.grid_remove()
+        st['card'] = st.get('card') or 'post'
+        rec_line.config(text=''); rec_line.grid_remove()
+        if not st.get('rolled'): card.grid()
+
     def pop_now():
         """The pop just changed: move the build order and say the step now, not at the next tick."""
         try:
-            if tcw.pop: bo_follow(tcw.pop[0])
+            if tcw.pop: bo_follow(tcw.pop[0]); an_pop(tcw.pop[0])
             bo_voice_tick()
         except Exception as e_:
             log('build follow: %r' % (e_,))
@@ -7042,6 +7138,7 @@ def main():
     def bo_game_start(f):
         """A new game: the build starts again, and the voice waits until the clock has run a bit."""
         bo_fresh(force=True)
+        an_start()
         wait_ = bo_voice_wait()
         def work():
             try:
@@ -7073,6 +7170,8 @@ def main():
     card_line = tk.Label(card, text='', fg=TXT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
                          wraplength=PANEL_W - 24)
     card_line.grid(row=1, column=0, columnspan=2, sticky='w', pady=(3, 0))
+    card_an = tk.Frame(card, bg=PANEL)                    # the post game notes, under the result
+    card_an.grid(row=2, column=0, columnspan=2, sticky='we', pady=(5, 0)); card_an.grid_remove()
     # the score line: how your side's total compares, and the flag when the game looks gone
     score_line = tk.Label(frame, text='', fg=MUT, bg=PANEL, font=F_SMALL, anchor='w', padx=9, pady=4,
                           justify='left', wraplength=PANEL_W - 24, highlightthickness=1, highlightbackground=EDGE)
@@ -7427,6 +7526,8 @@ def main():
     def tc_notify(state, where):
         def go():
             tc['state'] = state
+            try: an_state(state)
+            except Exception: pass
             if where:
                 import ctypes
                 tc['where'] = (where[0], where[1], ctypes.windll.user32.GetSystemMetrics(0))
@@ -7894,7 +7995,8 @@ def main():
 
     def hide_card():
         st['card'] = None
-        card.grid_remove()
+        card.grid_remove(); card_an.grid_remove()
+        for w in card_an.winfo_children(): w.destroy()
 
     def show_result_card(gid):
         """How the last game went, on the overlay, as soon as the service confirms it.
@@ -7912,7 +8014,7 @@ def main():
                             fmt_len(game_length(g)) if game_length(g) else '',
                             ' '.join(x for x in (g.get('size') or g.get('mode') or '',
                                                  'ranked' if g.get('ranked') else '') if x).strip()) if b]
-        card_line.config(text='   \u00b7   '.join(bits))
+        card_line.config(text='   \u00b7   '.join(bits)); card_line.grid()
         before, after = g.get('rating'), g.get('rating_after')
         if after and before:
             d = after - before
@@ -7925,7 +8027,8 @@ def main():
         st['card'] = gid
         rec_line.config(text=''); rec_line.grid_remove()
         if not st.get('rolled'): card.grid()
-        root.after(180000, lambda: st.get('card') == gid and hide_card())
+        if not card_an.winfo_children():                  # just the result: it goes after a few minutes
+            root.after(180000, lambda: st.get('card') == gid and hide_card())
     st['actions'][card] = hide_card
     st['actions'][card_word] = hide_card
     st['actions'][card_line] = hide_card
@@ -7955,6 +8058,8 @@ def main():
             rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
             stats_btn.grid()
             show_opponents([]); hide_boxes()
+            try: an_finish()
+            except Exception as e_: log('post game: %r' % (e_,))
         root.after(0, go)
 
     def boxes_pending():
@@ -9974,7 +10079,9 @@ def main():
             tick_()
             box.grid()
 
-        folded = bool(load_settings().get('opp_folded', False))    # how you left it last time
+        # one opponent: shown in full. Two or more: each starts as just its line, to save room;
+        # click a player's line (or the arrow) to open or close them
+        folded = len(opps) > 1
         opp_area.columnconfigure(0, weight=1)                      # the rating stays hard right, folded or not
         for i, p in enumerate(opps):
             name, text = civ_text(p['civ'], strings, icons)
@@ -9992,7 +10099,10 @@ def main():
             top.columnconfigure(4, weight=1)
             dot = tk.Canvas(top, width=11, height=11, bg=PANEL, highlightthickness=0, cursor='hand2')
             dot.create_oval(1, 1, 10, 10, fill=solid, outline=RIM)
-            # (no coloured dot: the name is already in their colour)
+            # (no coloured dot: the name is already in their colour) a small arrow: open or closed
+            chev = tk.Label(top, text='\u25b8' if folded else '\u25be', fg=MUT, bg=PANEL, font=F_SMALL,
+                            cursor='hand2', padx=0, width=2, anchor='w')
+            chev.grid(row=0, column=0, sticky='w')
             who = tk.Label(top, text='', fg=tone, bg=PANEL, font=F_HEAD, anchor='w', cursor='hand2')
             who.grid(row=0, column=1, sticky='w')
             # the civ's name opens the notes on that civ, with a small arrow to say it does
@@ -10043,19 +10153,16 @@ def main():
                           fg=GREEN if beats else FAINT, bg=PANEL, font=F_SMALL, cursor='hand2')
             u2.pack(side='left')
 
-            def name_now(h=who, box=more, nm=nm):
-                h.config(text=nm['shown'])                 # the fold shows for itself: no arrows needed
+            def name_now(h=who, box=more, nm=nm, ch=chev):
+                h.config(text=nm['shown'])
+                try: ch.config(text='\u25be' if box.winfo_manager() else '\u25b8')
+                except tk.TclError: pass
             def fold(box=more, show=name_now):
-                """A click on the player's line: everything under it folds away, or comes back.
-                It is remembered, so the next game starts the way you left this one."""
+                """A click on the player's line: everything under it folds away, or comes back."""
                 toggle(box); show()
-                try:
-                    c = load_settings(); c['opp_folded'] = not box.winfo_manager(); save_settings(c)
-                except Exception as e:
-                    log('could not remember the fold: %r' % (e,))
-            def notes(dt=det, arrow=u3, box=more):
+            def notes(dt=det, arrow=u3, box=more, show=name_now):
                 """A click on the civ's name (or the unique unit's line): the notes on the civ."""
-                if not box.winfo_manager(): box.grid()          # folded away: open it to show them
+                if not box.winfo_manager(): box.grid(); show()  # folded away: open it to show them
                 toggle(dt); arrow.config(text='\u25b4' if dt.winfo_manager() else '\u25be')
             def fit(line=top, box=opn, nm=nm, show=name_now):
                 """Keep the player's line inside the panel. The second opening goes first, then
@@ -10069,10 +10176,11 @@ def main():
                     else: break
             name_now()
             hover(who, tone, lighten(tone, 0.35))
-            for w in (top, dot, who, opn): st['actions'][w] = fold
+            for w in (top, dot, chev, who, opn): st['actions'][w] = fold
+            hover(chev, MUT, GOLDD)
             for w in [beat] + beat.winfo_children() + [civf, civl, u3]: st['actions'][w] = notes
             hover(civl, TXT, GOLDD); hover(u3, MUT, GOLDD)
-            for w in (row, top, dot, who, civf, civl, opn, more, beat, det, u1, u2, u3): bind_all(w)
+            for w in (row, top, dot, chev, who, civf, civl, opn, more, beat, det, u1, u2, u3): bind_all(w)
 
             # the civ's usual openings until their own games have been read
             def chips(box, tops, lead_colour, click, after):
@@ -10212,6 +10320,8 @@ def main():
                     rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
                     stats_btn.grid()
                     show_opponents([])
+                    try: an_finish()
+                    except Exception as e_: log('post game: %r' % (e_,))
             elif f != st['last']:
                 try: lob = read_lobby(f)
                 except Exception as e_: lob = None; log('could not read the recording: %r' % (e_,))
