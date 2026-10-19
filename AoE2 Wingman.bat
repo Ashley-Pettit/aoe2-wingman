@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v170'
+VERSION = 'v171'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7746,6 +7746,12 @@ def main():
                 PAD = 0.06
                 cx, cy = bw / 2.0, bh / 2.0
                 a, b = bw / (2 * (1 + 2 * PAD)), bh / (2 * (1 + 2 * PAD))
+                # only what is on the screen: past its edge a grab comes back black, which would
+                # look just like unexplored map
+                if bx < 0: cx += bx; bw += bx; bx = 0
+                if by < 0: cy += by; bh += by; by = 0
+                bw, bh = min(bw, w - bx), min(bh, hh - by)
+                if bw < 60 or bh < 30: log('tc ring: the minimap is off the screen'); return
                 raw, gw, gh = grab((x + bx, y + by, bw, bh, 1))
                 bgr = np.frombuffer(raw, dtype=np.uint8).reshape(gh, gw, 4)[:, :, :3].astype(np.int16)
                 m = (np.abs(bgr - np.array([col[2], col[1], col[0]], dtype=np.int16)).sum(axis=2) <= 34)
@@ -7759,13 +7765,26 @@ def main():
                 # explored is pure black, so the black diamond's far corners are the map's corners.
                 blk = bgr.max(axis=2) < 14
                 how = 'layout'
+                def run_(counts, need):
+                    # the longest stretch of rows (or columns) with real black in them: the diamond,
+                    # not a stray dark pixel in a panel beside it
+                    best_, cur_, start_ = (0, 0, 0), 0, 0
+                    for i_, c_ in enumerate(counts.tolist()):
+                        if c_ >= need:
+                            if cur_ == 0: start_ = i_
+                            cur_ += 1
+                            if cur_ > best_[0]: best_ = (cur_, start_, i_)
+                        else:
+                            cur_ = 0
+                    return best_
                 if int(blk.sum()) > 2000:
-                    bys, bxs = np.nonzero(blk)
-                    x0_, x1_ = np.percentile(bxs, [0.1, 99.9]); y0_, y1_ = np.percentile(bys, [0.1, 99.9])
-                    a2, b2 = (x1_ - x0_) / 2.0, (y1_ - y0_) / 2.0
-                    if a2 > 0.6 * a and 1.6 < a2 / max(b2, 1) < 2.4:
-                        cx, cy, a, b = (x0_ + x1_) / 2.0, (y0_ + y1_) / 2.0, a2, b2
-                        how = 'screen'
+                    rr = run_(blk.sum(axis=1), 3); cc = run_(blk.sum(axis=0), 3)
+                    if rr[0] > 20 and cc[0] > 40:
+                        y0_, y1_, x0_, x1_ = rr[1], rr[2], cc[1], cc[2]
+                        a2, b2 = (x1_ - x0_) / 2.0, (y1_ - y0_) / 2.0
+                        if 1.6 < a2 / max(b2, 1) < 2.4:
+                            cx, cy, a, b = (x0_ + x1_) / 2.0, (y0_ + y1_) / 2.0, a2, b2
+                            how = 'screen'
                 # Your Town Centre: the biggest solid block of your colour (a TC is the largest building,
                 # and the villagers, sheep and scout round it are single dots).
                 wx, wy = max(3, int(a / 18)), max(2, int(b / 18))
@@ -7788,8 +7807,8 @@ def main():
                     im_.resize((im_.width * 2, im_.height * 2)).save(os.path.join(TC_DEBUG, 'tc_ring.png'))
                 except Exception as e:
                     log('tc ring picture: %r' % (e,))
-                if k < 0.2:
-                    log('tc ring: your start is near the middle of the map, so no ring'); return
+                if k < 0.1:
+                    log('tc ring: your start is right in the middle of the map, so no ring'); return
                 log('tc ring: your TC at %d,%d of the minimap (box %d,%d %dx%d, map from the %s %d,%d %dx%d), ring %.2f of the way out'
                     % (px, py, x + bx, y + by, bw, bh, how, cx, cy, a, b, k))
                 def put():
