@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v165'
+VERSION = 'v166'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -1091,7 +1091,7 @@ def map_text(maps, strings, sel, res, size=None, players=2):
     except Exception: facts = dict(relics=None, herd_start=None, herd_total=None, herd_owned=None)
     rc = facts.get('relics')
     if rc == 'varies': first += '   \u00b7   Relics vary'
-    elif rc: first += '   \u00b7   Relics %s' % (rc[0] if rc[0] == rc[1] else '%d-%d' % rc)
+    elif rc and rc[1]: first += '   \u00b7   Relics %s' % (rc[0] if rc[0] == rc[1] else '%d-%d' % rc)   # none: no chip
     herd = None
     if facts.get('herd_total'):
         hm = HERD_WORD.search(first)
@@ -7456,7 +7456,7 @@ def main():
             if mine_ is None or st.get('last') is None:
                 score_line.config(text=''); score_line.grid_remove(); place_found(); return
             pct = int(round(abs(behind) * 100))
-            nums = '{:,} against {:,}'.format(mine_, theirs)
+            nums = '{:,} v {:,}'.format(mine_, theirs)          # short, so the bar stays on one line
             if flag:
                 score_line.config(text=' CONCEDE AVAILABLE  \u00b7  %d%% behind  \u00b7  %s ' % (pct, nums),
                                   fg='white', bg='#b3261e', font=(DISPLAY, 9, 'bold'))
