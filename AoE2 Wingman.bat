@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v173'
+VERSION = 'v174'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7722,7 +7722,6 @@ def main():
     # only your own start and the shape of the map, which you already know. Like the TC Map Orbit mod.
     orbit = {'win': None, 'game': None, 'box': None, 'searching': None, 'done': None,
              'fits': {}, 'fit': None, 'snap': 0}
-    ORBIT_BAND = 0.08     # starts aren't all exactly the same distance out: the shaded band allows for it
     ORBIT_KEY = '#010203'
     def orbit_off():
         w_ = orbit.get('win'); orbit['win'] = None; orbit['game'] = None
@@ -7739,12 +7738,6 @@ def main():
             except tk.TclError: w_.destroy(); return
             w_.geometry('%dx%d+%d+%d' % (bw, bh, bx, by))
             c_ = tk.Canvas(w_, width=bw, height=bh, bg=ORBIT_KEY, highlightthickness=0); c_.pack()
-            ko, ki = k + ORBIT_BAND, max(0.0, k - ORBIT_BAND)
-            # the band where their TC most likely is: faint dots, see-through in the middle
-            c_.create_oval(cx - a * ko, cy - b * ko, cx + a * ko, cy + b * ko, fill='#f2e2a8', outline='', stipple='gray12')
-            c_.create_oval(cx - a * ki, cy - b * ki, cx + a * ki, cy + b * ki, fill=ORBIT_KEY, outline='')
-            for kk_ in (ko, ki):
-                c_.create_oval(cx - a * kk_, cy - b * kk_, cx + a * kk_, cy + b * kk_, outline='#8a7a4a', width=1)
             ra, rb = a * k, b * k
             c_.create_oval(cx - ra, cy - rb, cx + ra, cy + rb, outline='#1a1206', width=4)      # a dark edge so it reads on any ground
             c_.create_oval(cx - ra, cy - rb, cx + ra, cy + rb, outline='#f2e2a8', width=2, dash=(7, 5))
@@ -7868,7 +7861,7 @@ def main():
                     from PIL import Image, ImageDraw
                     im_ = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1].astype(np.uint8)))
                     d_ = ImageDraw.Draw(im_)
-                    for kk_ in (k - ORBIT_BAND, k, k + ORBIT_BAND):
+                    for kk_ in (k,):
                         d_.ellipse((cx - a * kk_, cy - b * kk_, cx + a * kk_, cy + b * kk_), outline=(242, 226, 168))
                     d_.polygon([(cx - a, cy), (cx, cy - b), (cx + a, cy), (cx, cy + b)], outline=(80, 160, 255))
                     d_.rectangle((px - 3, py - 3, px + 3, py + 3), outline=(255, 0, 255))
@@ -7904,7 +7897,7 @@ def main():
             bgr = np.frombuffer(raw, dtype=np.uint8).reshape(gh, gw, 4)[:, :, :3]
             im_ = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1]))
             d_ = ImageDraw.Draw(im_)
-            for kk_ in (k - ORBIT_BAND, k, k + ORBIT_BAND):
+            for kk_ in (k,):
                 d_.ellipse((cx - a * kk_, cy - b * kk_, cx + a * kk_, cy + b * kk_), outline=(242, 226, 168))
             os.makedirs(TC_DEBUG, exist_ok=True)
             im_.resize((im_.width * 2, im_.height * 2)).save(os.path.join(TC_DEBUG, 'tc_ring_now.png'))
