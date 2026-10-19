@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v172'
+VERSION = 'v173'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -1952,6 +1952,41 @@ def minimap_colours():
         if isinstance(c, list) and len(c) >= 3:
             out[i] = (int(c[0]), int(c[1]), int(c[2]))
     return out
+
+def minimap_gold_diamond(bgr, np):
+    """The minimap's diamond from its gold edge line: (cx, cy, a, b, score) inside the grab, or None.
+    Each edge is a straight line, so for the right slope the gold pixels pile up on just two
+    values of x - y/q (one pair of sides) and two of x + y/q (the other pair). The frame's
+    straight lines and corner bits don't pile up, so they can't fool it. Works on any map,
+    explored or not, All Visible included."""
+    B, G, R = bgr[:, :, 0], bgr[:, :, 1], bgr[:, :, 2]
+    gold = (R >= 180) & (G >= 135) & (G <= 220) & (B <= 125) & (R - B >= 110) & (R - G >= 20) & (R - G <= 70)
+    ys, xs = np.nonzero(gold)
+    gh, gw = gold.shape
+    if len(xs) < 150: return None
+    xs = xs.astype(np.float64); ys = ys.astype(np.float64)
+    def peaks(vals):
+        lo = int(vals.min()) - 2; n = int(vals.max()) - lo + 4
+        h = np.bincount(np.clip((vals - lo).astype(np.int64), 0, n - 1), minlength=n).astype(np.float64)
+        h = h[:-1] + h[1:]                       # two-pixel bins: the line is a few pixels thick
+        i1 = int(h.argmax()); h2 = h.copy()
+        sep = int(gw * 0.3)
+        h2[max(0, i1 - sep):i1 + sep] = 0
+        i2 = int(h2.argmax())
+        return min(i1, i2) + lo + 1.0, max(i1, i2) + lo + 1.0, min(h[i1], h[i2])
+    best = None
+    for q in np.arange(0.44, 0.62, 0.005):
+        u1, u2, su = peaks(xs - ys / q)
+        v1, v2, sv = peaks(xs + ys / q)
+        a1, a2 = (u2 - u1) / 2.0, (v2 - v1) / 2.0
+        if abs(a1 - a2) > 6: continue
+        a = (a1 + a2) / 2.0
+        if not (gw * 0.2 < a < gw * 0.6): continue
+        sc = min(su, sv) / a                      # gold pixels per pixel of edge, on the weakest side
+        if best is None or sc > best[4]:
+            pp, mm = (u1 + u2) / 2.0, (v1 + v2) / 2.0
+            best = ((pp + mm) / 2.0, (mm - pp) / 2.0 * q, a, a * q, sc)
+    return best
 
 def _align(a):
     """'BottomCentre' -> ('Bottom', 'Centre'). The vertical word comes first."""
@@ -7685,7 +7720,9 @@ def main():
     # your own Town Centre is on the minimap (it is, from the first second), a ring through it round
     # the middle of the map shows every spot their Town Centre could be. Nothing about them is read:
     # only your own start and the shape of the map, which you already know. Like the TC Map Orbit mod.
-    orbit = {'win': None, 'game': None, 'box': None, 'searching': None, 'done': None}
+    orbit = {'win': None, 'game': None, 'box': None, 'searching': None, 'done': None,
+             'fits': {}, 'fit': None, 'snap': 0}
+    ORBIT_BAND = 0.08     # starts aren't all exactly the same distance out: the shaded band allows for it
     ORBIT_KEY = '#010203'
     def orbit_off():
         w_ = orbit.get('win'); orbit['win'] = None; orbit['game'] = None
@@ -7702,6 +7739,12 @@ def main():
             except tk.TclError: w_.destroy(); return
             w_.geometry('%dx%d+%d+%d' % (bw, bh, bx, by))
             c_ = tk.Canvas(w_, width=bw, height=bh, bg=ORBIT_KEY, highlightthickness=0); c_.pack()
+            ko, ki = k + ORBIT_BAND, max(0.0, k - ORBIT_BAND)
+            # the band where their TC most likely is: faint dots, see-through in the middle
+            c_.create_oval(cx - a * ko, cy - b * ko, cx + a * ko, cy + b * ko, fill='#f2e2a8', outline='', stipple='gray12')
+            c_.create_oval(cx - a * ki, cy - b * ki, cx + a * ki, cy + b * ki, fill=ORBIT_KEY, outline='')
+            for kk_ in (ko, ki):
+                c_.create_oval(cx - a * kk_, cy - b * kk_, cx + a * kk_, cy + b * kk_, outline='#8a7a4a', width=1)
             ra, rb = a * k, b * k
             c_.create_oval(cx - ra, cy - rb, cx + ra, cy + rb, outline='#1a1206', width=4)      # a dark edge so it reads on any ground
             c_.create_oval(cx - ra, cy - rb, cx + ra, cy + rb, outline='#f2e2a8', width=2, dash=(7, 5))
@@ -7754,6 +7797,40 @@ def main():
                 if bw < 60 or bh < 30: log('tc ring: the minimap is off the screen'); return
                 raw, gw, gh = grab((x + bx, y + by, bw, bh, 1))
                 bgr = np.frombuffer(raw, dtype=np.uint8).reshape(gh, gw, 4)[:, :, :3].astype(np.int16)
+                how = 'layout'
+                # The map itself, off the screen rather than the layout file (mods move and resize it).
+                # Best: its gold edge line, there whatever the map looks like.
+                gd = minimap_gold_diamond(bgr, np)
+                if gd and gd[4] >= 0.5:
+                    cx, cy = gd[0], gd[1]
+                    a, b = gd[2] * (1 - 0.0135), gd[3] * (1 - 0.017)    # the map starts just inside the line
+                    how = 'gold edge'
+                    orbit['fits'][(w, hh)] = (cx + bx, cy + by, a, b)
+                else:
+                    # Next: everything you have not explored is pure black, so the black diamond's
+                    # far corners are the map's corners
+                    blk = bgr.max(axis=2) < 14
+                    def run_(counts, need):
+                        best_, cur_, start_ = (0, 0, 0), 0, 0
+                        for i_, c_ in enumerate(counts.tolist()):
+                            if c_ >= need:
+                                if cur_ == 0: start_ = i_
+                                cur_ += 1
+                                if cur_ > best_[0]: best_ = (cur_, start_, i_)
+                            else:
+                                cur_ = 0
+                        return best_
+                    if int(blk.sum()) > 2000:
+                        rr = run_(blk.sum(axis=1), 3); cc = run_(blk.sum(axis=0), 3)
+                        if rr[0] > 20 and cc[0] > 40:
+                            y0_, y1_, x0_, x1_ = rr[1], rr[2], cc[1], cc[2]
+                            a2, b2 = (x1_ - x0_) / 2.0, (y1_ - y0_) / 2.0
+                            if 1.6 < a2 / max(b2, 1) < 2.4 and a2 > bw * 0.25:
+                                cx, cy, a, b = (x0_ + x1_) / 2.0, (y0_ + y1_) / 2.0, a2, b2
+                                how = 'screen'
+                    if how == 'layout' and (w, hh) in orbit['fits']:
+                        fx, fy, a, b = orbit['fits'][(w, hh)]       # what the gold edge showed last time
+                        cx, cy = fx - bx, fy - by; how = 'last good look'
                 m = (np.abs(bgr - np.array([col[2], col[1], col[0]], dtype=np.int16)).sum(axis=2) <= 34)
                 ys, xs = np.mgrid[0:gh, 0:gw]
                 m &= (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 0.97       # inside the map, not beside it
@@ -7761,62 +7838,38 @@ def main():
                     seen['few'] += 1
                     if seen['few'] == 3: log('tc ring: only %d pixels in your colour %s on the minimap so far' % (int(m.sum()), col))
                     continue
-                # The map itself, off the screen rather than the layout file: everything you have not
-                # explored is pure black, so the black diamond's far corners are the map's corners.
-                blk = bgr.max(axis=2) < 14
-                how = 'layout'
-                def run_(counts, need):
-                    # the longest stretch of rows (or columns) with real black in them: the diamond,
-                    # not a stray dark pixel in a panel beside it
-                    best_, cur_, start_ = (0, 0, 0), 0, 0
-                    for i_, c_ in enumerate(counts.tolist()):
-                        if c_ >= need:
-                            if cur_ == 0: start_ = i_
-                            cur_ += 1
-                            if cur_ > best_[0]: best_ = (cur_, start_, i_)
-                        else:
-                            cur_ = 0
-                    return best_
-                if int(blk.sum()) > 2000:
-                    rr = run_(blk.sum(axis=1), 3); cc = run_(blk.sum(axis=0), 3)
-                    if rr[0] > 20 and cc[0] > 40:
-                        y0_, y1_, x0_, x1_ = rr[1], rr[2], cc[1], cc[2]
-                        a2, b2 = (x1_ - x0_) / 2.0, (y1_ - y0_) / 2.0
-                        if 1.6 < a2 / max(b2, 1) < 2.4:
-                            cx, cy, a, b = (x0_ + x1_) / 2.0, (y0_ + y1_) / 2.0, a2, b2
-                            how = 'screen'
                 # Your Town Centre. The game opens with the camera on it, and the minimap draws the
-                # camera as a white box: so early on, the middle of that box is your TC. Checked
-                # against your own colour being inside it, in case you have already looked away.
-                px = py = None; tc_how = 'camera'
-                ys, xs = np.mgrid[0:gh, 0:gw]
+                # camera as a white box, so look inside that box (if your colour is in it, in case
+                # you have already looked away). Then the most solid block of your colour there:
+                # the TC is your biggest building; villagers are dots and walls (Arena) thin lines.
+                tc_how = 'colour'
                 inside_ = (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 1.0
                 wh = (bgr.min(axis=2) > 200) & inside_
+                mm = m
                 rows_ = np.nonzero(wh.sum(axis=1) >= 15)[0]; cols_ = np.nonzero(wh.sum(axis=0) >= 8)[0]
                 if len(rows_) >= 2 and len(cols_) >= 2:
                     t_, b_, l_, r_ = rows_.min(), rows_.max(), cols_.min(), cols_.max()
                     vw, vh = r_ - l_, b_ - t_
                     if 15 <= vw <= a and 8 <= vh <= b and 1.1 < vw / float(max(vh, 1)) < 3.0 \
                             and int(m[t_:b_ + 1, l_:r_ + 1].sum()) >= 8:
-                        px, py = (l_ + r_) / 2.0, (t_ + b_) / 2.0
-                if px is None:
-                    # otherwise the most solid block of your colour: a TC is the biggest building, and
-                    # walls (Arena) are thin lines, so the block has to be mostly filled in
-                    tc_how = 'colour'
-                    wx, wy = max(3, int(a / 20)), max(2, int(b / 20))
-                    ii = np.pad(m.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
-                    box_sum = ii[wy:, wx:] - ii[:-wy, wx:] - ii[wy:, :-wx] + ii[:-wy, :-wx]
-                    ty, tx = np.unravel_index(int(box_sum.argmax()), box_sum.shape)
-                    sub = m[ty:ty + wy, tx:tx + wx]
-                    sy_, sx_ = np.nonzero(sub)
-                    px, py = float(tx + sx_.mean()), float(ty + sy_.mean())
+                        keep = np.zeros_like(m)
+                        keep[max(0, t_ - 3):b_ + 4, max(0, l_ - 3):r_ + 4] = True
+                        mm = m & keep; tc_how = 'camera'
+                w_ = max(3, int(round(a / 32.0)))                   # about the size a TC is drawn
+                ii = np.pad(mm.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+                box_sum = ii[w_:, w_:] - ii[:-w_, w_:] - ii[w_:, :-w_] + ii[:-w_, :-w_]
+                ty, tx = np.unravel_index(int(box_sum.argmax()), box_sum.shape)
+                y0_, x0_ = max(0, ty - w_), max(0, tx - w_)         # the whole building, not just the window
+                sy_, sx_ = np.nonzero(mm[y0_:ty + 2 * w_, x0_:tx + 2 * w_])
+                px, py = float(x0_ + sx_.mean()), float(y0_ + sy_.mean())
                 k = ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2
                 k = k ** 0.5
                 try:                                             # a picture of what it saw, to check it by
                     from PIL import Image, ImageDraw
                     im_ = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1].astype(np.uint8)))
                     d_ = ImageDraw.Draw(im_)
-                    d_.ellipse((cx - a * k, cy - b * k, cx + a * k, cy + b * k), outline=(242, 226, 168))
+                    for kk_ in (k - ORBIT_BAND, k, k + ORBIT_BAND):
+                        d_.ellipse((cx - a * kk_, cy - b * kk_, cx + a * kk_, cy + b * kk_), outline=(242, 226, 168))
                     d_.polygon([(cx - a, cy), (cx, cy - b), (cx + a, cy), (cx, cy + b)], outline=(80, 160, 255))
                     d_.rectangle((px - 3, py - 3, px + 3, py + 3), outline=(255, 0, 255))
                     os.makedirs(TC_DEBUG, exist_ok=True)
@@ -7830,6 +7883,7 @@ def main():
                 def put():
                     if st.get('last') == game and load_settings().get('tc_orbit'):
                         orbit_show((x + bx, y + by, bw, bh), cx, cy, a, b, k)
+                        orbit['fit'] = (x + bx, y + by, bw, bh, cx, cy, a, b, k)
                         log('tc ring: drawn' if orbit.get('win') is not None else 'tc ring: could not draw it')
                 root.after(0, put)
                 return
@@ -7837,6 +7891,25 @@ def main():
                 % (seen['front'], seen['few']))
         except Exception as e:
             log('tc ring: %r' % (e,))
+    def orbit_snap():
+        """The ring can't be screenshotted (it stays out of captures), so every couple of minutes
+        Wingman saves its own picture: the minimap as it is now, with the ring drawn on."""
+        try:
+            f = orbit.get('fit')
+            if not f or not ensure_numpy(): return
+            import numpy as np
+            from PIL import Image, ImageDraw
+            X, Y, W, H, cx, cy, a, b, k = f
+            raw, gw, gh = _grabber()((X, Y, W, H, 1))
+            bgr = np.frombuffer(raw, dtype=np.uint8).reshape(gh, gw, 4)[:, :, :3]
+            im_ = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1]))
+            d_ = ImageDraw.Draw(im_)
+            for kk_ in (k - ORBIT_BAND, k, k + ORBIT_BAND):
+                d_.ellipse((cx - a * kk_, cy - b * kk_, cx + a * kk_, cy + b * kk_), outline=(242, 226, 168))
+            os.makedirs(TC_DEBUG, exist_ok=True)
+            im_.resize((im_.width * 2, im_.height * 2)).save(os.path.join(TC_DEBUG, 'tc_ring_now.png'))
+        except Exception as e:
+            log('tc ring picture: %r' % (e,))
     def orbit_tick():
         """Only over the game: hidden whenever something else is in front, gone when the game ends."""
         try:
@@ -7849,7 +7922,7 @@ def main():
                 orbit['searching'] = orbit['done'] = st['last']   # one search per game (or per switching it on)
                 threading.Thread(target=orbit_find, args=(st['my_colour'], st['last']), daemon=True).start()
             if w_ is not None and tcw.active and tcw.game_minutes(time.time()) >= 12:
-                log('tc ring: 12 minutes in, so it goes'); orbit_off(); w_ = None   # done == this game: not again
+                orbit_snap(); log('tc ring: 12 minutes in, so it goes'); orbit_off(); w_ = None   # done == this game: not again
             if w_ is not None:
                 if st.get('last') != orbit.get('game') or not load_settings_cached().get('tc_orbit'):
                     if not load_settings_cached().get('tc_orbit'): orbit['done'] = None   # on again: look again
@@ -7857,6 +7930,9 @@ def main():
                 else:
                     h_ = find_game_window()
                     front = bool(h_) and _win()[2].GetForegroundWindow() == h_
+                    if front and time.time() - orbit.get('snap', 0) > 120:
+                        orbit['snap'] = time.time()
+                        threading.Thread(target=orbit_snap, daemon=True).start()
                     if front and not w_.winfo_viewable(): w_.deiconify(); w_.lift()
                     elif not front and w_.winfo_viewable(): w_.withdraw()
         except Exception:
