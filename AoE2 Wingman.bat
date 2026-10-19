@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v175'
+VERSION = 'v176'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7839,11 +7839,11 @@ def main():
                 inside_ = (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 1.0
                 # Best of all at the start: the only ground you have seen is what your TC, villagers
                 # and scout can see, and the TC sees furthest, so it sits in the middle of that
-                # patch. Then the square of your colour nearest that middle is the TC itself.
+                # patch.
                 # (Not the game's own rings or the camera box: gold and white aren't ground.)
                 inner_ = (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 0.97
                 Bc, Gc, Rc = bgr[:, :, 0], bgr[:, :, 1], bgr[:, :, 2]
-                goldish = (Rc > 150) & (Gc > 100) & (Bc < 110) & (Rc - Bc > 80)
+                goldish = (Rc > 150) & (Gc * 100 > Rc * 65) & (Gc * 100 < Rc * 90) & (Bc < 110)   # not orange or yellow players
                 seen_ = inner_ & (bgr.max(axis=2) >= 14) & ~goldish & ~(bgr.min(axis=2) > 200)
                 r_ = max(2, int(round(a / 75.0)))                   # shave the edges off: thin lines (rings,
                 pad_ = np.pad(seen_, r_); core_ = np.ones_like(seen_)  # tracks) go, the patch stays
@@ -7853,15 +7853,9 @@ def main():
                 ns_, area_ = int(core_.sum()), int(inner_.sum())
                 ex_px = None
                 if 30 <= ns_ <= area_ * 0.04:
-                    ecx, ecy = float(xs[core_].mean()), float(ys[core_].mean())
-                    oy_, ox_ = np.nonzero(m)
-                    d_ = (ox_ - ecx) ** 2 + (oy_ - ecy) ** 2
-                    j_ = int(d_.argmin())
-                    if d_[j_] ** 0.5 <= a / 12.0:
-                        near_ = ((ox_ - ox_[j_]) ** 2 + (oy_ - oy_[j_]) ** 2) <= 9
-                        ex_px = (float(ox_[near_].mean()), float(oy_[near_].mean()))
-                    else:
-                        ex_px = (ecx, ecy)
+                    # the middle of the patch: your villagers stand round the TC, and on some minimap
+                    # styles the TC isn't drawn any bigger than them, so don't snap to a square
+                    ex_px = (float(xs[core_].mean()), float(ys[core_].mean()))
                 wh = (bgr.min(axis=2) > 200) & inside_
                 mm = m
                 rows_ = np.nonzero(wh.sum(axis=1) >= 15)[0]; cols_ = np.nonzero(wh.sum(axis=0) >= 8)[0]
