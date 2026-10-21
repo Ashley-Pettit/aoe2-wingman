@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v182'
+VERSION = 'v183'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -704,6 +704,74 @@ def replay_stats(path, stop_at=None):
     for p in out.values():
         p['apm'] = round(p['acts'] / max(1.0, t / 60000.0))
     return {'length': t / 1000.0, 'players': out}
+
+class LiveApm(object):
+    """Your own actions a minute, live, from the recording the game writes as you play. Only your
+    commands are counted; nothing about anyone else is looked at. Reads on from where it got to,
+    and leaves a command that is only half written for next time."""
+    def __init__(self, path, me):
+        self.path, self.me = path, me
+        self.pos = None; self.t = 0
+        self.mine = collections.deque()          # game time (ms) of each of your commands
+        self.n = 0
+    def _start(self, fh):
+        d = fh.read(1 << 20)
+        hl = struct.unpack_from('<I', d, 0)[0]
+        fh.seek(hl); first, = struct.unpack('<I', fh.read(4))
+        if first != 500: fh.read(4)
+        fh.read(20)
+        a, bb, _ = struct.unpack('<III', fh.read(12))
+        if a != 0: fh.seek(-12, 1)
+        if bb == 2: fh.seek(-8, 1)
+        self.pos = fh.tell()
+    def poll(self):
+        with open(self.path, 'rb') as fh:
+            if self.pos is None:
+                try: self._start(fh)
+                except (struct.error, OSError, IndexError): return
+            fh.seek(self.pos); d = fh.read()
+        i, n = 0, len(d)
+        while i + 4 <= n:
+            op, = struct.unpack_from('<I', d, i); j = i + 4
+            try:
+                if op == 1:
+                    length, = struct.unpack_from('<I', d, j); j += 4
+                    if j + length + 4 > n: break             # not all written yet
+                    aid = d[j]; ab = d[j + 1:j + length]; j += length + 4
+                    if aid == 255: i = j; break
+                    if len(ab) >= 3:
+                        pid, ln = struct.unpack_from('<bh', ab, 0)
+                        if len(ab) == ln + 3 and pid == self.me:
+                            self.mine.append(self.t); self.n += 1
+                elif op == 2:
+                    if j + 8 > n: break
+                    inc, marker = struct.unpack_from('<II', d, j)
+                    if marker: j += 4
+                    else:
+                        if j + 24 > n: break
+                        is_de, = struct.unpack_from('<I', d, j + 20)
+                        j += 32 if not is_de else 8 + 4 * 8 * 11 + 4
+                        if j > n: break
+                    self.t += inc
+                elif op == 3:
+                    if j + 12 > n: break
+                    j += 12
+                elif op == 4:
+                    if j + 8 > n: break
+                    _, ln = struct.unpack_from('<II', d, j); j += 8 + ln
+                    if j > n: break
+                else:
+                    break                                     # lost our place: stop counting this game
+            except (struct.error, IndexError):
+                break
+            i = j
+        self.pos += i
+        while self.mine and self.mine[0] < self.t - 6 * 60000: self.mine.popleft()
+    def apm(self, minutes=1.0):
+        """Your commands over the last `minutes` of game time, as a rate a minute."""
+        span = minutes * 60000
+        if self.t < span: return None
+        return sum(1 for x in self.mine if x >= self.t - span) / float(minutes)
 
 def spoken_step(text):
     """A build step as something to say: '6 to sheep' becomes 'Send 6 to sheep',
@@ -6623,6 +6691,10 @@ def main():
                      highlightthickness=1, highlightbackground=RIM)
     state.grid(row=0, column=2, sticky='e', padx=(10, 2))
     live_btn = live_pill(head, BG)                                      # pause, chat, stream on Discord
+    # your actions a minute, while you play (off unless switched on in Settings)
+    apm_chip = tk.Label(head, text='', fg=MUT, bg=PANEL, font=F_TINY, padx=6, pady=3,
+                        highlightthickness=1, highlightbackground=RIM)
+    apm_chip.grid(row=0, column=2, sticky='e', padx=(10, 2)); apm_chip.grid_remove()
     # brings a hidden build order back: a small gold B badge
     bo_open = tk.Label(head, text='', bg=BG, padx=0, pady=0, cursor='hand2', bd=0)
     try:
@@ -9777,9 +9849,13 @@ def main():
         Check(outer, text="Ring on the minimap where their TC could be", variable=orb_on, fg=TXT, bg=INK,
               selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
               font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
-        tk.Label(outer, text='Everyone starts the same distance from the middle, so a ring through your TC '
-                             'shows where theirs could be. Being tested.',
+        tk.Label(outer, text='Where their TC is likely to be, worked out from yours and the map\'s own rules. '
+                             'In team games, only the enemy side. Being tested.',
                  fg=FAINT, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=380).pack(fill='x', pady=(3, 0))
+        apm_on = tk.BooleanVar(value=cfg.get('apm_live', False))
+        Check(outer, text='Live APM, with a nudge if it drops', variable=apm_on, fg=TXT, bg=INK,
+              selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+              font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x', pady=(6, 0))
 
         section('Running as administrator',
                 'Only matters for the party invite. If the game runs as admin, Windows ignores clicks from '
@@ -9894,7 +9970,7 @@ def main():
             hb, hg, h20 = house_cfg()
             return {'house_bands': hb, 'house_grace': hg, 'house_cap20': h20,
                     'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(),
-                    'tc_alert': bool(tc_on.get()), 'scout_callout': bool(sc_on.get()), 'tc_orbit': bool(orb_on.get()),
+                    'tc_alert': bool(tc_on.get()), 'scout_callout': bool(sc_on.get()), 'tc_orbit': bool(orb_on.get()), 'apm_live': bool(apm_on.get()),
                     'scout_ping': bool(sp_on.get()),
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
                     'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
@@ -10908,10 +10984,54 @@ def main():
         except Exception as e:
             log('showing the overlay: %r' % (e,))
 
+    APM_DROP, APM_FLOOR = 0.6, 15        # a nudge when the last minute is under 60% of your usual (and that's 15+)
+    def apm_tick():
+        """Live APM: read on through the recording every couple of seconds (off the main thread), show
+        it in the header, and a small nudge on the badge if it drops well below your usual pace."""
+        now = time.time()
+        if now - st.get('apm_t', 0) < 2: return
+        st['apm_t'] = now
+        on = bool(load_settings_cached().get('apm_live')) and st.get('last') and tcw.active and st.get('me_num')
+        if not on:
+            if apm_chip.winfo_manager(): apm_chip.grid_remove()
+            st['apm_obj'] = None; return
+        o = st.get('apm_obj')
+        if o is None or o.path != st['last']:
+            o = st['apm_obj'] = LiveApm(st['last'], st['me_num'])
+            st['apm_low'] = False; st['apm_said'] = 0
+        if st.get('apm_busy'): return
+        st['apm_busy'] = True
+        def work():
+            try: o.poll()
+            except Exception as e:
+                if not st.get('apm_err'): st['apm_err'] = 1; log('live apm: %r' % (e,))
+            finally: st['apm_busy'] = False
+            def show():
+                if st.get('apm_obj') is not o: return
+                cur, usual = o.apm(1.0), o.apm(5.0)
+                if cur is None:
+                    apm_chip.config(text='APM …', fg=MUT)
+                else:
+                    low = usual is not None and usual >= APM_FLOOR and cur < usual * APM_DROP
+                    apm_chip.config(text='APM %d' % round(cur), fg=REDC if low else (GREEN if usual and cur >= usual else TXT))
+                    if low and not st.get('apm_low') and time.time() - st.get('apm_said', 0) > 120:
+                        st['apm_low'] = True; st['apm_said'] = time.time()
+                        log('live apm: down to %d (usual %d)' % (cur, usual))
+                        tc_note('APM DOWN  ·  %d  (USUALLY %d)' % (round(cur), round(usual)), 6)
+                    elif usual and cur >= usual * 0.8:
+                        st['apm_low'] = False                       # back up: the next drop gets a nudge too
+                if not apm_chip.winfo_manager(): calm(apm_chip.grid)()
+            try: root.after(0, show)
+            except Exception: pass
+        threading.Thread(target=work, daemon=True).start()
+
     def fast():
         try:
             wake_check()
             refresh(); hover_fade(); foot_fit()
+            try: apm_tick()
+            except Exception as e:
+                if not st.get('apm_err2'): st['apm_err2'] = 1; log('live apm tick: %r' % (e,))
             try: feudal_reminder(); castle_reminder()
             except Exception as e: log('reminder: %r' % (e,))
         except Exception as e:
@@ -10983,6 +11103,8 @@ def main():
                     if mine_p is None: log('you are not in the player list (profile %s), so the in-game alerts stay off' % me)
                     start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')), recording=f)
                     st['my_colour'] = mine_p.get('colour') if mine_p is not None else None
+                    st['me_num'] = mine_p.get('number') if mine_p is not None else None
+                    st['apm_obj'] = None                          # a fresh count for this game
                     st['circle'] = None                           # where the map script puts each start
                     st['n_players'] = len(lob['players'])
                     st['ally_colours'] = [pp.get('colour') for pp in lob['players'] if mine_p is not None and pp is not mine_p
