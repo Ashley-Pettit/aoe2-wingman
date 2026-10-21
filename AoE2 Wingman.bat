@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v183'
+VERSION = 'v184'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7229,9 +7229,49 @@ def main():
         for mark in (10, 15, 20):
             if g_ >= mark * 60 and mark not in an['pops']: an['pops'][mark] = pop
 
+    TIPS = {
+        'idle': ["Keep the TC busy. The idle time was about {v} villagers you never made.",
+                 "Queue two villagers when you head off to do something else, so the TC never stops.",
+                 "Glance at the TC every time you place a building. {idle} idle cost you about {v} villagers.",
+                 "Tap your TC hotkey every 20 seconds or so. {v} villagers' worth of TC time went missing."],
+        'house': ["Get houses up a little earlier: start one when you're 3 pop off the cap.",
+                  "Once you're in Feudal, build houses two at a time so you're never housed mid-fight.",
+                  "When the house warning shows, send a villager straight away, not after the next job."],
+        'feudal': ["Your Feudal click was {late} behind a busy TC. Tighten the Dark Age and it comes forward.",
+                   "Aim to click Feudal by {perfect}. Fewer idle seconds and earlier houses get you there."],
+        'bo': ["Try to finish the build order next game, even slowly. The habit matters more than the speed.",
+               "You got to step {step} of {steps}. Next game, see if you can get one step further."],
+        'good': ["Solid start. Next game, try to scout their base before 4 minutes.",
+                 "Clean game. Push for a slightly earlier Feudal click next time.",
+                 "Nice work. Next game, aim for 2 more villagers by 15 minutes.",
+                 "Good start. Next game, keep an eye on the minimap every time you place a building.",
+                 "Tidy game. Next time, get your second TC building on time if you go for one.",
+                 "Strong economy. Next game, try to put that lead into army sooner."]}
+
+    def an_tip(info):
+        """One tip for next game, from what went wrong most, worded differently each time so it
+        doesn't read the same game after game."""
+        import random
+        keys = []
+        if info.get('v', 0) >= 2: keys.append('idle')
+        if info.get('late', 0) >= 60: keys.append('feudal')
+        if info.get('house_n', 0) >= 2: keys.append('house')
+        if info.get('steps') and not info.get('done'): keys.append('bo')
+        if not keys: keys = ['good']
+        key = keys[0] if len(keys) == 1 or random.random() < 0.65 else random.choice(keys[1:])  # mostly the worst
+        cfg_ = load_settings(); last = cfg_.get('last_tip')
+        pool = [t for t in TIPS[key] if t != last] or TIPS[key]
+        tip = random.choice(pool)
+        try: cfg_['last_tip'] = tip; save_settings(cfg_)
+        except Exception: pass
+        fmt = dict(v=info.get('v', 0), idle=mmss(info.get('idle', 0)), late=mmss(info.get('late', 0)),
+                   perfect=mmss(info.get('perfect', 0)), step=info.get('step', 0), steps=info.get('steps', 0))
+        try: return tip.format(**fmt)
+        except Exception: return tip
+
     def an_lines():
-        """The post game notes: plain lines, the most useful one last."""
-        sp_ = []
+        """The post game notes: short lines about your own game, then one tip for next game (last)."""
+        sp_ = []; info = {}
         found_ = build_by_name(bo.get('name'))
         steps_ = found_[2] if found_ else []
         click = next((lo for lo, hi, t in steps_ if 'click feudal' in t.lower()), None)
@@ -7239,59 +7279,108 @@ def main():
             perfect = (click - 4) * 25                           # a Town Centre that never stops
             got = an['first'].get(click)
             if got:
-                late = got - perfect
-                sp_.append(('Pop %d (the Feudal click) at %s. A busy TC gets there at %s%s.'
+                late = got - perfect; info.update(late=late, perfect=perfect)
+                sp_.append(('Feudal click (pop %d) at %s. A busy TC: %s%s.'
                             % (click, mmss(got), mmss(perfect),
-                               '' if late < 10 else ', so %s behind' % mmss(late)), TXT))
+                               '' if late < 10 else '. You were %s behind' % mmss(late)), TXT))
         if an['idle'] >= 5:
             big, at = an['idle_max']
-            sp_.append(('TC idle %s in total, %d time%s. Longest %s, at %s.'
+            sp_.append(('TC idle %s, %d time%s. Longest %s, at %s.'
                         % (mmss(an['idle']), an['idle_n'], '' if an['idle_n'] == 1 else 's', mmss(big), mmss(at)), TXT))
         else:
             sp_.append(('Your TC never sat idle. Lovely.', GREEN))
         if an['house_n']:
-            sp_.append(('The house warning came up %d time%s.' % (an['house_n'], '' if an['house_n'] == 1 else 's'), TXT))
-        pops_ = ['%d at %d min' % (an['pops'][m], m) for m in (10, 15, 20) if m in an['pops']]
-        if pops_: sp_.append(('Pop ' + ', '.join(pops_) + '.', TXT))
+            sp_.append(('House warning: %d time%s.' % (an['house_n'], '' if an['house_n'] == 1 else 's'), TXT))
+        ms_ = [m for m in (10, 15, 20) if m in an['pops']]
+        if ms_:
+            sp_.append(('Pop %s at %s min.' % (' / '.join(str(an['pops'][m]) for m in ms_),
+                                                ' / '.join(str(m) for m in ms_)), TXT))
         if steps_:
             if bo.get('done'): sp_.append(('Build order followed to the end.', TXT))
-            else: sp_.append(('Build order: got to step %d of %d.' % (min(bo['i'] + 1, len(steps_)), len(steps_)), TXT))
-        vils = int(an['idle'] // 25)
-        if vils >= 2:
-            tip = 'Next game: keep the TC busy. That idle time is about %d villagers you did not make.' % vils
-        elif an['house_n'] >= 2:
-            tip = 'Next game: get your houses up a little earlier.'
-        else:
-            tip = 'Solid start. Keep it going.'
-        sp_.append((tip, GOLDD))
+            else: sp_.append(('Build order: step %d of %d.' % (min(bo['i'] + 1, len(steps_)), len(steps_)), TXT))
+        info.update(v=int(an['idle'] // 25), idle=an['idle'], house_n=an['house_n'], steps=len(steps_),
+                    step=min(bo['i'] + 1, len(steps_)) if steps_ else 0, done=bool(bo.get('done')))
+        sp_.append((an_tip(info), GOLDD))
         return sp_
 
-    def an_replay_lines(rec, me_num, opps):
+    def an_replay_lines(rec, me_num, opps, mates=()):
         """From the recording itself, now the game is over: when each of you clicked up, and how busy
-        your hands were. Same file the analysis websites read, so the numbers are the game's own."""
+        your hands were. Rows of (name, side, feudal, castle, imperial, apm), you first, then your
+        team, then theirs. Same file the analysis websites read, so the numbers are the game's own."""
         if not rec or not me_num: return []
         r_ = replay_stats(rec)
         ps = r_['players']
         if me_num not in ps: return []
-        out = []
-        short = lambda n: n if len(n) <= 12 else n[:11] + '\u2026'
-        for key, label in (('feudal', 'Feudal'), ('castle', 'Castle'), ('imperial', 'Imperial')):
-            mine_t = ps[me_num].get(key)
-            theirs = [(nm, ps.get(num, {}).get(key)) for nm, num in opps[:3]]
-            if mine_t is None and not any(t for _, t in theirs): continue
-            bits = ['you %s' % (mmss(mine_t) if mine_t is not None else 'never')]
-            bits += ['%s %s' % (short(nm), mmss(t) if t is not None else 'never') for nm, t in theirs]
-            out.append(('%s clicked: %s.' % (label, ', '.join(bits)), TXT))
-        apm = ['you %d' % ps[me_num]['apm']] + ['%s %d' % (short(nm), ps[num]['apm']) for nm, num in opps[:3] if num in ps]
-        out.append(('Actions a minute: %s.' % ', '.join(apm), TXT))
-        return out
+        rows = []
+        def row(nm, side, num):
+            p_ = ps.get(num)
+            if p_ is None: return
+            rows.append((nm, side, p_.get('feudal'), p_.get('castle'), p_.get('imperial'), p_.get('apm')))
+        row('You', 'me', me_num)
+        for nm, num in list(mates)[:3]: row(nm, 'mate', num)
+        for nm, num in list(opps)[:4]: row(nm, 'opp', num)
+        return rows
 
-    def an_render(lines_):
+    def an_render(lines_, table_=None):
+        """The card: who clicked up when and how busy each of you were (a small table), the notes
+        on your own game as short points, then the tip for next game on its own."""
         for w in card_an.winfo_children(): w.destroy()
-        for t_, col_ in lines_:
-            l_ = tk.Label(card_an, text=t_, fg=col_, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
-                          wraplength=PANEL_W - 30)
-            l_.pack(fill='x', anchor='w', pady=(1, 0)); bind_all(l_); st['actions'][l_] = hide_card
+        def hush(w):
+            bind_all(w); st['actions'][w] = hide_card
+        if table_:
+            tb = tk.Frame(card_an, bg=PANEL); tb.pack(fill='x', pady=(0, 6)); hush(tb)
+            tb.grid_columnconfigure(0, weight=1)
+            heads = ('', 'FEUDAL', 'CASTLE', 'IMP', 'APM')
+            show_imp = any(r[4] is not None for r in table_)
+            for c_, h_ in enumerate(heads):
+                if c_ == 3 and not show_imp: continue
+                l_ = tk.Label(tb, text=h_, fg=FAINT, bg=PANEL, font=(F_TINY[0], F_TINY[1], 'bold'),
+                              anchor='w' if c_ == 0 else 'e')
+                l_.grid(row=0, column=c_, sticky='we', padx=(0 if c_ == 0 else 10, 0)); hush(l_)
+            best = {}
+            for k_ in (2, 3, 4):
+                ts = [r[k_] for r in table_ if r[k_] is not None]
+                if ts: best[k_] = min(ts)
+            r_i = 1; last_side = None
+            for nm, side, f_, c2, i_, apm in table_:
+                if last_side in ('me', 'mate') and side == 'opp':
+                    sep_ = tk.Frame(tb, bg=EDGE, height=1); sep_.grid(row=r_i, column=0, columnspan=5, sticky='we', pady=3)
+                    r_i += 1
+                last_side = side
+                col = GOLDC if side == 'me' else (GREEN if side == 'mate' else '#e3a497')
+                shown = nm if len(nm) <= 16 else nm[:15] + '\u2026'
+                l_ = tk.Label(tb, text=shown, fg=col, bg=PANEL, anchor='w',
+                              font=(F_SMALL[0], F_SMALL[1], 'bold') if side == 'me' else F_SMALL)
+                l_.grid(row=r_i, column=0, sticky='w'); hush(l_)
+                for c_, k_, v_ in ((1, 2, f_), (2, 3, c2), (3, 4, i_), (4, 5, apm)):
+                    if c_ == 3 and not show_imp: continue
+                    if k_ == 5:
+                        txt = '%d' % v_ if v_ is not None else '\u2013'; fg_ = TXT
+                    else:
+                        txt = mmss(v_) if v_ is not None else '\u2013'
+                        fg_ = GREEN if (v_ is not None and best.get(k_) == v_) else (TXT if v_ is not None else FAINT)
+                    l_ = tk.Label(tb, text=txt, fg=fg_, bg=PANEL, font=F_SMALL, anchor='e')
+                    l_.grid(row=r_i, column=c_, sticky='e', padx=(10, 0)); hush(l_)
+                r_i += 1
+        notes = [x for x in lines_ if x[1] != GOLDD]
+        tips = [x for x in lines_ if x[1] == GOLDD]
+        if notes:
+            hd = tk.Label(card_an, text='YOUR GAME', fg=BRONZE, bg=PANEL, font=(F_TINY[0], F_TINY[1], 'bold'), anchor='w')
+            hd.pack(fill='x', pady=(2, 1)); hush(hd)
+        for t_, col_ in notes:
+            r_ = tk.Frame(card_an, bg=PANEL); r_.pack(fill='x', anchor='w'); hush(r_)
+            d_ = tk.Label(r_, text='\u2022', fg=BRONZE, bg=PANEL, font=F_SMALL); d_.pack(side='left', anchor='n', padx=(2, 6)); hush(d_)
+            l_ = tk.Label(r_, text=t_, fg=col_, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
+                          wraplength=PANEL_W - 50)
+            l_.pack(side='left', fill='x', anchor='w'); hush(l_)
+        for t_, _c in tips:
+            box = tk.Frame(card_an, bg=INK, highlightthickness=1, highlightbackground=EDGE)
+            box.pack(fill='x', pady=(7, 0)); hush(box)
+            tg = tk.Label(box, text='NEXT GAME', fg=INK, bg=GOLDD, font=(F_TINY[0], F_TINY[1], 'bold'), padx=5, pady=1)
+            tg.pack(side='left', anchor='n', padx=(6, 8), pady=6); hush(tg)
+            l_ = tk.Label(box, text=t_, fg=GOLDC, bg=INK, font=F_SMALL, anchor='w', justify='left',
+                          wraplength=PANEL_W - 130)
+            l_.pack(side='left', fill='x', anchor='w', pady=5, padx=(0, 6)); hush(l_)
 
     def an_finish():
         """The game is over: put the notes on the card, at the menu."""
@@ -7304,26 +7393,23 @@ def main():
         except Exception as e:
             log('post game: %r' % (e,)); an.clear(); return
         rec_, me_, opps_ = an.get('rec'), an.get('me_num'), list(an.get('opps') or [])
+        mates_ = list(an.get('mates') or [])
         an.clear()
         log('post game: %s' % ' | '.join(t for t, _ in lines_))
         def more():                                           # the recording, read off the main thread
             time.sleep(3)                                     # the game finishes writing it first
-            try: extra = an_replay_lines(rec_, me_, opps_)
+            try: extra = an_replay_lines(rec_, me_, opps_, mates_)
             except Exception as e:
                 log('post game, recording: %r' % (e,)); return
             if not extra: return
-            log('post game, recording: %s' % ' | '.join(t for t, _ in extra))
+            log('post game, recording: %s' % ' | '.join('%s %s/%s/%s %s' % (r[0], *[mmss(x) if x is not None else '-' for x in r[2:5]], r[5]) for r in extra))
             def show():
                 if st.get('last') is not None or not card_an.winfo_children(): return   # a new game, or closed
-                calm(an_render)(extra + lines_)
+                calm(an_render)(lines_, extra)
             try: root.after(0, show)
             except Exception: pass
         threading.Thread(target=more, daemon=True).start()
-        for w in card_an.winfo_children(): w.destroy()
-        for t_, col_ in lines_:
-            l_ = tk.Label(card_an, text=t_, fg=col_, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
-                          wraplength=PANEL_W - 30)
-            l_.pack(fill='x', anchor='w', pady=(1, 0)); bind_all(l_); st['actions'][l_] = hide_card
+        an_render(lines_)
         card_an.grid()
         if not card_word.cget('text') or st.get('card') is None:
             card.config(highlightbackground=EDGE)
@@ -11099,6 +11185,8 @@ def main():
                         an['me_num'] = mine_p.get('number') if mine_p else None
                         an['opps'] = [(pp['name'], pp.get('number')) for pp in lob['players'] if pp is not mine_p and
                                       (not mine_p or mine_p.get('team', 0) <= 1 or pp.get('team') != mine_p.get('team'))]
+                        an['mates'] = [(pp['name'], pp.get('number')) for pp in lob['players'] if mine_p and pp is not mine_p
+                                       and mine_p.get('team', 0) > 1 and pp.get('team') == mine_p.get('team')]
                     st['watch_t'] = time.time()
                     if mine_p is None: log('you are not in the player list (profile %s), so the in-game alerts stay off' % me)
                     start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')), recording=f)
