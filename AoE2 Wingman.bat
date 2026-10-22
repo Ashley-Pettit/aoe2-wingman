@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v184'
+VERSION = 'v185'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -772,6 +772,71 @@ class LiveApm(object):
         span = minutes * 60000
         if self.t < span: return None
         return sum(1 for x in self.mine if x >= self.t - span) / float(minutes)
+
+AI_API = 'https://api.anthropic.com/v1'
+AI_FALLBACK_MODEL = 'claude-haiku-4-5'
+_AI = {}
+AI_SYSTEM = ("You coach Age of Empires II: Definitive Edition players. Reply with a short counter plan for the "
+             "game that is about to start: at most 4 short bullet points, each starting with '- ', under 80 words "
+             "in total. Be specific: units, buildings, timings, what to scout for. Australian English, no em "
+             "dashes, no intro and no sign-off.")
+
+def _ai_req(url, key, body=None, timeout=30):
+    import urllib.request
+    hdr = {'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json',
+           'User-Agent': 'AoE2-Wingman'}
+    req = urllib.request.Request(url, data=json.dumps(body).encode('utf-8') if body is not None else None,
+                                 headers=hdr, method='POST' if body is not None else 'GET')
+    return json.loads(urllib.request.urlopen(req, timeout=timeout).read().decode('utf-8'))
+
+def ai_model(key):
+    """The newest Haiku this key can use, asked of the API once a session (names move on)."""
+    if _AI.get('model'): return _AI['model']
+    m = None
+    try:
+        got = _ai_req(AI_API + '/models?limit=100', key, timeout=15)
+        hs = [d for d in got.get('data', []) if 'haiku' in d.get('id', '')]
+        hs.sort(key=lambda d: d.get('created_at', ''), reverse=True)
+        if hs: m = hs[0]['id']
+    except Exception as e:
+        log('ai: model list: %r' % (e,))
+    _AI['model'] = m or AI_FALLBACK_MODEL
+    return _AI['model']
+
+def ai_ask(prompt, cfg):
+    """One short answer from Claude Haiku. (ok, text). For now on the player's own key; later a
+    Wingman server that holds the key behind a paid licence (cfg 'ai_server'), same prompt either way."""
+    import urllib.error
+    try:
+        if cfg.get('ai_server'):
+            import urllib.request
+            req = urllib.request.Request(cfg['ai_server'], data=json.dumps(
+                {'prompt': prompt, 'system': AI_SYSTEM, 'licence': cfg.get('ai_licence', '')}).encode('utf-8'),
+                headers={'content-type': 'application/json', 'User-Agent': 'AoE2-Wingman'}, method='POST')
+            got = json.loads(urllib.request.urlopen(req, timeout=30).read().decode('utf-8'))
+            return bool(got.get('text')), got.get('text') or got.get('error') or 'No answer came back.'
+        key = (cfg.get('ai_key') or '').strip()
+        if not key: return False, 'Add your Claude key in Settings first.'
+        for attempt in range(2):
+            model = ai_model(key)
+            try:
+                got = _ai_req(AI_API + '/messages', key, {
+                    'model': model, 'max_tokens': 300, 'system': AI_SYSTEM,
+                    'messages': [{'role': 'user', 'content': prompt}]})
+                txt = ''.join(b.get('text', '') for b in got.get('content', []) if b.get('type') == 'text').strip()
+                log('ai: answered by %s (%s in, %s out)' % (model, got.get('usage', {}).get('input_tokens'),
+                                                          got.get('usage', {}).get('output_tokens')))
+                return bool(txt), txt or 'No answer came back.'
+            except urllib.error.HTTPError as e:
+                if e.code == 404 and attempt == 0 and model != AI_FALLBACK_MODEL:
+                    _AI['model'] = AI_FALLBACK_MODEL; continue
+                if e.code in (401, 403): return False, "That Claude key didn't work. Check it in Settings."
+                if e.code == 429: return False, 'Claude is busy (or the key is out of credit). Try again in a minute.'
+                return False, "Couldn't get an answer (error %d)." % e.code
+    except Exception as e:
+        log('ai: %r' % (e,))
+        return False, "Couldn't reach Claude. Check your internet."
+    return False, "Couldn't get an answer."
 
 def spoken_step(text):
     """A build step as something to say: '6 to sheep' becomes 'Send 6 to sheep',
@@ -9980,6 +10045,14 @@ def main():
 
         # God Mode: the UI mod this app is built around (it pins the resource bar and the Global
         # Queue, which the idle Town Center alert reads). The button opens its official mod page.
+        section('AI coach')
+        ai_row = tk.Frame(outer, bg=INK); ai_row.pack(fill='x')
+        tk.Label(ai_row, text='Claude API key', fg=MUT, bg=INK, font=F_SMALL).pack(side='left', padx=(0, 10))
+        ai_e = tk.Entry(ai_row, width=30, show='\u2022'); style_entry(ai_e)
+        ai_e.insert(0, cfg.get('ai_key', '')); ai_e.pack(side='left', fill='x', expand=True, ipady=3)
+        tk.Label(outer, text='Unlocks the counter plan from Claude Haiku. Stays on this PC; under a cent a plan.',
+                 fg=FAINT, bg=INK, font=F_TINY, anchor='w').pack(fill='x', pady=(4, 0))
+
         section('Mods'); field('God Mode mod')
         mods_row = tk.Frame(outer, bg=INK); mods_row.pack(fill='x', pady=(2, 0))
         gm_state, gm_text = god_mode_status()
@@ -10055,7 +10128,7 @@ def main():
         def collect():
             hb, hg, h20 = house_cfg()
             return {'house_bands': hb, 'house_grace': hg, 'house_cap20': h20,
-                    'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(),
+                    'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(), 'ai_key': ai_e.get().strip(),
                     'tc_alert': bool(tc_on.get()), 'scout_callout': bool(sc_on.get()), 'tc_orbit': bool(orb_on.get()), 'apm_live': bool(apm_on.get()),
                     'scout_ping': bool(sp_on.get()),
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
@@ -10800,6 +10873,14 @@ def main():
         if not opps:
             opp_area.grid_remove(); return
         opp_area.grid(); opp_area.grid_configure(pady=(6, 0))
+        try: my_civ = civ_text(mine['civ'], strings, icons)[0] if mine else None
+        except Exception: my_civ = None
+        sig_ = '|'.join(sorted('%s/%s' % (p['name'], p.get('civ')) for p in opps))
+        if (st.get('ai') or {}).get('sig') != sig_:
+            st['ai'] = {'sig': sig_, 'text': None, 'shown': False, 'busy': False}
+        st['ai_ctx'] = {'me': my_civ, 'map': title.cget('text'), 'team': team_game,
+                        'opps': [{'name': p['name'], 'civ': civ_text(p['civ'], strings, icons)[0], 'open': []}
+                                 for p in opps]}
         cap = tk.Label(opp_area, text='OPPONENTS' if len(opps) > 1 else 'OPPONENT', fg=BRONZE, bg=PANEL,
                        font=F_TINY, anchor='w')
         cap.grid(row=0, column=0, sticky='w', pady=(0, 3)); bind_all(cap)
@@ -10991,6 +11072,8 @@ def main():
                 box.grid(); after()
 
             typical = [(x, 0) for x in civ_typical(name)]
+            try: st['ai_ctx']['opps'][i]['open'] = [(x, 0, True) for x, _ in typical]   # civ's usual, until their own games are read
+            except Exception: pass
             if typical: chips(opn, typical, RIM, fold, fit)
             else: note(opn, 'no openings on file', fold, fit)
 
@@ -11020,6 +11103,11 @@ def main():
                         rows = opponent_openings(pp['profile'], 'TG' if team_game else '1v1',
                                                  5 if team_game else OPEN_GAMES)
                         tops = top_openings(rows)
+                        try:
+                            for o_ in st['ai_ctx']['opps']:
+                                if o_['name'] == pp['name'] and tops:
+                                    o_['open'] = [(lab, cnt, False) for lab, cnt in tops]; o_['games'] = len(rows)
+                        except Exception: pass
                         detail = '\n'.join(openings_lines(rows, pp['civ'], strings))
                         pred = intel_predict(rows, pp['civ'])
                         def done():
@@ -11036,7 +11124,111 @@ def main():
                     except Exception as e:
                         log('openings lookup failed: %r' % (e,))
                 if pp_ok(p, i): threading.Thread(target=habits, daemon=True).start()
+        ai_box = tk.Frame(opp_area, bg=PANEL)
+        ai_box.grid(row=len(opps) + 1, column=0, sticky='we', pady=(7, 0))
+        ai_draw(ai_box)
     show_opponents = calm(show_opponents, True)
+
+    def ai_prompt():
+        c_ = st.get('ai_ctx') or {}
+        lines = ["I'm playing %s%s." % (c_.get('me') or 'an unknown civ', (' on %s' % c_['map']) if c_.get('map') and c_['map'] != HEAD_NAME else '')]
+        for o_ in c_.get('opps', []):
+            op_ = o_.get('open') or []
+            if op_ and not op_[0][2]:
+                how = ', '.join('%s (%d of %d games)' % (lab, cnt, o_.get('games') or cnt) if cnt else lab for lab, cnt, _ in op_[:3])
+                lines.append('Against %s (%s), who usually opens with: %s.' % (o_['name'], o_['civ'], how))
+            elif op_:
+                lines.append('Against %s (%s). Their own games are unknown; %s players often open with: %s.'
+                             % (o_['name'], o_['civ'], o_['civ'], ', '.join(lab for lab, _c, _t in op_[:3])))
+            else:
+                lines.append('Against %s (%s), opening unknown.' % (o_['name'], o_['civ']))
+        if c_.get('team'): lines.append('It is a team game.')
+        try:
+            secs_ = tcw.game_minutes(time.time()) * 60 if (tcw.active and st.get('last')) else None
+        except Exception:
+            secs_ = None
+        if secs_ is not None and 20 <= secs_ < 4 * 3600:
+            lines.append('The game timer is at %s, so plan from here.' % mmss(secs_))
+        else:
+            lines.append('The game is just starting.')
+        lines.append('How should I counter?')
+        return '\n'.join(lines)
+
+    def ai_draw(box):
+        """The AI coach line under the opponents: locked until there's a Claude key in Settings, then a
+        button for a short counter plan. The plan can be hidden and shown again; it's asked once a game."""
+        try:
+            if not box.winfo_exists(): return
+        except Exception: return
+        for w in box.winfo_children(): w.destroy()
+        cfg_ = load_settings_cached()
+        a_ = st.get('ai') or {}
+        st['ai_box'] = box
+        def hush(w, fn=None):
+            bind_all(w)
+            if fn: st['actions'][w] = fn
+        def redraw(): calm(lambda: ai_draw(box))()
+        unlocked = bool((cfg_.get('ai_key') or '').strip() or cfg_.get('ai_server'))
+        line = tk.Frame(box, bg=PANEL); line.pack(fill='x'); hush(line)
+        if not unlocked:
+            pl = tk.Canvas(line, width=12, height=13, bg=PANEL, highlightthickness=0)
+            pl.create_arc(3, 1, 9, 9, start=0, extent=180, style='arc', outline=FAINT, width=2)
+            pl.create_rectangle(2, 6, 10, 12, fill=FAINT, outline='')
+            pl.pack(side='left', padx=(2, 6)); hush(pl, open_settings)
+            t_ = tk.Label(line, text='AI counter plan', fg=MUT, bg=PANEL, font=(F_SMALL[0], F_SMALL[1], 'bold'), cursor='hand2')
+            t_.pack(side='left'); hush(t_, open_settings)
+            t2 = tk.Label(line, text='  \u00b7  unlock with your Claude key in Settings', fg=FAINT, bg=PANEL, font=F_SMALL, cursor='hand2')
+            t2.pack(side='left'); hush(t2, open_settings); hush(line, open_settings)
+            return
+        def ask():
+            if a_.get('busy'): return
+            if a_.get('text'):
+                a_['shown'] = not a_['shown']; redraw(); return
+            a_['busy'] = True; a_['shown'] = True; redraw()
+            prompt = ai_prompt(); cfg2 = load_settings()
+            log('ai: asking: %s' % prompt.replace('\n', ' | '))
+            def work():
+                ok, txt = ai_ask(prompt, cfg2)
+                def done():
+                    a_['busy'] = False
+                    if ok: a_['text'] = txt
+                    else: a_['err'] = txt
+                    b_ = st.get('ai_box')
+                    if b_ is not None: calm(lambda: ai_draw(b_))()
+                try: root.after(0, done)
+                except Exception: pass
+            threading.Thread(target=work, daemon=True).start()
+        def hide():
+            a_['shown'] = False; a_.pop('err', None); redraw()
+        lbl = ('Thinking\u2026' if a_.get('busy') else 'Hide the AI plan' if (a_.get('text') and a_.get('shown'))
+               else 'Show the AI plan' if a_.get('text') else 'Ask AI: how do I counter?')
+        chip = tk.Frame(line, bg=INK, cursor='hand2'); chip.pack(side='left'); hush(chip, ask)
+        bar_ = tk.Frame(chip, bg=GOLDD, width=2); bar_.pack(side='left', fill='y'); hush(bar_, ask)
+        sp = tk.Label(chip, text='\u2726', fg=GOLDC, bg=INK, font=F_SMALL, padx=4); sp.pack(side='left'); hush(sp, ask)
+        cl = tk.Label(chip, text=lbl.upper(), fg=GOLDD, bg=INK, font=(F_SMALL[0], F_SMALL[1], 'bold'), pady=1, padx=2, cursor='hand2')
+        cl.pack(side='left', padx=(0, 6)); hush(cl, ask)
+        hover(cl, GOLDD, GOLDC)
+        if a_.get('err') and not a_.get('busy'):
+            e_ = tk.Label(box, text=a_['err'], fg=REDC, bg=PANEL, font=F_SMALL, anchor='w', justify='left', wraplength=400)
+            e_.pack(fill='x', pady=(3, 0)); hush(e_, hide)
+            a_.pop('err', None)
+        if a_.get('text') and a_.get('shown'):
+            pan = tk.Frame(box, bg=INK, highlightthickness=1, highlightbackground=EDGE)
+            pan.pack(fill='x', pady=(5, 0)); hush(pan, hide)
+            hd = tk.Frame(pan, bg=INK); hd.pack(fill='x', padx=8, pady=(5, 0)); hush(hd, hide)
+            tg = tk.Label(hd, text='AI COACH', fg=BRONZE, bg=INK, font=(F_TINY[0], F_TINY[1], 'bold')); tg.pack(side='left'); hush(tg, hide)
+            x_ = tk.Label(hd, text='hide  \u2715', fg=MUT, bg=INK, font=F_TINY, cursor='hand2'); x_.pack(side='right'); hush(x_, hide)
+            hover(x_, MUT, GOLDD)
+            for ln in [l.strip() for l in a_['text'].splitlines() if l.strip()][:6]:
+                r_ = tk.Frame(pan, bg=INK); r_.pack(fill='x', padx=8); hush(r_, hide)
+                bullet = ln[:2] in ('- ', '* ', '\u2022 ')
+                if bullet: ln = ln[2:]
+                d_ = tk.Label(r_, text='\u2022' if bullet else '', fg=GOLDD, bg=INK, font=F_SMALL)
+                d_.pack(side='left', anchor='n', padx=(0, 5)); hush(d_, hide)
+                l_ = tk.Label(r_, text=ln.replace('**', ''), fg='#e6d9b0', bg=INK, font=F_SMALL, anchor='w', justify='left',
+                              wraplength=PANEL_W - 70)
+                l_.pack(side='left', fill='x'); hush(l_, hide)
+            tk.Frame(pan, bg=INK, height=5).pack(fill='x')
 
     def pp_ok(p, i):
         return bool(p.get('profile')) and i < 4 and load_settings().get('opp_openings', True)
