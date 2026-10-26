@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v185'
+VERSION = 'v186'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -6757,8 +6757,12 @@ def main():
     state.grid(row=0, column=2, sticky='e', padx=(10, 2))
     live_btn = live_pill(head, BG)                                      # pause, chat, stream on Discord
     # your actions a minute, while you play (off unless switched on in Settings)
-    apm_chip = tk.Label(head, text='', fg=MUT, bg=PANEL, font=F_TINY, padx=6, pady=3,
-                        highlightthickness=1, highlightbackground=RIM)
+    apm_chip = tk.Frame(head, bg=PANEL, highlightthickness=1, highlightbackground=RIM)
+    apm_num = tk.Label(apm_chip, text='', fg=MUT, bg=PANEL, font=F_TINY, padx=6, pady=3)
+    apm_num.pack(side='left')
+    # a small red arrow beside the number when your pace has dropped well below your usual
+    apm_arr = tk.Canvas(apm_chip, width=9, height=9, bg=PANEL, highlightthickness=0)
+    apm_arr.create_polygon(1, 2, 8, 2, 4.5, 8, fill=REDC, outline='')
     apm_chip.grid(row=0, column=2, sticky='e', padx=(10, 2)); apm_chip.grid_remove()
     # brings a hidden build order back: a small gold B badge
     bo_open = tk.Label(head, text='', bg=BG, padx=0, pady=0, cursor='hand2', bd=0)
@@ -10004,7 +10008,7 @@ def main():
                              'In team games, only the enemy side. Being tested.',
                  fg=FAINT, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=380).pack(fill='x', pady=(3, 0))
         apm_on = tk.BooleanVar(value=cfg.get('apm_live', False))
-        Check(outer, text='Live APM, with a nudge if it drops', variable=apm_on, fg=TXT, bg=INK,
+        Check(outer, text='Live APM, with a red arrow if it drops', variable=apm_on, fg=TXT, bg=INK,
               selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
               font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x', pady=(6, 0))
 
@@ -11287,17 +11291,20 @@ def main():
             def show():
                 if st.get('apm_obj') is not o: return
                 cur, usual = o.apm(1.0), o.apm(5.0)
+                low = False
                 if cur is None:
-                    apm_chip.config(text='APM …', fg=MUT)
+                    apm_num.config(text='APM \u2026', fg=MUT)
                 else:
-                    low = usual is not None and usual >= APM_FLOOR and cur < usual * APM_DROP
-                    apm_chip.config(text='APM %d' % round(cur), fg=REDC if low else (GREEN if usual and cur >= usual else TXT))
-                    if low and not st.get('apm_low') and time.time() - st.get('apm_said', 0) > 120:
-                        st['apm_low'] = True; st['apm_said'] = time.time()
-                        log('live apm: down to %d (usual %d)' % (cur, usual))
-                        tc_note('APM DOWN  ·  %d  (USUALLY %d)' % (round(cur), round(usual)), 6)
-                    elif usual and cur >= usual * 0.8:
-                        st['apm_low'] = False                       # back up: the next drop gets a nudge too
+                    # dropped well under your usual pace: the red arrow comes on, and stays until
+                    # you're back near your usual (so it doesn't flicker on the line)
+                    was = bool(st.get('apm_low'))
+                    low = usual is not None and usual >= APM_FLOOR and (
+                        cur < usual * APM_DROP or (was and cur < usual * 0.8))
+                    if low and not was: log('live apm: down to %d (usual %d)' % (cur, usual))
+                    st['apm_low'] = low
+                    apm_num.config(text='APM %d' % round(cur), fg=GREEN if (usual and cur >= usual) else TXT)
+                if low and not apm_arr.winfo_manager(): apm_arr.pack(side='left', padx=(0, 6))
+                elif not low and apm_arr.winfo_manager(): apm_arr.pack_forget()
                 if not apm_chip.winfo_manager(): calm(apm_chip.grid)()
             try: root.after(0, show)
             except Exception: pass
