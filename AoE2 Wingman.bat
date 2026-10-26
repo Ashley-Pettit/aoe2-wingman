@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v186'
+VERSION = 'v187'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -2121,7 +2121,8 @@ def minimap_gold_diamond(bgr, np):
     straight lines and corner bits don't pile up, so they can't fool it. Works on any map,
     explored or not, All Visible included."""
     B, G, R = bgr[:, :, 0], bgr[:, :, 1], bgr[:, :, 2]
-    gold = (R >= 180) & (G >= 135) & (G <= 220) & (B <= 125) & (R - B >= 110) & (R - G >= 20) & (R - G <= 70)
+    # gold or bright yellow (the frame's colour changes with the game's UI): warm, bright, not white
+    gold = (R >= 180) & (G >= 130) & (B <= 140) & (R - B >= 90) & (G - R <= 10) & (R - G <= 75)
     ys, xs = np.nonzero(gold)
     gh, gw = gold.shape
     if len(xs) < 150: return None
@@ -8176,7 +8177,18 @@ def main():
                     cx, cy = gd[0], gd[1]
                     a, b = gd[2] * (1 - 0.0135), gd[3] * (1 - 0.017)    # the map starts just inside the line
                     how = 'gold edge'
-                    orbit['fits'][(w, hh)] = (cx + bx, cy + by, a, b)
+                    fit_ = (round(cx + bx, 1), round(cy + by, 1), round(a, 1), round(b, 1))
+                    orbit['fits'][(w, hh)] = fit_
+                    try:                                         # kept for next time, in case that look fails
+                        c_ = load_settings(); fs_ = dict(c_.get('tc_map_fit') or {})
+                        if fs_.get('%dx%d' % (w, hh)) != list(fit_):
+                            fs_['%dx%d' % (w, hh)] = list(fit_); c_['tc_map_fit'] = fs_; save_settings(c_)
+                    except Exception: pass
+                elif (w, hh) in orbit['fits'] or '%dx%d' % (w, hh) in (load_settings().get('tc_map_fit') or {}):
+                    # the edge didn't show this time (something over it): the map is the same shape
+                    # on this screen as the last time it did
+                    fx, fy, a, b = orbit['fits'].get((w, hh)) or load_settings()['tc_map_fit']['%dx%d' % (w, hh)]
+                    cx, cy = fx - bx, fy - by; how = 'last good look'
                 else:
                     # Next: everything you have not explored is pure black, so the black diamond's
                     # far corners are the map's corners
@@ -8229,7 +8241,7 @@ def main():
                     for dx_ in range(-r_, r_ + 1):
                         core_ &= pad_[r_ + dy_:r_ + dy_ + gh, r_ + dx_:r_ + dx_ + gw]
                 wh = (bgr.min(axis=2) > 200) & inside_
-                mm = m
+                mm = m; cam_c = None
                 rows_ = np.nonzero(wh.sum(axis=1) >= 15)[0]; cols_ = np.nonzero(wh.sum(axis=0) >= 8)[0]
                 if len(rows_) >= 2 and len(cols_) >= 2:
                     t_, b_, l_, r_ = rows_.min(), rows_.max(), cols_.min(), cols_.max()
@@ -8239,6 +8251,7 @@ def main():
                         keep = np.zeros_like(m)
                         keep[max(0, t_ - 3):b_ + 4, max(0, l_ - 3):r_ + 4] = True
                         mm = m & keep; tc_how = 'camera'
+                        cam_c = ((l_ + r_) / 2.0, (t_ + b_) / 2.0)   # the game opens with the camera on your TC
                 w_ = max(3, int(round(a / 32.0)))                   # about the size a TC is drawn
                 ii = np.pad(mm.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
                 box_sum = ii[w_:, w_:] - ii[:-w_, w_:] - ii[w_:, :-w_] + ii[:-w_, :-w_]
@@ -8246,15 +8259,38 @@ def main():
                 y0_, x0_ = max(0, ty - w_), max(0, tx - w_)         # the whole building, not just the window
                 sy_, sx_ = np.nonzero(mm[y0_:ty + 2 * w_, x0_:tx + 2 * w_])
                 px, py = float(x0_ + sx_.mean()), float(y0_ + sy_.mean())
-                # Only your own patch: in team games your teammates' ground shows too, and the middle
-                # of both would be nowhere. So just the seen ground round your colour's spot.
-                near_ = (((xs - px) / (a / 5.0)) ** 2 + ((ys - py) / (b / 5.0)) ** 2) <= 1.0
-                core_ &= near_
-                ns_, area_ = int(core_.sum()), int(inner_.sum())
-                if 30 <= ns_ <= area_ * 0.04:
-                    # the middle of the patch: your villagers stand round the TC, and on some minimap
-                    # styles the TC isn't drawn any bigger than them, so don't snap to a square
-                    px, py = float(xs[core_].mean()), float(ys[core_].mean()); tc_how = 'ground you can see'
+                # Only your own patch of seen ground: in team games your teammates' ground shows too.
+                # Start where the camera opened (or your colour's busiest spot) and grow out through
+                # the seen ground that joins on to it, so the whole of your patch counts, however big
+                # (walled starts on some maps make it big), and nobody else's does.
+                sx0, sy0 = cam_c or (px, py)
+                all_seen = int(seen_.sum()) > int(inner_.sum()) * 0.5        # All Visible, or a game well under way
+                cy_, cx_ = np.nonzero(core_) if not all_seen else (np.array([]), np.array([]))
+                if len(cx_):
+                    d2_ = ((cx_ - sx0) / a) ** 2 + ((cy_ - sy0) / b) ** 2
+                    j_ = int(d2_.argmin())
+                    if d2_[j_] ** 0.5 <= 0.15:
+                        comp = np.zeros_like(core_); comp[cy_[j_], cx_[j_]] = True; n_ = 1
+                        for _g in range(400):
+                            g_ = comp.copy()
+                            g_[1:] |= comp[:-1]; g_[:-1] |= comp[1:]; g_[:, 1:] |= comp[:, :-1]; g_[:, :-1] |= comp[:, 1:]
+                            g_ &= core_; n2_ = int(g_.sum())
+                            comp = g_
+                            if n2_ == n_: break
+                            n_ = n2_
+                        # a teammate right next door can join on: then keep to the part round yours
+                        cols_ = minimap_colours(); mate_px = 0
+                        for ci_ in st.get('ally_colours') or []:
+                            c3 = cols_.get(ci_)
+                            if c3:
+                                mate_px += int(((np.abs(bgr - np.array([c3[2], c3[1], c3[0]], dtype=np.int16)).sum(axis=2) <= 34) & comp).sum())
+                        if mate_px >= 8:
+                            comp &= (((xs - sx0) / (a / 6.0)) ** 2 + ((ys - sy0) / (b / 6.0)) ** 2) <= 1.0
+                        if 30 <= int(comp.sum()) <= int(inner_.sum()) * 0.15:      # not 'All Visible', or most of the map seen
+                            # the middle of the patch: your villagers stand round the TC, and on some
+                            # minimap styles the TC isn't drawn any bigger than them, so no snapping
+                            px, py = float(xs[comp].mean()), float(ys[comp].mean())
+                            tc_how = 'ground you can see' + (' (teammate next door)' if mate_px >= 8 else '')
                 k = ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2
                 k = k ** 0.5
                 # Same distance out as you, unless the map script says starts vary (Arabia 1v1: each
