@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v187'
+VERSION = 'v188'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -641,6 +641,13 @@ while ($true) {
 }
 """
 
+MIL_BUILDINGS = {12, 87, 101, 49, 82, 104, 20, 132, 498, 86, 85, 1251}    # barracks, range, stable, workshop, castle, monastery...
+UNIT_NAMES = {1132: 'Battle Elephants', 74: 'Militia', 75: 'Men-at-Arms', 77: 'Long Swords', 93: 'Spearmen', 358: 'Pikemen', 4: 'Archers',
+              24: 'Crossbows', 7: 'Skirmishers', 6: 'Skirmishers', 39: 'Cav Archers', 5: 'Hand Cannons', 448: 'Scouts',
+              546: 'Light Cav', 38: 'Knights', 283: 'Cavaliers', 329: 'Camels', 751: 'Eagles', 1370: 'Steppe Lancers',
+              125: 'Monks', 280: 'Mangonels', 35: 'Rams', 36: 'Bombards', 279: 'Scorpions', 1731: 'Shrivamsha'}
+ECO_TECHS = [(202, 'Double-Bit Axe'), (14, 'Horse Collar'), (213, 'Wheelbarrow'), (203, 'Bow Saw'), (55, 'Gold Mining')]
+
 def replay_stats(path, stop_at=None):
     """What each player did, read from the game's own recording after it is over: when they clicked
     each age, villagers queued, how many actions a minute, and when they resigned. The body of a
@@ -660,7 +667,7 @@ def replay_stats(path, stop_at=None):
     AGES = {101: 'feudal', 102: 'castle', 103: 'imperial'}
     def pl(pid):
         return out.setdefault(pid, {'acts': 0, 'feudal': None, 'castle': None, 'imperial': None,
-                                    'vils': 0, 'resign': None})
+                                    'vils': 0, 'resign': None, 'vil_q': [], 'techs': {}, 'mil': [], 'builds': []})
     while True:
         raw = b.read(4)
         if len(raw) < 4: break
@@ -679,9 +686,13 @@ def replay_stats(path, stop_at=None):
                 if aid == 101:                            # research
                     tech = struct.unpack_from('<Ihh', ab, 3)[2]
                     if tech in AGES and p[AGES[tech]] is None: p[AGES[tech]] = t / 1000.0
+                    p['techs'].setdefault(tech, t / 1000.0)
                 elif aid == 129:                          # queue a unit
                     sel, btype, unit, amount = struct.unpack_from('<h4xhhh', ab, 3)
-                    if unit in (83, 293): p['vils'] += amount
+                    if unit in (83, 293): p['vils'] += amount; p['vil_q'].append((t / 1000.0, amount))
+                    elif btype in MIL_BUILDINGS: p['mil'].append((t / 1000.0, unit, amount))
+                elif aid == 102 and len(ab) >= 17:        # place a building
+                    p['builds'].append((t / 1000.0, struct.unpack_from('<h', ab, 15)[0]))
                 elif aid == 11 and p['resign'] is None:
                     p['resign'] = t / 1000.0
             elif op == 2:                                 # the clock moves on
@@ -821,11 +832,14 @@ def ai_ask(prompt, cfg):
             model = ai_model(key)
             try:
                 got = _ai_req(AI_API + '/messages', key, {
-                    'model': model, 'max_tokens': 300, 'system': AI_SYSTEM,
+                    'model': model, 'max_tokens': 700, 'system': AI_SYSTEM,
                     'messages': [{'role': 'user', 'content': prompt}]})
                 txt = ''.join(b.get('text', '') for b in got.get('content', []) if b.get('type') == 'text').strip()
-                log('ai: answered by %s (%s in, %s out)' % (model, got.get('usage', {}).get('input_tokens'),
-                                                          got.get('usage', {}).get('output_tokens')))
+                if got.get('stop_reason') == 'max_tokens' and '\n' in txt:
+                    txt = txt.rsplit('\n', 1)[0].strip()            # cut off mid-line: drop the half line
+                log('ai: answered by %s (%s in, %s out, %s): %s' % (
+                    model, got.get('usage', {}).get('input_tokens'), got.get('usage', {}).get('output_tokens'),
+                    got.get('stop_reason'), txt.replace('\n', ' | ')[:400]))
                 return bool(txt), txt or 'No answer came back.'
             except urllib.error.HTTPError as e:
                 if e.code == 404 and attempt == 0 and model != AI_FALLBACK_MODEL:
@@ -2965,16 +2979,64 @@ def ver_num(v):
     m = re.search(r'(\d+)', str(v or ''))
     return int(m.group(1)) if m else 0
 
+def _cert_trouble(e):
+    """A web request failed because Python couldn't check the site's certificate, as opposed to the
+    site being down. Windows itself can usually still get there (it fetches missing certificate
+    authorities on its own; Python can't)."""
+    import ssl
+    while e is not None:
+        if isinstance(e, ssl.SSLError) or 'CERTIFICATE_VERIFY_FAILED' in str(e): return True
+        e = getattr(e, 'reason', None) if not isinstance(e, ssl.SSLError) else None
+    return False
+
+def web_fetch(url, headers=None, timeout=20, method=None, to_file=None):
+    """GET (or HEAD) a web address: (final address after redirects, body bytes or None). Python's own
+    connection first; if that fails on the certificate, Windows' own web stack through PowerShell."""
+    import urllib.request
+    hdr = dict(headers or {}); hdr.setdefault('User-Agent', 'AoE2-Wingman')
+    try:
+        r = urllib.request.urlopen(urllib.request.Request(url, headers=hdr, method=method), timeout=timeout)
+        if to_file:
+            with open(to_file, 'wb') as fh: shutil.copyfileobj(r, fh)
+            return r.geturl(), None
+        return r.geturl(), (r.read() if method != 'HEAD' else b'')
+    except Exception as e:
+        if not _cert_trouble(e) or os.name != 'nt': raise
+        log('web: certificate check failed for %s, using Windows instead' % url.split('?')[0])
+    import subprocess, base64
+    out = to_file or os.path.join(tempfile.gettempdir(), 'wingman_web_%d.tmp' % os.getpid())
+    ps = ("$ProgressPreference='SilentlyContinue'\n"
+          "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12\n"
+          "$h=@{}; ($env:WM_HDR | ConvertFrom-Json).PSObject.Properties | % { $h[$_.Name]=$_.Value }\n"
+          "try {\n"
+          "  if ($env:WM_METHOD -eq 'HEAD') { $r=Invoke-WebRequest -UseBasicParsing -Uri $env:WM_URL -Headers $h -Method Head }\n"
+          "  else { $r=Invoke-WebRequest -UseBasicParsing -Uri $env:WM_URL -Headers $h -OutFile $env:WM_OUT -PassThru }\n"
+          "  Write-Output ('URL:' + $r.BaseResponse.ResponseUri.AbsoluteUri)\n"
+          "} catch { Write-Output ('ERR:' + $_.Exception.Message); exit 1 }\n")
+    env = clean_env(); env.update(WM_URL=url, WM_OUT=out, WM_METHOD=method or 'GET', WM_HDR=json.dumps(hdr))
+    exe = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    p = subprocess.run([exe if os.path.exists(exe) else 'powershell', '-NoProfile', '-NonInteractive',
+                        '-ExecutionPolicy', 'Bypass', '-EncodedCommand', base64.b64encode(ps.encode('utf-16-le')).decode()],
+                       capture_output=True, text=True, timeout=max(60, timeout * 3), env=env, creationflags=0x08000000)
+    said = (p.stdout or '').strip().splitlines()
+    final = next((l[4:] for l in said if l.startswith('URL:')), None)
+    if p.returncode != 0 or not final:
+        raise RuntimeError('Windows could not fetch it either: %s' % (' '.join(said)[-200:] or p.stderr[-200:]))
+    if to_file or method == 'HEAD': return final, None
+    try:
+        with open(out, 'rb') as fh: body = fh.read()
+    finally:
+        try: os.remove(out)
+        except OSError: pass
+    return final, body
+
 def latest_release(fresh=False):
     """The newest public release: {'ver': 'v115', 'exe': url, 'bat': url, 'page': url}, or None."""
     if not fresh and _REL.get('t', 0) > time.time() - 600: return _REL.get('rel')
     rel = None
     _REL['err'] = False
     try:
-        import urllib.request
-        req = urllib.request.Request(RELEASES_API, headers={'User-Agent': 'AoE2-Wingman',
-                                                            'Accept': 'application/vnd.github+json'})
-        got = json.loads(urllib.request.urlopen(req, timeout=15).read().decode('utf-8'))
+        got = json.loads(web_fetch(RELEASES_API, {'Accept': 'application/vnd.github+json'}, timeout=15)[1].decode('utf-8'))
         # The newest release that has its Wingman.exe up. Each publish makes the release first and
         # the exe lands a couple of minutes later, so the very newest one can still be empty.
         best = None
@@ -3011,14 +3073,12 @@ def latest_release(fresh=False):
 def latest_release_page():
     """The newest release with its Wingman.exe up, from github.com itself rather than the rate-limited API.
     releases/latest redirects to the newest tag's page; then check the exe is there yet."""
-    import urllib.request
-    hdr = {'User-Agent': 'AoE2-Wingman'}
-    r = urllib.request.urlopen(urllib.request.Request('https://github.com/%s/releases/latest' % REPO, headers=hdr), timeout=15)
-    tag = r.geturl().rstrip('/').rsplit('/', 1)[-1]
+    final, _b = web_fetch('https://github.com/%s/releases/latest' % REPO, timeout=15, method='HEAD')
+    tag = final.rstrip('/').rsplit('/', 1)[-1]
     if not ver_num(tag): return None
     exe = 'https://github.com/%s/releases/download/%s/Wingman.exe' % (REPO, tag)
     try:
-        urllib.request.urlopen(urllib.request.Request(exe, headers=hdr, method='HEAD'), timeout=15)
+        web_fetch(exe, timeout=15, method='HEAD')
     except Exception:
         return None                                         # the release is there, the exe isn't yet
     return {'ver': 'v%d' % ver_num(tag), 'tag': tag, 'exe': exe, 'bat': None,
@@ -3039,9 +3099,7 @@ def update_exe(rel, progress=lambda t: None):
     new = os.path.join(here, 'Wingman.new.exe')
     old = os.path.join(here, 'Wingman.old.exe')
     progress('Downloading %s...' % rel['ver'])
-    req = urllib.request.Request(rel['exe'], headers={'User-Agent': 'AoE2-Wingman'})
-    with urllib.request.urlopen(req, timeout=120) as r, open(new, 'wb') as fh:
-        shutil.copyfileobj(r, fh)
+    web_fetch(rel['exe'], timeout=120, to_file=new)
     with open(new, 'rb') as fh:
         if fh.read(2) != b'MZ' or os.path.getsize(new) < 1000000:
             raise RuntimeError('the download was not a working Wingman.exe')
@@ -3057,6 +3115,82 @@ def update_exe(rel, progress=lambda t: None):
         raise
     log('updated the exe to %s' % rel['ver'])
     return me
+
+def startup_check():
+    """Windows starting an old Wingman: find whatever opens Wingman when Windows starts (a shortcut
+    or file in the Startup folder, or a Run entry in the registry), write down what each points at,
+    and point any that open an older copy at this one. Only the exe does this, and only towards a
+    copy at least as new as the one it points at."""
+    if not FROZEN or os.name != 'nt': return
+    import subprocess, base64
+    me = os.path.normcase(os.path.abspath(sys.executable))
+    def newer_or_same(target):
+        try: return os.path.getmtime(me) >= os.path.getmtime(target) - 60
+        except OSError: return True                       # it points at nothing: ours is better
+    def ps(script, **envs):
+        env = clean_env(); env.update({k: str(v) for k, v in envs.items()})
+        exe = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+        r = subprocess.run([exe if os.path.exists(exe) else 'powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy',
+                            'Bypass', '-EncodedCommand', base64.b64encode(script.encode('utf-16-le')).decode()],
+                           capture_output=True, text=True, timeout=30, env=env, creationflags=0x08000000)
+        return (r.stdout or '').strip()
+    look = re.compile(r'wingman|map.?overlay', re.I)
+    found = 0
+    try:                                                  # the Startup folder
+        sf = os.path.join(os.environ.get('APPDATA', ''), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+        for n in (os.listdir(sf) if os.path.isdir(sf) else []):
+            if not look.search(n) or n.endswith('.off'): continue
+            path = os.path.join(sf, n); found += 1
+            if n.lower().endswith('.lnk'):
+                tgt = ps("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:WM_LNK); $s.TargetPath", WM_LNK=path)
+                log('startup: shortcut %s opens %s' % (n, tgt or '?'))
+                if tgt and os.path.normcase(os.path.abspath(tgt)) != me and newer_or_same(tgt):
+                    ps("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:WM_LNK); $s.TargetPath=$env:WM_EXE;"
+                       " $s.WorkingDirectory=$env:WM_DIR; $s.Arguments=''; $s.Save()",
+                       WM_LNK=path, WM_EXE=sys.executable, WM_DIR=os.path.dirname(sys.executable))
+                    log('startup: pointed %s at %s' % (n, sys.executable))
+            else:
+                # a .bat or other file straight in the folder: an old copy of the app itself. Put it
+                # aside (renamed, not deleted) and start this one instead.
+                log('startup: %s sits in the Startup folder itself; switching it for a shortcut to %s' % (n, sys.executable))
+                os.replace(path, path + '.off')
+                ps("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:WM_LNK); $s.TargetPath=$env:WM_EXE;"
+                   " $s.WorkingDirectory=$env:WM_DIR; $s.Save()",
+                   WM_LNK=os.path.join(sf, 'Wingman.lnk'), WM_EXE=sys.executable, WM_DIR=os.path.dirname(sys.executable))
+    except Exception as e:
+        log('startup folder: %r' % (e,))
+    try:                                                  # the registry's Run lists
+        import winreg
+        RUN = r'Software\Microsoft\Windows\CurrentVersion\Run'
+        for hive, hn in ((winreg.HKEY_CURRENT_USER, 'HKCU'), (winreg.HKEY_LOCAL_MACHINE, 'HKLM')):
+            try: key = winreg.OpenKey(hive, RUN, 0, winreg.KEY_READ)
+            except OSError: continue
+            items = []
+            i = 0
+            while True:
+                try: items.append(winreg.EnumValue(key, i)); i += 1
+                except OSError: break
+            winreg.CloseKey(key)
+            for name, data, kind in items:
+                if not (look.search(name) or look.search(str(data))): continue
+                found += 1
+                log('startup: %s Run "%s" = %s' % (hn, name, data))
+                m_ = re.match(r'\s*"([^"]+)"|\s*(\S+)', str(data))
+                tgt = (m_.group(1) or m_.group(2)) if m_ else ''
+                if hn == 'HKCU' and tgt and os.path.normcase(os.path.abspath(tgt)) != me and newer_or_same(tgt):
+                    with winreg.OpenKey(hive, RUN, 0, winreg.KEY_SET_VALUE) as k2:
+                        winreg.SetValueEx(k2, name, 0, winreg.REG_SZ, '"%s"' % sys.executable)
+                    log('startup: pointed Run "%s" at %s' % (name, sys.executable))
+    except Exception as e:
+        log('startup registry: %r' % (e,))
+    try:                                                  # scheduled tasks: just say what's there
+        out = ps("Get-ScheduledTask | ? { $_.TaskName -match 'wingman|overlay' -or ($_.Actions | ? { $_.Execute -match 'wingman|overlay' }) } |"
+                 " % { $_.TaskName + ' -> ' + (($_.Actions | % { $_.Execute + ' ' + $_.Arguments }) -join '; ') }")
+        for l in out.splitlines():
+            found += 1; log('startup: scheduled task %s' % l)
+    except Exception as e:
+        log('startup tasks: %r' % (e,))
+    if not found: log('startup: nothing opens Wingman when Windows starts')
 
 def clear_old_exe():
     """Tidy away the exe this one replaced. The old copy is usually still closing when the new one
@@ -7373,23 +7507,136 @@ def main():
         sp_.append((an_tip(info), GOLDD))
         return sp_
 
-    def an_replay_lines(rec, me_num, opps, mates=()):
-        """From the recording itself, now the game is over: when each of you clicked up, and how busy
-        your hands were. Rows of (name, side, feudal, castle, imperial, apm), you first, then your
-        team, then theirs. Same file the analysis websites read, so the numbers are the game's own."""
-        if not rec or not me_num: return []
-        r_ = replay_stats(rec)
-        ps = r_['players']
-        if me_num not in ps: return []
+    def an_review(rec, me_num, opps, mates, live):
+        """The review, from the recording now the game is over: a small table of you, your team and
+        them, then only the points where you were well behind (the useful ones), and one tip from
+        the biggest of those. Returns (rows, notes, tip) or None."""
+        if not rec or not me_num: return None
+        ps = replay_stats(rec)['players']
+        if me_num not in ps: return None
+        me_ = ps[me_num]
+        def vils_by(p_, sec): return 3 + sum(n for t, n in p_.get('vil_q', []) if t <= sec - 25)   # queued in time to be out
+        def tcs_by(p_, sec): return 1 + sum(1 for t, b in p_.get('builds', []) if b in (109, 621) and t <= sec)
         rows = []
         def row(nm, side, num):
             p_ = ps.get(num)
             if p_ is None: return
-            rows.append((nm, side, p_.get('feudal'), p_.get('castle'), p_.get('imperial'), p_.get('apm')))
+            rows.append((nm, side, p_.get('feudal'), p_.get('castle'), p_.get('imperial'), p_.get('apm'),
+                         vils_by(p_, 900)))
         row('You', 'me', me_num)
         for nm, num in list(mates)[:3]: row(nm, 'mate', num)
         for nm, num in list(opps)[:4]: row(nm, 'opp', num)
-        return rows
+        them = [(nm, ps[num]) for nm, num in opps if num in ps]
+        short = lambda n: n if len(n) <= 12 else n[:11] + '\u2026'
+        issues = []                 # (how bad, key, note, facts for the tip)
+        # Castle Age: the biggest single swing, if you went up well after them
+        for key, label in (('castle', 'Castle'), ('feudal', 'Feudal')):
+            ts = [(p_.get(key), nm) for nm, p_ in them if p_.get(key)]
+            if not ts: continue
+            best_t, best_nm = min(ts)
+            mine_t = me_.get(key)
+            gap = (mine_t - best_t) if mine_t else None
+            if mine_t is None or gap >= (180 if key == 'castle' else 90):
+                txt = ('%s Age: you %s, %s %s.' % (label, mmss(mine_t) if mine_t else 'never', short(best_nm), mmss(best_t))
+                       + (' %s behind.' % mmss(gap) if gap else ''))
+                issues.append(((gap or 600) / (2.0 if key == 'castle' else 1.0), key, txt,
+                               dict(gap=mmss(gap or 0), who=short(best_nm), at=mmss(best_t))))
+                break
+        # villagers: the economy everything else comes from
+        for sec in (600, 900):
+            if me_.get('resign') and me_['resign'] < sec: break
+            mine_v = vils_by(me_, sec)
+            ts = [vils_by(p_, sec) for _nm, p_ in them]
+            top = max(ts) if ts else 0
+            target = 26 if sec == 600 else 40
+            short_by = max(top - mine_v, target - mine_v)
+            if short_by >= 4:
+                txt = 'Villagers by %d min: you %d%s. A good number is about %d.' % (
+                    sec // 60, mine_v, (', best of them %d' % top) if ts else '', target)
+                issues.append((short_by * 25, 'vils', txt, dict(n=short_by, m=sec // 60)))
+                break
+        # eco upgrades: late or missing ones
+        late = []
+        for tid, nm in ECO_TECHS:
+            mine_t = me_.get('techs', {}).get(tid)
+            ts = [p_.get('techs', {}).get(tid) for _n, p_ in them]
+            ts = [t for t in ts if t]
+            if ts and (mine_t is None or mine_t - min(ts) >= 120):
+                late.append((nm, mine_t, min(ts)))
+        if late:
+            bits = ['%s %s (them %s)' % (nm, mmss(m) if m else 'never', mmss(o)) for nm, m, o in late[:3]]
+            issues.append((60 * len(late), 'eco', 'Eco upgrades: ' + ', '.join(bits) + '.',
+                           dict(up=late[0][0], at=mmss(late[0][2]))))
+        # army: first units made, against the first ones they made
+        mine_m = me_.get('mil') or []
+        firsts = [(p_['mil'][0][0], nm, p_['mil'][0][1]) for nm, p_ in them if p_.get('mil')]
+        if firsts:
+            t0, nm0, u0 = min(firsts)
+            mine_t = mine_m[0][0] if mine_m else None
+            if mine_t is None or mine_t - t0 >= 120:
+                txt = 'First army: you %s, %s %s%s.' % (mmss(mine_t) if mine_t else 'none', short(nm0), mmss(t0),
+                                                        (' (%s)' % UNIT_NAMES[u0]) if u0 in UNIT_NAMES else '')
+                issues.append((((mine_t or t0 + 300) - t0) / 2.0, 'army', txt,
+                               dict(who=short(nm0), at=mmss(t0), unit=UNIT_NAMES.get(u0, 'units'))))
+        # more Town Centres than you
+        if them:
+            mine_tc = tcs_by(me_, 1500)
+            top_tc, top_nm = max((tcs_by(p_, 1500), nm) for nm, p_ in them)
+            if top_tc - mine_tc >= 2:
+                issues.append(((top_tc - mine_tc) * 70, 'tc', 'Town Centres by 25 min: you %d, %s %d.' % (mine_tc, short(top_nm), top_tc),
+                               dict(n=top_tc - mine_tc, who=short(top_nm))))
+        # your TC sitting idle (from watching the game, not the recording)
+        if live.get('idle', 0) >= 60:
+            issues.append((live['idle'] * 0.6, 'idle', 'TC idle %s in total, %d times. Longest %s, at %s.' % (
+                mmss(live['idle']), live.get('idle_n', 0), mmss(live['idle_max'][0]), mmss(live['idle_max'][1])),
+                dict(v=int(live['idle'] // 25), idle=mmss(live['idle']))))
+        issues.sort(key=lambda x: -x[0])
+        notes = [(t, TXT) for _w, _k, t, _f in issues[:4]]
+        # and one thing you did well, if there was a clear one
+        if them and not (me_.get('resign') and me_['resign'] < 900):
+            mine_v = vils_by(me_, 900); top = max(vils_by(p_, 900) for _n, p_ in them)
+            if mine_v - top >= 4:
+                notes.append(('Villagers by 15 min: you %d, best of them %d. Strong economy.' % (mine_v, top), GREEN))
+        if not notes: notes = [('No big gaps: you kept up with them on age-ups, villagers and upgrades.', GREEN)]
+        tip = an_tip2(issues)
+        return rows, notes, tip
+
+    TIPS2 = {
+        'castle': ["Click Castle Age sooner. {who} went up {gap} before you, at {at}.",
+                   "Aim to start Castle Age within 10 minutes of reaching Feudal. You were {gap} behind {who}.",
+                   "Plan your Castle click from Feudal: keep the food coming and go up around {at}, like {who}."],
+        'feudal': ["Tighten the Dark Age: {who} hit Feudal {gap} before you.",
+                   "Get to Feudal by {at}, like {who}: keep the TC busy and houses ahead of time."],
+        'vils': ["Make more villagers: you were {n} short by {m} minutes. Keep the TC queuing all game.",
+                 "Your economy was {n} villagers light by {m} minutes. Never let the TC sit, even while fighting.",
+                 "Add a second (and third) TC once you hit Castle Age to catch up on villagers."],
+        'eco': ["Get {up} earlier. They had it at {at}.",
+                "Eco upgrades pay for themselves fast: get {up} by about {at} next game.",
+                "When you're floating resources, spend them on {up} first."],
+        'army': ["Have something to defend with by {at}: {who} made {unit} first.",
+                 "Make your first army a little sooner. {who} had {unit} out at {at}.",
+                 "Scout what {who} is making and answer it: they had {unit} at {at}."],
+        'tc': ["Add Town Centres when you reach Castle Age: {who} had {n} more than you by 25 minutes.",
+               "Boom harder: {n} more TCs would have kept you level with {who}."],
+        'idle': ["Keep the TC busy: the idle time was about {v} villagers you never made.",
+                 "Queue two villagers when you look away, so the TC never sits ({idle} idle this game).",
+                 "Check your TC every time you place a building: {idle} idle cost about {v} villagers."],
+        'good': ["Solid game. Next time, try to scout their base before 4 minutes.",
+                 "Nice. Next game, push for a slightly earlier Castle click.",
+                 "Good game. Next time, aim for 2 more villagers by 15 minutes.",
+                 "Tidy game. Next time, put your lead into army sooner."]}
+
+    def an_tip2(issues):
+        import random
+        key, facts = ('good', {}) if not issues else (issues[0][1], issues[0][3])
+        if len(issues) > 1 and random.random() < 0.3: key, facts = issues[1][1], issues[1][3]   # now and then the next one
+        cfg_ = load_settings(); last = cfg_.get('last_tip')
+        pool = [t for t in TIPS2[key] if t != last] or TIPS2[key]
+        tip = random.choice(pool)
+        try: cfg_['last_tip'] = tip; save_settings(cfg_)
+        except Exception: pass
+        try: return tip.format(**facts)
+        except Exception: return tip
 
     def an_render(lines_, table_=None):
         """The card: who clicked up when and how busy each of you were (a small table), the notes
@@ -7400,7 +7647,7 @@ def main():
         if table_:
             tb = tk.Frame(card_an, bg=PANEL); tb.pack(fill='x', pady=(0, 6)); hush(tb)
             tb.grid_columnconfigure(0, weight=1)
-            heads = ('', 'FEUDAL', 'CASTLE', 'IMP', 'APM')
+            heads = ('', 'FEUDAL', 'CASTLE', 'IMP', 'APM', "VILS 15'")
             show_imp = any(r[4] is not None for r in table_)
             for c_, h_ in enumerate(heads):
                 if c_ == 3 and not show_imp: continue
@@ -7412,9 +7659,10 @@ def main():
                 ts = [r[k_] for r in table_ if r[k_] is not None]
                 if ts: best[k_] = min(ts)
             r_i = 1; last_side = None
-            for nm, side, f_, c2, i_, apm in table_:
+            for nm, side, f_, c2, i_, apm, *more_ in table_:
+                vil = more_[0] if more_ else None
                 if last_side in ('me', 'mate') and side == 'opp':
-                    sep_ = tk.Frame(tb, bg=EDGE, height=1); sep_.grid(row=r_i, column=0, columnspan=5, sticky='we', pady=3)
+                    sep_ = tk.Frame(tb, bg=EDGE, height=1); sep_.grid(row=r_i, column=0, columnspan=6, sticky='we', pady=3)
                     r_i += 1
                 last_side = side
                 col = GOLDC if side == 'me' else (GREEN if side == 'mate' else '#e3a497')
@@ -7422,9 +7670,12 @@ def main():
                 l_ = tk.Label(tb, text=shown, fg=col, bg=PANEL, anchor='w',
                               font=(F_SMALL[0], F_SMALL[1], 'bold') if side == 'me' else F_SMALL)
                 l_.grid(row=r_i, column=0, sticky='w'); hush(l_)
-                for c_, k_, v_ in ((1, 2, f_), (2, 3, c2), (3, 4, i_), (4, 5, apm)):
+                for c_, k_, v_ in ((1, 2, f_), (2, 3, c2), (3, 4, i_), (4, 5, apm), (5, 6, vil)):
                     if c_ == 3 and not show_imp: continue
-                    if k_ == 5:
+                    if k_ == 6:
+                        top_v = max([r[6] for r in table_ if len(r) > 6] or [0])
+                        txt = '%d' % v_ if v_ is not None else '\u2013'; fg_ = GREEN if v_ is not None and v_ == top_v else TXT
+                    elif k_ == 5:
                         txt = '%d' % v_ if v_ is not None else '\u2013'; fg_ = TXT
                     else:
                         txt = mmss(v_) if v_ is not None else '\u2013'
@@ -7464,22 +7715,32 @@ def main():
             log('post game: %r' % (e,)); an.clear(); return
         rec_, me_, opps_ = an.get('rec'), an.get('me_num'), list(an.get('opps') or [])
         mates_ = list(an.get('mates') or [])
+        live_ = {k: an.get(k) for k in ('idle', 'idle_n', 'idle_max', 'house_n')}
         an.clear()
-        log('post game: %s' % ' | '.join(t for t, _ in lines_))
+        log('post game (live): %s' % ' | '.join(t for t, _ in lines_))
         def more():                                           # the recording, read off the main thread
             time.sleep(3)                                     # the game finishes writing it first
-            try: extra = an_replay_lines(rec_, me_, opps_, mates_)
+            try: rv = an_review(rec_, me_, opps_, mates_, live_)
             except Exception as e:
-                log('post game, recording: %r' % (e,)); return
-            if not extra: return
-            log('post game, recording: %s' % ' | '.join('%s %s/%s/%s %s' % (r[0], *[mmss(x) if x is not None else '-' for x in r[2:5]], r[5]) for r in extra))
+                log('post game, recording: %r' % (e,)); rv = None
+            if not rv:                                        # the recording couldn't be read: what was seen live
+                def plain():
+                    if st.get('last') is not None or not card_an.winfo_children(): return
+                    calm(an_render)(lines_)
+                try: root.after(0, plain)
+                except Exception: pass
+                return
+            rows, notes, tip = rv
+            log('post game: %s | %s | tip: %s' % (
+                ' | '.join('%s %s/%s/%s apm %s vils15 %s' % (r[0], *[mmss(x) if x is not None else '-' for x in r[2:5]], r[5], r[6]) for r in rows),
+                ' | '.join(t for t, _ in notes), tip))
             def show():
                 if st.get('last') is not None or not card_an.winfo_children(): return   # a new game, or closed
-                calm(an_render)(lines_, extra)
+                calm(an_render)(notes + [(tip, GOLDD)], rows)
             try: root.after(0, show)
             except Exception: pass
         threading.Thread(target=more, daemon=True).start()
-        an_render(lines_)
+        an_render([(t, c) for t, c in lines_ if c == GOLDD][:0] + [('Reading the game\u2026', FAINT)])
         card_an.grid()
         if not card_word.cget('text') or st.get('card') is None:
             card.config(highlightbackground=EDGE)
@@ -10850,6 +11111,7 @@ def main():
     # A newer public release: say so on the bar at the menu, one click to take it. The exe swaps
     # itself; a .bat takes Prod. Ash's own setup publishes and restarts by itself, so not there.
     clear_old_exe()
+    threading.Thread(target=startup_check, daemon=True).start()
     # The exe: put it in the Start menu and on the Desktop the first time it runs, then keep those
     # pointing at it if it moves. Done quietly; pinning to the taskbar is the player's call.
     def shortcuts_once():
@@ -10915,9 +11177,14 @@ def main():
         opp_area.grid(); opp_area.grid_configure(pady=(6, 0))
         try: my_civ = civ_text(mine['civ'], strings, icons)[0] if mine else None
         except Exception: my_civ = None
-        sig_ = '|'.join(sorted('%s/%s' % (p['name'], p.get('civ')) for p in opps))
+        # one plan per game: the lobby list and the in-game list can differ (a random civ gets
+        # named), so it's tied to the game, not to who's in it
+        sig_ = st.get('last') or '|'.join(sorted(p['name'] for p in opps))
         if (st.get('ai') or {}).get('sig') != sig_:
+            old_ = st.get('ai') or {}
             st['ai'] = {'sig': sig_, 'text': None, 'shown': False, 'busy': False}
+            if old_.get('text') and not old_.get('sig', '').endswith('.aoe2record') and str(sig_).endswith('.aoe2record'):
+                st['ai'].update(text=old_['text'], shown=old_.get('shown'))       # asked on the loading screen: keep it
         st['ai_ctx'] = {'me': my_civ, 'map': title.cget('text'), 'team': team_game,
                         'opps': [{'name': p['name'], 'civ': civ_text(p['civ'], strings, icons)[0], 'open': []}
                                  for p in opps]}
@@ -11231,8 +11498,12 @@ def main():
                 ok, txt = ai_ask(prompt, cfg2)
                 def done():
                     a_['busy'] = False
-                    if ok: a_['text'] = txt
-                    else: a_['err'] = txt
+                    cur_ = st.get('ai') or {}
+                    for d_ in {id(a_): a_, id(cur_): cur_}.values():   # the answer lands even if the list was redrawn
+                        if d_ is not a_ and d_.get('text'): continue
+                        d_['busy'] = False; d_['shown'] = True
+                        if ok: d_['text'] = txt
+                        else: d_['err'] = txt
                     b_ = st.get('ai_box')
                     if b_ is not None: calm(lambda: ai_draw(b_))()
                 try: root.after(0, done)
@@ -11259,10 +11530,11 @@ def main():
             tg = tk.Label(hd, text='AI COACH', fg=BRONZE, bg=INK, font=(F_TINY[0], F_TINY[1], 'bold')); tg.pack(side='left'); hush(tg, hide)
             x_ = tk.Label(hd, text='hide  \u2715', fg=MUT, bg=INK, font=F_TINY, cursor='hand2'); x_.pack(side='right'); hush(x_, hide)
             hover(x_, MUT, GOLDD)
-            for ln in [l.strip() for l in a_['text'].splitlines() if l.strip()][:6]:
+            for ln in [l.strip() for l in a_['text'].splitlines() if l.strip().strip('#*-_ ')][:6]:
                 r_ = tk.Frame(pan, bg=INK); r_.pack(fill='x', padx=8); hush(r_, hide)
-                bullet = ln[:2] in ('- ', '* ', '\u2022 ')
-                if bullet: ln = ln[2:]
+                ln = ln.lstrip('#').strip()
+                bullet = ln[:2] in ('- ', '* ', '\u2022 ') or bool(re.match(r'\d+[.)] ', ln))
+                if bullet: ln = re.sub(r'^(?:[-*\u2022]|\d+[.)])\s+', '', ln)
                 d_ = tk.Label(r_, text='\u2022' if bullet else '', fg=GOLDD, bg=INK, font=F_SMALL)
                 d_.pack(side='left', anchor='n', padx=(0, 5)); hush(d_, hide)
                 l_ = tk.Label(r_, text=ln.replace('**', ''), fg='#e6d9b0', bg=INK, font=F_SMALL, anchor='w', justify='left',
