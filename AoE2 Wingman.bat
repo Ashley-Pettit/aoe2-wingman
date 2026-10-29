@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v188'
+VERSION = 'v189'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -641,6 +641,9 @@ while ($true) {
 }
 """
 
+# The recording only holds orders (move, build, queue...). Real APM also counts every select click,
+# control group press and camera hop: about 120 real for every 46 orders, so the numbers shown are scaled up.
+REAL_APM = 120 / 46.0
 MIL_BUILDINGS = {12, 87, 101, 49, 82, 104, 20, 132, 498, 86, 85, 1251}    # barracks, range, stable, workshop, castle, monastery...
 UNIT_NAMES = {1132: 'Battle Elephants', 74: 'Militia', 75: 'Men-at-Arms', 77: 'Long Swords', 93: 'Spearmen', 358: 'Pikemen', 4: 'Archers',
               24: 'Crossbows', 7: 'Skirmishers', 6: 'Skirmishers', 39: 'Cav Archers', 5: 'Hand Cannons', 448: 'Scouts',
@@ -713,7 +716,7 @@ def replay_stats(path, stop_at=None):
         except (struct.error, IndexError):
             break
     for p in out.values():
-        p['apm'] = round(p['acts'] / max(1.0, t / 60000.0))
+        p['apm'] = round(p['acts'] / max(1.0, t / 60000.0) * REAL_APM)
     return {'length': t / 1000.0, 'players': out}
 
 class LiveApm(object):
@@ -11610,7 +11613,7 @@ def main():
                         cur < usual * APM_DROP or (was and cur < usual * 0.8))
                     if low and not was: log('live apm: down to %d (usual %d)' % (cur, usual))
                     st['apm_low'] = low
-                    apm_num.config(text='APM %d' % round(cur), fg=GREEN if (usual and cur >= usual) else TXT)
+                    apm_num.config(text='APM %d' % round(cur * REAL_APM), fg=GREEN if (usual and cur >= usual) else TXT)
                 if low and not apm_arr.winfo_manager(): apm_arr.pack(side='left', padx=(0, 6))
                 elif not low and apm_arr.winfo_manager(): apm_arr.pack_forget()
                 if not apm_chip.winfo_manager(): calm(apm_chip.grid)()
