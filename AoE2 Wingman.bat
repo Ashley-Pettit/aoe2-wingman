@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v189'
+VERSION = 'v191'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -649,6 +649,7 @@ UNIT_NAMES = {1132: 'Battle Elephants', 74: 'Militia', 75: 'Men-at-Arms', 77: 'L
               24: 'Crossbows', 7: 'Skirmishers', 6: 'Skirmishers', 39: 'Cav Archers', 5: 'Hand Cannons', 448: 'Scouts',
               546: 'Light Cav', 38: 'Knights', 283: 'Cavaliers', 329: 'Camels', 751: 'Eagles', 1370: 'Steppe Lancers',
               125: 'Monks', 280: 'Mangonels', 35: 'Rams', 36: 'Bombards', 279: 'Scorpions', 1731: 'Shrivamsha'}
+TC_TECH_SECS = {22: 25, 101: 130, 102: 160, 103: 190, 213: 75, 249: 55, 8: 25, 280: 75}   # Loom, the ages, Wheelbarrow, Hand Cart, Town Watch/Patrol
 ECO_TECHS = [(202, 'Double-Bit Axe'), (14, 'Horse Collar'), (213, 'Wheelbarrow'), (203, 'Bow Saw'), (55, 'Gold Mining')]
 
 def replay_stats(path, stop_at=None):
@@ -7518,8 +7519,59 @@ def main():
         ps = replay_stats(rec)['players']
         if me_num not in ps: return None
         me_ = ps[me_num]
-        def vils_by(p_, sec): return 3 + sum(n for t, n in p_.get('vil_q', []) if t <= sec - 25)   # queued in time to be out
+        def vils_by(p_, sec):
+            """Villagers actually out by `sec` of game time. Queuing isn't making: a Town Centre turns
+            out one every 25 seconds, and nothing comes out while you're housed. So play the queue
+            through each TC (a new TC joins in once it's had time to go up), holding each villager
+            until there's house room for it. Cancelled villagers aren't in it, so it's a best case."""
+            builds = p_.get('builds', [])
+            room = sorted([(t + 35, 5) for t, b_ in builds if b_ == 70] +            # houses
+                          [(t + 150, 5) for t, b_ in builds if b_ in (109, 621)] +   # town centres
+                          [(t + 200, 20) for t, b_ in builds if b_ == 82])          # castles
+            army = sorted(t + 30 for t, _u, n in p_.get('mil', []) for _ in range(max(1, int(n))))
+            def cap_at(t): return 5 + sum(n for at, n in room if at <= t)
+            def army_at(t): return sum(1 for at in army if at <= t)
+            lanes = sorted(t + 150 for t, b_ in builds if b_ in (109, 621) and t + 150 < sec)
+            free = [0.0]; made = 0; done = []
+            # what the TC researches (Loom, the ages, Wheelbarrow...) holds up villagers on it
+            busy = sorted((t, TC_TECH_SECS[k]) for k, t in p_.get('techs', {}).items() if k in TC_TECH_SECS)
+            def tc_free_after(start):
+                for bt, bd in busy:
+                    if bt <= start < bt + bd: return bt + bd
+                return start
+            for t, n in sorted(p_.get('vil_q', [])):
+                while lanes and lanes[0] <= t: free.append(lanes.pop(0))
+                for _ in range(max(1, int(n))):
+                    i_ = min(range(len(free)), key=lambda k: free[k])
+                    start = max(t, free[i_])
+                    if i_ == 0: start = tc_free_after(start)
+                    for _w in range(200):                       # housed: wait for the next house
+                        if 4 + sum(1 for d in done if d <= start) + army_at(start) < cap_at(start): break
+                        nxt = [at for at, _n in room if at > start]
+                        if not nxt: start = None; break
+                        start = nxt[0]
+                    if start is None: break
+                    free[i_] = start + 25; done.append(free[i_])
+                    if free[i_] <= sec: made += 1
+                    if start > sec: break
+            # never more than the TCs could have made: 3 to start, one per 25 seconds per TC,
+            # less the time the first one spent researching
+            most = perfect_by(p_, sec) + sum(int(max(0, sec - at) // 25) for at in
+                                             sorted(t + 150 for t, b_ in builds if b_ in (109, 621)))
+            return min(3 + made, most)
         def tcs_by(p_, sec): return 1 + sum(1 for t, b in p_.get('builds', []) if b in (109, 621) and t <= sec)
+        _vb = vils_by
+        def vils_by(p_, sec):
+            v_ = _vb(p_, sec)
+            # your own pop was read off the screen as you played: villagers can't be more than that
+            seen = (live.get('pops') or {}).get(sec // 60) if p_ is me_ else None
+            return min(v_, seen) if seen else v_
+        def perfect_by(p_, sec):
+            """A first TC that never stops: one villager every 25 seconds from the start, less the time
+            it spends on Loom, Feudal and the like (the ones this player actually researched)."""
+            held = sum(max(0, min(t + d, sec) - t) for k, t in p_.get('techs', {}).items()
+                       for d in [TC_TECH_SECS.get(k)] if d and t < sec)
+            return 3 + int((sec - held) // 25)
         rows = []
         def row(nm, side, num):
             p_ = ps.get(num)
@@ -7546,30 +7598,30 @@ def main():
                                dict(gap=mmss(gap or 0), who=short(best_nm), at=mmss(best_t))))
                 break
         # villagers: the economy everything else comes from
-        for sec in (600, 900):
-            if me_.get('resign') and me_['resign'] < sec: break
-            mine_v = vils_by(me_, sec)
-            ts = [vils_by(p_, sec) for _nm, p_ in them]
+        # (by 10 minutes the most a single TC can make is 27; Loom and Feudal take some of that time)
+        vil_issue = False
+        if not (me_.get('resign') and me_['resign'] < 600):
+            mine_v = vils_by(me_, 600); best_ = perfect_by(me_, 600)
+            ts = [vils_by(p_, 600) for _nm, p_ in them]
             top = max(ts) if ts else 0
-            target = 26 if sec == 600 else 40
-            short_by = max(top - mine_v, target - mine_v)
-            if short_by >= 4:
-                txt = 'Villagers by %d min: you %d%s. A good number is about %d.' % (
-                    sec // 60, mine_v, (', best of them %d' % top) if ts else '', target)
-                issues.append((short_by * 25, 'vils', txt, dict(n=short_by, m=sec // 60)))
-                break
+            short_by = best_ - mine_v
+            if short_by >= 3:
+                vil_issue = True
+                txt = ('Villagers by 10 min: you %d. A TC that never stopped (allowing for your Loom and Feudal) '
+                       'makes %d.%s' % (mine_v, best_, (' Best of them: %d.' % top) if ts else ''))
+                issues.append((short_by * 25, 'vils', txt, dict(n=short_by, m=10)))
         # eco upgrades: late or missing ones
         late = []
         for tid, nm in ECO_TECHS:
             mine_t = me_.get('techs', {}).get(tid)
-            ts = [p_.get('techs', {}).get(tid) for _n, p_ in them]
-            ts = [t for t in ts if t]
-            if ts and (mine_t is None or mine_t - min(ts) >= 120):
-                late.append((nm, mine_t, min(ts)))
+            ts = [(p_.get('techs', {}).get(tid), n_) for n_, p_ in them]
+            ts = [x for x in ts if x[0]]
+            if ts and (mine_t is None or mine_t - min(ts)[0] >= 120):
+                late.append((nm, mine_t, min(ts)[0], min(ts)[1]))
         if late:
-            bits = ['%s %s (them %s)' % (nm, mmss(m) if m else 'never', mmss(o)) for nm, m, o in late[:3]]
+            bits = ['%s %s (%s %s)' % (nm, mmss(m) if m else 'never', short(who), mmss(o)) for nm, m, o, who in late[:3]]
             issues.append((60 * len(late), 'eco', 'Eco upgrades: ' + ', '.join(bits) + '.',
-                           dict(up=late[0][0], at=mmss(late[0][2]))))
+                           dict(up=late[0][0], at=mmss(late[0][2]), who=short(late[0][3]))))
         # army: first units made, against the first ones they made
         mine_m = me_.get('mil') or []
         firsts = [(p_['mil'][0][0], nm, p_['mil'][0][1]) for nm, p_ in them if p_.get('mil')]
@@ -7596,7 +7648,7 @@ def main():
         issues.sort(key=lambda x: -x[0])
         notes = [(t, TXT) for _w, _k, t, _f in issues[:4]]
         # and one thing you did well, if there was a clear one
-        if them and not (me_.get('resign') and me_['resign'] < 900):
+        if them and not vil_issue and not (me_.get('resign') and me_['resign'] < 900):
             mine_v = vils_by(me_, 900); top = max(vils_by(p_, 900) for _n, p_ in them)
             if mine_v - top >= 4:
                 notes.append(('Villagers by 15 min: you %d, best of them %d. Strong economy.' % (mine_v, top), GREEN))
@@ -7613,7 +7665,7 @@ def main():
         'vils': ["Make more villagers: you were {n} short by {m} minutes. Keep the TC queuing all game.",
                  "Your economy was {n} villagers light by {m} minutes. Never let the TC sit, even while fighting.",
                  "Add a second (and third) TC once you hit Castle Age to catch up on villagers."],
-        'eco': ["Get {up} earlier. They had it at {at}.",
+        'eco': ["Get {up} earlier. {who} had it at {at}.",
                 "Eco upgrades pay for themselves fast: get {up} by about {at} next game.",
                 "When you're floating resources, spend them on {up} first."],
         'army': ["Have something to defend with by {at}: {who} made {unit} first.",
@@ -7718,7 +7770,7 @@ def main():
             log('post game: %r' % (e,)); an.clear(); return
         rec_, me_, opps_ = an.get('rec'), an.get('me_num'), list(an.get('opps') or [])
         mates_ = list(an.get('mates') or [])
-        live_ = {k: an.get(k) for k in ('idle', 'idle_n', 'idle_max', 'house_n')}
+        live_ = {k: an.get(k) for k in ('idle', 'idle_n', 'idle_max', 'house_n', 'pops')}
         an.clear()
         log('post game (live): %s' % ' | '.join(t for t, _ in lines_))
         def more():                                           # the recording, read off the main thread
