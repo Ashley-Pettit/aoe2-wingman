@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v191'
+VERSION = 'v192'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7571,7 +7571,7 @@ def main():
             it spends on Loom, Feudal and the like (the ones this player actually researched)."""
             held = sum(max(0, min(t + d, sec) - t) for k, t in p_.get('techs', {}).items()
                        for d in [TC_TECH_SECS.get(k)] if d and t < sec)
-            return 3 + int((sec - held) // 25)
+            return 3 + int(round((sec - held) / 25.0))
         rows = []
         def row(nm, side, num):
             p_ = ps.get(num)
@@ -7607,8 +7607,13 @@ def main():
             short_by = best_ - mine_v
             if short_by >= 3:
                 vil_issue = True
-                txt = ('Villagers by 10 min: you %d. A TC that never stopped (allowing for your Loom and Feudal) '
-                       'makes %d.%s' % (mine_v, best_, (' Best of them: %d.' % top) if ts else ''))
+                # say only what was actually taken off: 27 is the most by 10 minutes, less Loom
+                # (one villager's time) and Feudal (about five), if you did them before 10 minutes
+                held_ = [nm for k, nm in ((22, 'Loom'), (101, 'Feudal'), (213, 'Wheelbarrow'), (8, 'Town Watch'))
+                         if me_.get('techs', {}).get(k) is not None and me_['techs'][k] < 600]
+                txt = ('Villagers by 10 min: you %d. A TC that never stopped makes %d%s.%s' % (
+                    mine_v, best_, (' after your %s' % ' and '.join(held_)) if held_ else '',
+                    (' Best of them: %d.' % top) if ts else ''))
                 issues.append((short_by * 25, 'vils', txt, dict(n=short_by, m=10)))
         # eco upgrades: late or missing ones
         late = []
