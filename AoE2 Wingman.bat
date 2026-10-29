@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v192'
+VERSION = 'v193'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -5873,6 +5873,35 @@ def short_opening(label, parts=2, cap=20):
         bits.pop(); out = ' > '.join(bits)
     return out
 
+def fill_openings(me, limit=60):
+    """How you opened in each game on your record ('Scouts > Knights', 'Fast Castle'...), read from
+    your own recordings on this PC with the same reader used for opponents. Kept on the game's row,
+    so each recording is only read once. Returns how many games were filled in."""
+    if not me: return 0
+    with STATS_LOCK:
+        todo = [g.get('id') for g in load_stats()['games'] if 'opening' not in g and g.get('id')][-limit:]
+    if not todo: return 0
+    paths = {os.path.basename(pth): pth for pth, _ in _replay_entries()}
+    found = {}
+    for gid in todo:
+        pth = paths.get(gid)
+        if not pth: found[gid] = ''; continue                 # recording gone: nothing to read
+        try:
+            if time.time() - os.path.getmtime(pth) < 180: continue    # still being written: later
+            with open(pth, 'rb') as fh: raw = fh.read()
+            o = replay_openings(raw).get(str(me))
+            found[gid] = short_opening(o['o']) if o else ''
+        except Exception as e:
+            log('opening for %s: %r' % (gid, e)); found[gid] = ''
+    if found:
+        with STATS_LOCK:
+            d = load_stats()
+            for g in d['games']:
+                if g.get('id') in found: g['opening'] = found[g['id']]
+            save_stats(d)
+        log('your openings: read %d game(s): %s' % (len(found), ', '.join(v for v in found.values() if v)[:300]))
+    return len(found)
+
 def top_openings(rows, n=2):
     """The openings this player uses most, as [(short label, how many times)]. Compound openings
     are counted under their first move too, so 'Scouts' and 'Scouts > Knights' pull together."""
@@ -10886,6 +10915,14 @@ def main():
                     tk.Label(cell, text=val, fg=col, bg=PANEL, font=('Segoe UI', 9), anchor='w').pack(fill='x')
                 for col in range(3): grid_.columnconfigure(col, weight=1, uniform='note')
 
+            # how you like to open, and how each one goes for you
+            strat = tally_by([g for g in games if g.get('opening')], 'opening')
+            if strat:
+                caption(inner, 'YOUR FAVOURITE STRATEGIES', 'how you opened, read from your recordings')
+                table(inner, strat, limit=6)
+            elif any('opening' not in g for g in games):
+                caption(inner, 'YOUR FAVOURITE STRATEGIES', 'reading your recordings\u2026')
+
             bans = map_bans([g for g in games if g.get('ranked')] or games)
             if bans:
                 caption(inner, 'BAN THESE MAPS', 'your worst, 4+ decided ranked games')
@@ -10943,6 +10980,14 @@ def main():
                  anchor='w', justify='left', wraplength=540).pack(fill='x', pady=(8, 0))
         st['stats_build'] = build
         build()
+        def read_openings():                            # your own openings, then show them
+            try:
+                for _r in range(30):
+                    if not fill_openings(me): break
+                    try: root.after(0, refresh_stats_window)
+                    except Exception: break
+            except Exception as e: log('your openings: %r' % (e,))
+        threading.Thread(target=read_openings, daemon=True).start()
         win.bind('<Escape>', lambda e: close_win())
         win.protocol('WM_DELETE_WINDOW', close_win)
         win.update_idletasks()
