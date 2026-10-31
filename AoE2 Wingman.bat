@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v193'
+VERSION = 'v194'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7545,9 +7545,10 @@ def main():
         them, then only the points where you were well behind (the useful ones), and one tip from
         the biggest of those. Returns (rows, notes, tip) or None."""
         if not rec or not me_num: return None
-        ps = replay_stats(rec)['players']
+        rs_ = replay_stats(rec); ps = rs_['players']
         if me_num not in ps: return None
         me_ = ps[me_num]
+        game_len = rs_.get('length') or 0
         def vils_by(p_, sec):
             """Villagers actually out by `sec` of game time. Queuing isn't making: a Town Centre turns
             out one every 25 seconds, and nothing comes out while you're housed. So play the queue
@@ -7620,29 +7621,34 @@ def main():
             best_t, best_nm = min(ts)
             mine_t = me_.get(key)
             gap = (mine_t - best_t) if mine_t else None
-            if mine_t is None or gap >= (180 if key == 'castle' else 90):
-                txt = ('%s Age: you %s, %s %s.' % (label, mmss(mine_t) if mine_t else 'never', short(best_nm), mmss(best_t))
-                       + (' %s behind.' % mmss(gap) if gap else ''))
-                issues.append(((gap or 600) / (2.0 if key == 'castle' else 1.0), key, txt,
-                               dict(gap=mmss(gap or 0), who=short(best_nm), at=mmss(best_t))))
+            if mine_t is None:
+                end_ = me_.get('resign') or 0
+                if end_ and end_ < best_t + 120: continue        # the game was over before it mattered
+                txt = '%s Age: you never got there; %s clicked it at %s.' % (label, short(best_nm), mmss(best_t))
+                issues.append((300, key + '_never', txt, dict(who=short(best_nm), at=mmss(best_t))))
+                break
+            if gap >= (180 if key == 'castle' else 90):
+                txt = '%s Age: you %s, %s %s. %s behind.' % (label, mmss(mine_t), short(best_nm), mmss(best_t), mmss(gap))
+                issues.append((gap / (2.0 if key == 'castle' else 1.0), key, txt,
+                               dict(gap=mmss(gap), who=short(best_nm), at=mmss(best_t))))
                 break
         # villagers: the economy everything else comes from
-        # (by 10 minutes the most a single TC can make is 27; Loom and Feudal take some of that time)
+        # Villagers: only your own, from your pop as Wingman read it off the screen during the game.
+        # The recording can't count villagers reliably (auto-queue, cancels, being housed), so it
+        # isn't used for anyone's villager numbers. By 10 minutes the most one TC makes is 27,
+        # less Loom (one villager's time) and Feudal (about five) if you did them before 10.
         vil_issue = False
-        if not (me_.get('resign') and me_['resign'] < 600):
-            mine_v = vils_by(me_, 600); best_ = perfect_by(me_, 600)
-            ts = [vils_by(p_, 600) for _nm, p_ in them]
-            top = max(ts) if ts else 0
-            short_by = best_ - mine_v
+        nomad = any(b_ in (109, 621) and t < 120 for t, b_ in me_.get('builds', []))   # no TC to start with
+        pop10 = (live.get('pops') or {}).get(10)
+        if pop10 and not nomad and not (me_.get('resign') and me_['resign'] < 600):
+            best_ = perfect_by(me_, 600)
+            short_by = (best_ + 1) - pop10                 # + your scout, who counts in the pop
             if short_by >= 3:
                 vil_issue = True
-                # say only what was actually taken off: 27 is the most by 10 minutes, less Loom
-                # (one villager's time) and Feudal (about five), if you did them before 10 minutes
                 held_ = [nm for k, nm in ((22, 'Loom'), (101, 'Feudal'), (213, 'Wheelbarrow'), (8, 'Town Watch'))
                          if me_.get('techs', {}).get(k) is not None and me_['techs'][k] < 600]
-                txt = ('Villagers by 10 min: you %d. A TC that never stopped makes %d%s.%s' % (
-                    mine_v, best_, (' after your %s' % ' and '.join(held_)) if held_ else '',
-                    (' Best of them: %d.' % top) if ts else ''))
+                txt = ('Pop %d at 10 min. A TC that never stopped gets you %d villagers by then%s, plus your scout.' % (
+                    pop10, best_, (' after your %s' % ' and '.join(held_)) if held_ else ''))
                 issues.append((short_by * 25, 'vils', txt, dict(n=short_by, m=10)))
         # eco upgrades: late or missing ones
         late = []
@@ -7650,7 +7656,7 @@ def main():
             mine_t = me_.get('techs', {}).get(tid)
             ts = [(p_.get('techs', {}).get(tid), n_) for n_, p_ in them]
             ts = [x for x in ts if x[0]]
-            if ts and (mine_t is None or mine_t - min(ts)[0] >= 120):
+            if ts and ((mine_t is None and game_len > min(ts)[0] + 180) or (mine_t is not None and mine_t - min(ts)[0] >= 120)):
                 late.append((nm, mine_t, min(ts)[0], min(ts)[1]))
         if late:
             bits = ['%s %s (%s %s)' % (nm, mmss(m) if m else 'never', short(who), mmss(o)) for nm, m, o, who in late[:3]]
@@ -7662,31 +7668,30 @@ def main():
         if firsts:
             t0, nm0, u0 = min(firsts)
             mine_t = mine_m[0][0] if mine_m else None
-            if mine_t is None or mine_t - t0 >= 120:
-                txt = 'First army: you %s, %s %s%s.' % (mmss(mine_t) if mine_t else 'none', short(nm0), mmss(t0),
+            # (nothing on record isn't proof of no army: units can come off auto-queue, so only when you did make some)
+            if mine_t is not None and mine_t - t0 >= 120:
+                txt = 'First army: you %s, %s %s%s.' % (mmss(mine_t), short(nm0), mmss(t0),
                                                         (' (%s)' % UNIT_NAMES[u0]) if u0 in UNIT_NAMES else '')
-                issues.append((((mine_t or t0 + 300) - t0) / 2.0, 'army', txt,
+                issues.append(((mine_t - t0) / 2.0, 'army', txt,
                                dict(who=short(nm0), at=mmss(t0), unit=UNIT_NAMES.get(u0, 'units'))))
         # more Town Centres than you
-        if them:
+        if them and not nomad:
             mine_tc = tcs_by(me_, 1500)
             top_tc, top_nm = max((tcs_by(p_, 1500), nm) for nm, p_ in them)
             if top_tc - mine_tc >= 2:
                 issues.append(((top_tc - mine_tc) * 70, 'tc', 'Town Centres by 25 min: you %d, %s %d.' % (mine_tc, short(top_nm), top_tc),
                                dict(n=top_tc - mine_tc, who=short(top_nm))))
         # your TC sitting idle (from watching the game, not the recording)
-        if live.get('idle', 0) >= 60:
-            issues.append((live['idle'] * 0.6, 'idle', 'TC idle %s in total, %d times. Longest %s, at %s.' % (
-                mmss(live['idle']), live.get('idle_n', 0), mmss(live['idle_max'][0]), mmss(live['idle_max'][1])),
+        if live.get('idle', 0) >= 60 and not (nomad and live['idle_max'][1] < 150):
+            issues.append((live['idle'] * 0.6, 'idle', 'TC idle %s in total, %d time%s. Longest %s, at %s.' % (
+                mmss(live['idle']), live.get('idle_n', 0), '' if live.get('idle_n', 0) == 1 else 's',
+                mmss(live['idle_max'][0]), mmss(live['idle_max'][1])),
                 dict(v=int(live['idle'] // 25), idle=mmss(live['idle']))))
+        if game_len < 600:                                # over in the Dark Age: nothing fair to say
+            return rows, [('A short game (%s), so there\'s not much to go on.' % mmss(game_len), MUT)], ''
         issues.sort(key=lambda x: -x[0])
         notes = [(t, TXT) for _w, _k, t, _f in issues[:4]]
-        # and one thing you did well, if there was a clear one
-        if them and not vil_issue and not (me_.get('resign') and me_['resign'] < 900):
-            mine_v = vils_by(me_, 900); top = max(vils_by(p_, 900) for _n, p_ in them)
-            if mine_v - top >= 4:
-                notes.append(('Villagers by 15 min: you %d, best of them %d. Strong economy.' % (mine_v, top), GREEN))
-        if not notes: notes = [('No big gaps: you kept up with them on age-ups, villagers and upgrades.', GREEN)]
+        if not notes: notes = [('No big gaps: you kept up with them on age-ups and upgrades.', GREEN)]
         tip = an_tip2(issues)
         return rows, notes, tip
 
@@ -7694,6 +7699,9 @@ def main():
         'castle': ["Click Castle Age sooner. {who} went up {gap} before you, at {at}.",
                    "Aim to start Castle Age within 10 minutes of reaching Feudal. You were {gap} behind {who}.",
                    "Plan your Castle click from Feudal: keep the food coming and go up around {at}, like {who}."],
+        'castle_never': ["Get to Castle Age next game: {who} was there from {at}.",
+                         "Plan your Castle click: {who} went up at {at} and you never did."],
+        'feudal_never': ["Get to Feudal Age next game: {who} clicked it at {at}."],
         'feudal': ["Tighten the Dark Age: {who} hit Feudal {gap} before you.",
                    "Get to Feudal by {at}, like {who}: keep the TC busy and houses ahead of time."],
         'vils': ["Make more villagers: you were {n} short by {m} minutes. Keep the TC queuing all game.",
@@ -7712,7 +7720,7 @@ def main():
                  "Check your TC every time you place a building: {idle} idle cost about {v} villagers."],
         'good': ["Solid game. Next time, try to scout their base before 4 minutes.",
                  "Nice. Next game, push for a slightly earlier Castle click.",
-                 "Good game. Next time, aim for 2 more villagers by 15 minutes.",
+                 "Good game. Next time, get your eco upgrades a minute earlier than you think you need them.",
                  "Tidy game. Next time, put your lead into army sooner."]}
 
     def an_tip2(issues):
@@ -7736,7 +7744,7 @@ def main():
         if table_:
             tb = tk.Frame(card_an, bg=PANEL); tb.pack(fill='x', pady=(0, 6)); hush(tb)
             tb.grid_columnconfigure(0, weight=1)
-            heads = ('', 'FEUDAL', 'CASTLE', 'IMP', 'APM', "VILS 15'")
+            heads = ('', 'FEUDAL', 'CASTLE', 'IMP', 'APM')
             show_imp = any(r[4] is not None for r in table_)
             for c_, h_ in enumerate(heads):
                 if c_ == 3 and not show_imp: continue
@@ -7759,7 +7767,7 @@ def main():
                 l_ = tk.Label(tb, text=shown, fg=col, bg=PANEL, anchor='w',
                               font=(F_SMALL[0], F_SMALL[1], 'bold') if side == 'me' else F_SMALL)
                 l_.grid(row=r_i, column=0, sticky='w'); hush(l_)
-                for c_, k_, v_ in ((1, 2, f_), (2, 3, c2), (3, 4, i_), (4, 5, apm), (5, 6, vil)):
+                for c_, k_, v_ in ((1, 2, f_), (2, 3, c2), (3, 4, i_), (4, 5, apm)):
                     if c_ == 3 and not show_imp: continue
                     if k_ == 6:
                         top_v = max([r[6] for r in table_ if len(r) > 6] or [0])
@@ -7825,7 +7833,7 @@ def main():
                 ' | '.join(t for t, _ in notes), tip))
             def show():
                 if st.get('last') is not None or not card_an.winfo_children(): return   # a new game, or closed
-                calm(an_render)(notes + [(tip, GOLDD)], rows)
+                calm(an_render)(notes + ([(tip, GOLDD)] if tip else []), rows)
             try: root.after(0, show)
             except Exception: pass
         threading.Thread(target=more, daemon=True).start()
