@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v198'
+VERSION = 'v199'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -791,12 +791,12 @@ class LiveApm(object):
 AI_API = 'https://api.anthropic.com/v1'
 AI_FALLBACK_MODEL = 'claude-haiku-4-5'
 _AI = {}
-AI_SYSTEM = ("You coach Age of Empires II: Definitive Edition players. Think it through, then give a counter plan "
-             "for this game from the moment given. It will be read out loud to the player while they play, so: "
-             "4 or 5 short spoken sentences, about 90 words in total, plain sentences with no bullet points, no "
-             "headings, no symbols and no abbreviations (say men at arms, not MAA; fast castle, not FC). Be "
-             "specific: what to build, which units counter theirs, timings to hit, what to scout for. Australian "
-             "English, no intro and no sign-off.")
+AI_SYSTEM = ("You coach an Age of Empires II: Definitive Edition player during a live game. Think it through, then "
+             "tell them what to do from this point in the game: what to make and research next, what this "
+             "opponent's civ is likely to do at this stage and later, and how to beat it. "
+             "Your answer is read out loud while they play, so give only the advice itself: 3 to 5 short spoken "
+             "sentences, about 80 words. No greeting, no restating the question, no filler, no lists, no symbols, "
+             "no abbreviations (say men at arms, not MAA). Australian English.")
 
 def _ai_req(url, key, body=None, timeout=30):
     import urllib.request
@@ -11642,31 +11642,26 @@ def main():
     show_opponents = calm(show_opponents, True)
 
     def ai_prompt():
+        """What's sent when you hit AI advice: the game time, the map, your civ, their civ, and (as
+        background) how they usually open. Kept short: only what changes the advice."""
         c_ = st.get('ai_ctx') or {}
         mp_ = c_.get('map') if c_.get('map') and c_.get('map') != HEAD_NAME else None
-        lines = ['Map: %s.' % (mp_ or 'unknown'), 'My civ: %s.' % (c_.get('me') or 'unknown'),
-                 'Opponent civ%s: %s.' % ('s' if len(c_.get('opps', [])) > 1 else '',
-                                          ', '.join(o_['civ'] for o_ in c_.get('opps', [])) or 'unknown')]
-        for o_ in c_.get('opps', []):
-            op_ = o_.get('open') or []
-            if op_ and not op_[0][2]:
-                how = ', '.join('%s (%d of %d games)' % (lab, cnt, o_.get('games') or cnt) if cnt else lab for lab, cnt, _ in op_[:3])
-                lines.append('Against %s (%s), who usually opens with: %s.' % (o_['name'], o_['civ'], how))
-            elif op_:
-                lines.append('Against %s (%s). Their own games are unknown; %s players often open with: %s.'
-                             % (o_['name'], o_['civ'], o_['civ'], ', '.join(lab for lab, _c, _t in op_[:3])))
-            else:
-                lines.append('Against %s (%s), opening unknown.' % (o_['name'], o_['civ']))
-        if c_.get('team'): lines.append('It is a team game.')
         try:
             secs_ = tcw.game_minutes(time.time()) * 60 if (tcw.active and st.get('last')) else None
         except Exception:
             secs_ = None
-        if secs_ is not None and 20 <= secs_ < 4 * 3600:
-            lines.insert(0, 'Game time: %s (plan from here).' % mmss(secs_))
-        else:
-            lines.insert(0, 'Game time: 0:00, the game is just starting.')
-        lines.append('How should I counter?')
+        opps_ = c_.get('opps', [])
+        lines = ['Game time: %s.' % (mmss(secs_) if secs_ is not None and 20 <= secs_ < 4 * 3600 else '0:00 (just starting)'),
+                 'Map: %s.' % (mp_ or 'unknown'),
+                 'My civ: %s.' % (c_.get('me') or 'unknown'),
+                 'Opponent civ%s: %s.' % ('s' if len(opps_) > 1 else '', ', '.join(o_['civ'] for o_ in opps_) or 'unknown')]
+        if c_.get('team'): lines.append('Team game.')
+        for o_ in opps_:
+            op_ = o_.get('open') or []
+            if op_ and not op_[0][2]:                        # from their own recent games
+                lines.append('%s usually opens: %s.' % (o_['civ'], ', '.join(
+                    '%s (%d of %d games)' % (lab, cnt, o_.get('games') or cnt) if cnt else lab for lab, cnt, _ in op_[:2])))
+        lines.append('What should I do from here?')
         return '\n'.join(lines)
 
     def ai_draw(box):
