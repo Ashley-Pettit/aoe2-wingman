@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v194'
+VERSION = 'v195'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -10448,8 +10448,42 @@ def main():
         tk.Label(ai_row, text='Claude API key', fg=MUT, bg=INK, font=F_SMALL).pack(side='left', padx=(0, 10))
         ai_e = tk.Entry(ai_row, width=30, show='\u2022'); style_entry(ai_e)
         ai_e.insert(0, cfg.get('ai_key', '')); ai_e.pack(side='left', fill='x', expand=True, ipady=3)
-        tk.Label(outer, text='Unlocks the counter plan from Claude Haiku. Stays on this PC; under a cent a plan.',
-                 fg=FAINT, bg=INK, font=F_TINY, anchor='w').pack(fill='x', pady=(4, 0))
+        ai_msg = tk.Label(outer, text='Stays on this PC. Under a cent a plan.',
+                          fg=FAINT, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=400)
+        def ai_test():
+            k_ = ai_e.get().strip()
+            if not k_: ai_msg.config(text='Paste your Claude key in the box first.', fg=REDC); return
+            if not k_.startswith('sk-ant-'):
+                ai_msg.config(text="That doesn't look like a Claude key: they start with sk-ant-.", fg=REDC); return
+            ai_msg.config(text='Checking the key\u2026', fg=MUT)
+            def work():
+                import urllib.error
+                try:
+                    _AI.pop('model', None)
+                    m_ = ai_model(k_)
+                    _ai_req(AI_API + '/messages', k_, {'model': m_, 'max_tokens': 5,
+                                                       'messages': [{'role': 'user', 'content': 'Say ok'}]}, timeout=20)
+                    t_, c_ = 'The key works (%s). Press Save.' % m_, GREEN
+                except urllib.error.HTTPError as e:
+                    body = ''
+                    try: body = e.read().decode('utf-8', 'ignore')[:200]
+                    except Exception: pass
+                    t_ = {401: "Claude didn't accept that key. Copy it again from console.anthropic.com.",
+                          403: "That key isn't allowed to use Claude. Check it in console.anthropic.com.",
+                          429: 'Claude is busy, or the account has no credit left. Add credit in console.anthropic.com.'
+                          }.get(e.code, 'Claude said no (error %d). %s' % (e.code, body))
+                    if e.code == 400 and 'credit' in body.lower():
+                        t_ = 'The key is fine, but the account has no credit. Add some in console.anthropic.com > Billing.'
+                    c_ = REDC
+                    log('ai: key test failed: %d %s' % (e.code, body))
+                except Exception as e:
+                    t_, c_ = "Couldn't reach Claude: %s" % e, REDC
+                    log('ai: key test: %r' % (e,))
+                try: root.after(0, lambda: ai_msg.winfo_exists() and ai_msg.config(text=t_, fg=c_))
+                except Exception: pass
+            threading.Thread(target=work, daemon=True).start()
+        flat_button(ai_row, 'Test key', ai_test).pack(side='left', padx=(8, 0))
+        ai_msg.pack(fill='x', pady=(4, 0))
 
         section('Mods'); field('God Mode mod')
         mods_row = tk.Frame(outer, bg=INK); mods_row.pack(fill='x', pady=(2, 0))
@@ -10557,6 +10591,13 @@ def main():
             save_settings(merged)
             tc_settings(); tc_draw()
             scorew.enabled = merged.get('concede_flag', True)
+            _SETC['t'] = 0                                   # the AI coach picks up a new key straight away
+            if merged.get('ai_key') != first_.get('ai_key'):
+                log('ai: key %s' % ('saved (ends ...%s)' % merged['ai_key'][-4:] if merged.get('ai_key') else 'removed'))
+            b_ = st.get('ai_box')
+            if b_ is not None:
+                try: calm(lambda: ai_draw(b_))()
+                except Exception: pass
             close_win()
         def test():
             c = collect()
@@ -11591,14 +11632,16 @@ def main():
         unlocked = bool((cfg_.get('ai_key') or '').strip() or cfg_.get('ai_server'))
         line = tk.Frame(box, bg=PANEL); line.pack(fill='x'); hush(line)
         if not unlocked:
+            def locked_click():
+                log('ai: no Claude key saved yet, opening Settings'); open_settings()
             pl = tk.Canvas(line, width=12, height=13, bg=PANEL, highlightthickness=0)
             pl.create_arc(3, 1, 9, 9, start=0, extent=180, style='arc', outline=FAINT, width=2)
             pl.create_rectangle(2, 6, 10, 12, fill=FAINT, outline='')
-            pl.pack(side='left', padx=(2, 6)); hush(pl, open_settings)
+            pl.pack(side='left', padx=(2, 6)); hush(pl, locked_click)
             t_ = tk.Label(line, text='AI counter plan', fg=MUT, bg=PANEL, font=(F_SMALL[0], F_SMALL[1], 'bold'), cursor='hand2')
-            t_.pack(side='left'); hush(t_, open_settings)
+            t_.pack(side='left'); hush(t_, locked_click)
             t2 = tk.Label(line, text='  \u00b7  unlock with your Claude key in Settings', fg=FAINT, bg=PANEL, font=F_SMALL, cursor='hand2')
-            t2.pack(side='left'); hush(t2, open_settings); hush(line, open_settings)
+            t2.pack(side='left'); hush(t2, locked_click); hush(line, locked_click)
             return
         def ask():
             if a_.get('busy'): return
