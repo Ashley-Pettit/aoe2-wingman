@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v203'
+VERSION = 'v136'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -183,79 +183,79 @@ BUILD_SOURCE = "Hera's strategy guide, Dec 2025"
 # villagers plus the scout, plus any militia, which is how players and the in-game counter count.
 BUILDS = [
  ('Scouts', 'Scouts, one stable', '19 pop, Feudal 8:50', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, 'Build a house, then a mill at the berries'),
-   (12, 17, '6 to the boar, one lures the second'),
+   (11, 11, 'House, then berries with the mill'),
+   (12, 17, '6 hunt under the TC, one takes the second boar'),
    (18, 18, '2 to wood. Lure deer with the scout'),
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Barracks then stable, 3 scouts, double bit axe')]),
  ('Scouts', 'Scouts, two stables', '19 pop, Feudal 8:50', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, 'Build a house, then a mill at the berries'),
-   (12, 17, '6 to the boar. Lure deer with the scout'),
+   (11, 11, 'House, then berries with the mill'),
+   (12, 17, '6 hunt under the TC. Lure deer with the scout'),
    (18, 18, '2 to wood'),
    (19, 19, 'Second one to wood. Loom, then click Feudal (up at 8:50)'),
    (20, 99, 'Barracks, then two stables, double bit axe')]),
  ('Scouts', 'Scouts into archers', '19 pop, Feudal 8:50', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 more to the boar'),
-   (12, 12, 'Build a house, then a mill at the berries'),
+   (11, 11, '1 hunts under the TC'),
+   (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '6 to the boar'),
+   (14, 18, '6 hunt under the TC'),
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks, double bit axe')]),
  ('Archers', 'Archers, one range', '20 pop, Feudal 9:15', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, 'Build a house, then a mill at the berries'),
-   (13, 18, '6 to the boar, one lures the second'),
+   (12, 12, 'House, then berries with the mill'),
+   (13, 18, '6 hunt under the TC, one takes the second boar'),
    (19, 19, '2 to wood. Lure deer with the scout'),
    (20, 20, 'Second one to wood. Loom, then click Feudal (up at 9:15)'),
    (21, 99, '5 hunt to a second lumber camp, 2 berries, 3 gold, range up')]),
  ('Infantry', 'Men-at-arms', '19 pop, Feudal 8:50', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 10,  '3 to wood, one builds a house in the wall'),
    (11, 11, 'Lure the first boar. Lure 2 deer, not optional'),
-   (12, 16, '5 to the boar, lure the second one'),
+   (12, 16, '5 hunt under the TC, take the second boar'),
    (17, 17, 'Barracks, then a house at the front. No mill yet'),
-   (18, 18, '2 more to the boar'),
+   (18, 18, '2 more hunt'),
    (19, 19, 'Second one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '5 hunt to wood, 2 gold camp, 1 berries, 3 militia out')]),
  ('Infantry', 'Men-at-arms into skirms', '20 pop, Feudal 9:15', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, 'Build a house, then a mill at the chickens or berries and gather'),
-   (13, 14, '2 more to the berries. Lure a deer or two if you can'),
+   (12, 12, 'House, then the mill on chickens, or berries'),
+   (13, 14, '2 more to the mill. Lure a deer or two if you can'),
    (15, 15, 'Lure the second boar'),
-   (16, 17, '2 to the boar'),
+   (16, 17, '2 hunt under the TC'),
    (18, 18, 'Barracks, then a house at the front'),
-   (19, 19, '2 more to the boar'),
+   (19, 19, '2 more hunt'),
    (20, 20, 'Second one hunts. Loom, then click Feudal (up at 9:15)'),
    (21, 99, 'Militia out, skirms behind them')]),
  ('Infantry', 'Feudal drush', '19 pop, Feudal 8:50', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
    (12, 12, 'House, then back to the hunt'),
-   (13, 16, '4 to the boar, lure the second one'),
+   (13, 16, '4 hunt under the TC, take the second boar'),
    (17, 17, 'Barracks out front, house beside it. No mill yet'),
-   (18, 18, '1 more to the boar'),
+   (18, 18, '1 more hunt'),
    (19, 19, '1 to wood. Loom, then click Feudal (up at 8:50)'),
-   (20, 99, 'Militia out, 1 more to the berries')]),
+   (20, 99, 'Militia out, 1 to berries with the mill')]),
  ('Fast Castle', 'Fast Castle boom', '24 pop, Castle 14:00', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, 'Build a house, then a mill at the berries'),
-   (13, 14, '2 to the boar, one lures the second. Lure 3 deer'),
+   (12, 12, 'House, then berries with the mill'),
+   (13, 14, '2 hunt, one takes the second boar. Lure 3 deer'),
    (15, 18, '4 to berries, seed 3 farms off the hunt'),
    (19, 22, '4 to wood'),
    (23, 23, '2 to gold'),
@@ -263,24 +263,24 @@ BUILDS = [
    (25, 26, 'Feudal is in: 2 more to wood, market and blacksmith'),
    (27, 99, 'Click Castle as soon as both are up (in at 14:00)')]),
  ('Fast Castle', 'Drush into Fast Castle', '31 pop, Castle 16:05', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 11,  '4 to wood'),
    (12, 12, 'Lure the first boar'),
    (13, 13, '2 houses, then a barracks'),
    (14, 17, '1 to gold, then back to the boar. 3 militia out'),
    (18, 18, 'Lure the second boar'),
-   (19, 23, '5 to berries, one builds a mill there'),
+   (19, 23, '5 to berries, build the mill'),
    (24, 27, '4 to wood on one camp, then loom'),
    (28, 30, '4 to gold'),
    (31, 31, 'Fourth one to gold. Click Feudal (up at 12:35)'),
    (32, 33, 'Feudal is in: 2 more to gold, range and blacksmith'),
    (34, 99, 'Click Castle, keep the militia busy (in at 16:05)')]),
  ('Fast Castle', 'Knight rush (easier)', '26 pop, Castle 16:05', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '2 houses first, then 6 to sheep'),
    (8, 10,  '3 to wood'),
    (11, 11, 'Lure the first boar'),
-   (12, 12, 'Build 2 houses, then a mill at the berries'),
-   (13, 13, '1 more to the boar'),
+   (12, 12, '2 houses, then berries with the mill'),
+   (13, 13, '1 hunts under the TC'),
    (14, 14, 'Lure the second boar'),
    (15, 18, '4 to berries'),
    (19, 23, '5 to wood'),
@@ -288,43 +288,43 @@ BUILDS = [
    (26, 26, 'Third one to gold. Loom, then click Feudal (up at 11:45). Barracks and a house'),
    (27, 99, 'Stable and market, 4 more to gold, click Castle (in at 16:05)')]),
  ('Scouts', 'Scouts into skirms', '19 pop, Feudal 8:50', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 more to the boar'),
-   (12, 12, 'Build a house, then a mill at the berries'),
+   (11, 11, '1 hunts under the TC'),
+   (12, 12, 'House, then berries with the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '6 to the boar. Lure deer with the scout'),
+   (14, 18, '6 hunt under the TC. Lure deer with the scout'),
    (19, 19, 'Sixth one hunts. Loom, then click Feudal (up at 8:50)'),
    (20, 99, '6 to wood until 8 on one camp, 4 berries, barracks and house')]),
  ('Infantry', 'Double barracks eagles', '19 pop, Feudal 8:50', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 more to the boar'),
-   (12, 12, 'Build a house, then a mill at the berries'),
+   (11, 11, '1 hunts under the TC'),
+   (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 18, '6 to the boar. Lure deer with the scout'),
+   (14, 18, '6 hunt under the TC. Lure deer with the scout'),
    (19, 19, 'Sixth one hunts. Loom if Aztecs or Incas, then click Feudal (up at 8:50)'),
    (20, 99, '5 to wood for 7 on one camp, 2 gold, barracks and house, 3 berries')]),
  ('Other', 'Tower rush, any civ', '18 pop, Feudal 8:25', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 more to the boar'),
-   (12, 12, 'Build a house, then a mill at the berries'),
+   (11, 11, '1 hunts under the TC'),
+   (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 17, '5 to the boar'),
+   (14, 17, '5 hunt under the TC'),
    (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
    (19, 99, '2 to stone with a camp, 5 forward, spears or skirms behind the towers')]),
  ('Other', 'Teuton tower rush', '18 pop, Feudal 8:25', [
-   (2, 7,   '2 houses, then 6 to sheep'),
+   (2, 7,   '6 to sheep under the TC'),
    (8, 9,   '2 to wood'),
    (10, 10, 'Lure the first boar'),
-   (11, 11, '1 more to the boar'),
-   (12, 12, 'Build a house, then a mill at the berries'),
+   (11, 11, '1 hunts under the TC'),
+   (12, 12, 'House, then the mill'),
    (13, 13, 'Lure the second boar'),
-   (14, 17, '5 to the boar'),
+   (14, 17, '5 hunt under the TC'),
    (18, 18, 'Fifth one hunts. Loom, scout them, then click Feudal (up at 8:25)'),
    (19, 99, '2 to stone with a camp, 10 forward, tower 8 tiles off their wood')]),
 ]
@@ -346,41 +346,11 @@ STEP_ICON_WORDS = [            # first word found in the step picks the picture
 
 def step_icon_kind(text):
     t = (text or '').lower(); best = None
-    # 'Build a house, then ...': the house is a quick job on the way; the picture is for what
-    # the villager ends up doing
-    t = re.sub(r'^(build )?(a|\d+|\w+) houses?(,| first,)? then ', '', t)
     for word, kind in STEP_ICON_WORDS:
         if word in ('click feudal', 'click castle') and word in t: return kind
         i = t.find(word)
         if i >= 0 and (best is None or i < best[0]): best = (i, kind)
     return best[1] if best else None
-
-def draw_build_badge(S, bg, hot=False):
-    """The build order's own mark: a royal blue shield with a gold rim and a cream serif B.
-    Blue so it never gets mixed up with the gold party invite button next to it."""
-    from PIL import Image, ImageDraw, ImageFont
-    k = 4; W = int(S * 0.86); N, M = W * k, S * k
-    im = Image.new('RGBA', (N, M), bg)
-    d = ImageDraw.Draw(im)
-    def shield(inset):
-        i = inset * k; w, h = N - 1 - i, M - 1 - i
-        return [(i, i + 2 * k), (N / 2.0, i), (w, i + 2 * k), (w, h * 0.58), (N / 2.0, h), (i, h * 0.58)]
-    d.polygon(shield(0), fill='#e2b84a' if hot else '#c99a2e')                 # gold rim
-    d.polygon(shield(1.6), fill='#1d2f52')                                     # dark edge inside the rim
-    d.polygon(shield(2.3), fill='#3d68b8' if hot else '#2f569c')               # royal blue face
-    # a lighter top half for a bit of shine
-    sh = shield(2.3); top = [sh[0], sh[1], sh[2], (sh[2][0], M * 0.36), (sh[0][0], M * 0.36)]
-    d.polygon(top, fill='#4a7bcf' if hot else '#3a66b3')
-    font = None
-    for f in ('georgiab.ttf', 'timesbd.ttf', 'DejaVuSerif-Bold.ttf', 'arialbd.ttf'):
-        try: font = ImageFont.truetype(f, int(M * 0.56)); break
-        except Exception: continue
-    if font is None: font = ImageFont.load_default()
-    bb = d.textbbox((0, 0), 'B', font=font)
-    tx = (N - (bb[2] - bb[0])) / 2.0 - bb[0]; ty = (M * 0.86 - (bb[3] - bb[1])) / 2.0 - bb[1]
-    d.text((tx + k * 0.6, ty + k * 0.8), 'B', font=font, fill='#0f1a30')       # a soft drop shadow
-    d.text((tx, ty), 'B', font=font, fill='#f4ead2')
-    return im.resize((W, S), Image.LANCZOS).convert('RGB')
 
 def draw_step_icon(kind, S, bg):
     """kind drawn in an S x S square, 4x then shrunk. Returns a PIL RGB image."""
@@ -403,21 +373,14 @@ def draw_step_icon(kind, S, bg):
             E(x - r, y - r, x + r, y + r, fill=wool)
         E(0.5, 9, 11.5, 21, fill=face); E(7, 6, 12.5, 11.5, fill=face)
         E(3.2, 12.4, 5.4, 14.6, fill=wool); E(7.5, 7.5, 13.5, 13.5, fill=wool)
-    elif kind == 'boar':                  # side on, facing left: bristly back, long snout, white tusk
-        body, dark, snout, ridge = '#94633f', '#4a3220', '#b07a50', '#3a281a'
-        for x in (12, 16.5, 23, 27): R(x - 1.5, 21, x + 1.5, 29.5, 1, fill=dark)          # short legs
-        L([(29.5, 14), (31, 12), (30.5, 10.5)], 1.2, dark)                                  # tail
-        E(9, 8.5, 30.5, 25, fill=body)                                                      # barrel body
-        d.polygon(P((13, 9.5), (4, 14.5), (1.5, 18), (3.5, 21.5), (14, 24)), fill=body)      # head, tapering
-        d.polygon(P((10, 15.5), (3, 17), (3.5, 21.5), (12, 23)), fill=snout)                # lighter snout
-        E(0.3, 16.2, 4, 21.6, fill='#c08a66')                                               # nose disc
-        E(1.2, 17.6, 2.2, 18.8, fill=dark); E(1.8, 19.4, 2.8, 20.6, fill=dark)              # nostrils
-        # the bristly ridge along the back
-        d.polygon(P((10, 10), (12, 6.5), (14, 9), (16, 5.5), (18, 8.5), (20.5, 5.5), (22.5, 8.5),
-                    (25, 6.5), (26.5, 9.5), (29, 9), (29, 12), (10, 13)), fill=ridge)
-        d.polygon(P((10.5, 10.5), (12, 4.5), (15, 10)), fill=dark)                           # ear
-        E(7.4, 13.2, 9.8, 15.6, fill='#1a120c'); E(8.4, 13.6, 9.2, 14.4, fill='#e8dcc0')    # eye
-        d.arc((2 * u, 13 * u, 10 * u, 23 * u), 115, 220, fill='#f6efdf', width=max(1, int(2.2 * u)))       # tusk
+    elif kind == 'boar':
+        body, dark = '#9a6a45', '#5a3d28'
+        E(6, 10, 28, 24, fill=body)
+        d.polygon(P((8, 12), (1, 16), (2, 20), (9, 22)), fill=body)
+        E(0, 16, 4, 20, fill=dark)
+        L([(4, 19), (2, 14)], 1.6, '#efe6d2')
+        for x in (10, 15, 21, 25): R(x - 1.3, 21, x + 1.3, 28, 1, fill=dark)
+        d.polygon(P((14, 10), (18, 6), (22, 10)), fill=dark)
     elif kind == 'deer':
         body, dark = '#b98a55', '#6e4f2e'
         E(8, 12, 27, 22, fill=body)
@@ -454,11 +417,8 @@ def draw_step_icon(kind, S, bg):
         for x in (8, 14, 20): R(x, 4, x + 4, 10, 0.5, fill='#b3afa7')
         R(14, 14, 18, 20, 2, fill='#3a3128')
     elif kind == 'sword':
-        d.polygon(P((10, 19.5), (25.5, 4), (28.5, 3.5), (28, 6.5), (12.5, 22)), fill='#cfc9bf')   # blade
-        L([(11.2, 20.8), (27, 5)], 1.0, '#f4f1ea')                                                  # its edge
-        L([(6.5, 16), (16, 25.5)], 3.2, '#c99a2e')                                                  # crossguard
-        L([(5, 27), (10, 22)], 3.4, '#7a5236')                                                      # grip
-        E(2, 26, 6.6, 30.6, fill='#c99a2e')                                                         # pommel
+        L([(6, 26), (25, 5)], 3.2, '#d9d4cc'); L([(8, 18), (14, 24)], 3, '#a9823c')
+        L([(4, 28), (8, 24)], 3.4, '#7a5236')
     elif kind == 'bow':
         d.arc((2 * u, 3 * u, 22 * u, 29 * u), 290, 70, fill='#b98a55', width=int(3 * u))
         L([(9, 4), (9, 28)], 1, '#efe6d2'); L([(9, 16), (29, 16)], 1.6, '#d9d4cc')
@@ -507,36 +467,8 @@ def step_icon(text, S, bg, pad=6):
             STEP_ICONS[key] = None
     return STEP_ICONS[key]
 
-_CUSTOM = {'t': 0, 'v': []}
-
-def rows_to_steps(rows):
-    """[[pop, text], ...] as typed into Settings -> the (first pop, last pop, text) steps the strip uses."""
-    clean_ = sorted((int(p_), str(t_).strip()) for p_, t_ in rows if str(t_).strip())
-    out = []
-    for k, (p_, t_) in enumerate(clean_):
-        nxt = clean_[k + 1][0] if k + 1 < len(clean_) else None
-        out.append((p_, 99 if nxt is None else max(p_, nxt - 1), t_))
-    return out
-
-def custom_builds(fresh=False):
-    """Your own build orders from Settings, in the same shape as the built-in ones."""
-    if fresh or time.time() - _CUSTOM['t'] > 5:
-        got = []
-        for b in load_settings().get('custom_builds') or []:
-            try:
-                steps = rows_to_steps(b.get('steps') or [])
-                if b.get('name') and steps:
-                    got.append(('Yours', b['name'], (b.get('goal') or '').strip() or 'your build', steps))
-            except Exception:
-                continue
-        _CUSTOM.update(t=time.time(), v=got)
-    return _CUSTOM['v']
-
-def all_builds():
-    return custom_builds() + BUILDS                     # yours first, then Hera's
-
 def build_by_name(name):
-    for _g, n, pop, steps in all_builds():
+    for _g, n, pop, steps in BUILDS:
         if n == name: return n, pop, steps
     return None
 
@@ -548,339 +480,31 @@ def build_step_at(steps, pop):
     return at
 
 # ---------------------------------------------------------------- the build order read out loud
-VOICE_START_S = 7       # seconds into a game before the first step is read out, when the
-                        # build leaves the opening houses unsaid (time for you to place them)
-
-def voice_start_s(steps):
-    """No wait when the first step itself says to build the houses: it can be said straight away."""
-    try: first = (steps[0][2] if steps else '').lower()
-    except Exception: first = ''
-    return 1 if 'house' in first else VOICE_START_S
-BO_DONE = 'Build order done. Now go kill your opponent.'
+VOICE_START_S = 10      # seconds into a game before the first step is read out
 # Windows' own speech, in one quiet PowerShell that stays open for the whole session and reads a
 # line at a time from Wingman, so each step is spoken straight away rather than after a slow start.
 # An Australian voice if Windows has one, then British, then whatever the default is.
 VOICE_PS = r"""
-# Wingman's voice. Windows' newer voices (the ones the Narrator and Settings > Speech use) through
-# the WinRT speech engine; the older desktop voices if that is not there. Lines come in on stdin
-# and are read one after another, never cut off. '#voice:Name' picks a voice, '#list:path' writes
-# the voices there.
-$mode = 'sapi'
-try {
-  Add-Type -AssemblyName System.Runtime.WindowsRuntime
-  $null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer,Windows.Media.SpeechSynthesis,ContentType=WindowsRuntime]
-  $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
-      $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
-      $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0].MakeGenericMethod(
-      [Windows.Media.SpeechSynthesis.SpeechSynthesisStream])
-  $syn = New-Object Windows.Media.SpeechSynthesis.SpeechSynthesizer
-  $mode = 'winrt'
-} catch { [Console]::Error.WriteLine("winrt voice not available: $_") }
-if ($mode -eq 'sapi') {
-  Add-Type -AssemblyName System.Speech
-  $sp = New-Object System.Speech.Synthesis.SpeechSynthesizer
-  try { $sp.SetOutputToDefaultAudioDevice() } catch {}
+Add-Type -AssemblyName System.Speech
+$s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+try { $s.SetOutputToDefaultAudioDevice() } catch {}
+$v = @($s.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo })
+foreach ($c in 'en-AU', 'en-GB', 'en-US') {
+  $m = $v | Where-Object { $_.Culture.Name -eq $c } | Select-Object -First 1
+  if ($m) { try { $s.SelectVoice($m.Name) } catch {}; break }
 }
-function Voices {
-  if ($mode -eq 'winrt') { return @([Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | ForEach-Object { "$($_.DisplayName)|$($_.Language)" }) }
-  return @($sp.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { "$($_.VoiceInfo.Name)|$($_.VoiceInfo.Culture.Name)" })
-}
-function Pick($want) {
-  $all = Voices
-  $hit = $null
-  if ($want) { $hit = $all | Where-Object { $_.Split('|')[0] -eq $want } | Select-Object -First 1 }
-  if (-not $hit) {
-    foreach ($c in 'en-AU', 'en-GB', 'en-US') {
-      $hit = $all | Where-Object { $_.Split('|')[1] -eq $c -and $_ -match 'Natural|Neural' } | Select-Object -First 1
-      if ($hit) { break }
-    }
-  }
-  if (-not $hit) {
-    foreach ($c in 'en-AU', 'en-GB', 'en-US') {
-      $hit = $all | Where-Object { $_.Split('|')[1] -eq $c } | Select-Object -First 1
-      if ($hit) { break }
-    }
-  }
-  if (-not $hit) { return }
-  $name = $hit.Split('|')[0]
-  try {
-    if ($mode -eq 'winrt') { $syn.Voice = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | Where-Object { $_.DisplayName -eq $name } | Select-Object -First 1 }
-    else { $sp.SelectVoice($name) }
-    [Console]::Error.WriteLine("voice: $name ($mode)")
-  } catch { [Console]::Error.WriteLine("could not pick $name : $_") }
-}
-$cache = @{}
-function Make($t) {
-  $st = $asTask.Invoke($null, @($syn.SynthesizeTextToStreamAsync($t))).Result
-  $ns = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($st)
-  $ms = New-Object System.IO.MemoryStream
-  $ns.CopyTo($ms); $ns.Dispose(); $st.Dispose()
-  return ,$ms.ToArray()
-}
-function Prep($t) {
-  if ($mode -ne 'winrt' -or $cache.ContainsKey($t)) { return }
-  if ($cache.Count -gt 40) { $cache.Clear() }
-  $cache[$t] = Make $t
-}
-function Say($t) {
-  if ($mode -eq 'winrt') {
-    if ($cache.ContainsKey($t)) { $b = $cache[$t] } else { $b = Make $t }
-    $ms = New-Object System.IO.MemoryStream(,$b)
-    $pl = New-Object System.Media.SoundPlayer($ms)
-    $pl.PlaySync(); $pl.Dispose(); $ms.Dispose()
-  } else { $sp.Speak($t) }
-}
-Pick $env:WINGMAN_VOICE
+$s.Rate = 1
 while ($true) {
   $l = [Console]::In.ReadLine()
   if ($l -eq $null) { break }
-  if ($l.StartsWith('#voice:')) { Pick $l.Substring(7); $cache.Clear(); continue }
-  if ($l.StartsWith('#list:')) { try { Voices | Set-Content -Path $l.Substring(6) -Encoding UTF8 } catch {}; continue }
-  if ($l.StartsWith('#prep:')) { try { Prep $l.Substring(6) } catch { [Console]::Error.WriteLine("prep failed: $_") }; continue }
-  if ($l.Trim()) { try { Say $l } catch { [Console]::Error.WriteLine("say failed: $_") } }
+  $s.SpeakAsyncCancelAll()
+  if ($l.Trim()) { [void]$s.SpeakAsync($l) }
 }
 """
 
-# The recording only holds orders (move, build, queue...). Real APM also counts every select click,
-# control group press and camera hop: about 120 real for every 46 orders, so the numbers shown are scaled up.
-REAL_APM = 120 / 46.0
-MIL_BUILDINGS = {12, 87, 101, 49, 82, 104, 20, 132, 498, 86, 85, 1251}    # barracks, range, stable, workshop, castle, monastery...
-UNIT_NAMES = {1132: 'Battle Elephants', 74: 'Militia', 75: 'Men-at-Arms', 77: 'Long Swords', 93: 'Spearmen', 358: 'Pikemen', 4: 'Archers',
-              24: 'Crossbows', 7: 'Skirmishers', 6: 'Skirmishers', 39: 'Cav Archers', 5: 'Hand Cannons', 448: 'Scouts',
-              546: 'Light Cav', 38: 'Knights', 283: 'Cavaliers', 329: 'Camels', 751: 'Eagles', 1370: 'Steppe Lancers',
-              125: 'Monks', 280: 'Mangonels', 35: 'Rams', 36: 'Bombards', 279: 'Scorpions', 1731: 'Shrivamsha'}
-TC_TECH_SECS = {22: 25, 101: 130, 102: 160, 103: 190, 213: 75, 249: 55, 8: 25, 280: 75}   # Loom, the ages, Wheelbarrow, Hand Cart, Town Watch/Patrol
-ECO_TECHS = [(202, 'Double-Bit Axe'), (14, 'Horse Collar'), (213, 'Wheelbarrow'), (203, 'Bow Saw'), (55, 'Gold Mining')]
-
-def replay_stats(path, stop_at=None):
-    """What each player did, read from the game's own recording after it is over: when they clicked
-    each age, villagers queued, how many actions a minute, and when they resigned. The body of a
-    recording is a list of every command each player gave, with the game clock between them.
-    (The layout follows the open source aoc-mgz reader by happyleavesaoc, MIT licence.)"""
-    import io as _io
-    with open(path, 'rb') as fh: d = fh.read()
-    hl = struct.unpack_from('<I', d, 0)[0]
-    b = _io.BytesIO(d[hl:])
-    first, = struct.unpack('<I', b.read(4))
-    if first != 500: b.read(4)
-    b.read(20)
-    a, bb, _ = struct.unpack('<III', b.read(12))
-    if a != 0: b.seek(-12, 1)
-    if bb == 2: b.seek(-8, 1)
-    t = 0; out = {}
-    AGES = {101: 'feudal', 102: 'castle', 103: 'imperial'}
-    def pl(pid):
-        return out.setdefault(pid, {'acts': 0, 'feudal': None, 'castle': None, 'imperial': None,
-                                    'vils': 0, 'resign': None, 'vil_q': [], 'techs': {}, 'mil': [], 'builds': []})
-    while True:
-        raw = b.read(4)
-        if len(raw) < 4: break
-        op, = struct.unpack('<I', raw)
-        try:
-            if op == 1:                                   # a command
-                length, = struct.unpack('<I', b.read(4))
-                aid = b.read(1)[0]
-                ab = b.read(length - 1); b.read(4)
-                if aid == 255: break                      # the post game block: the end
-                if len(ab) < 3: continue
-                pid, ln = struct.unpack_from('<bh', ab, 0)
-                if len(ab) != ln + 3: continue            # an older layout: not a recent game
-                if not 1 <= pid <= 8: continue
-                p = pl(pid); p['acts'] += 1
-                if aid == 101:                            # research
-                    tech = struct.unpack_from('<Ihh', ab, 3)[2]
-                    if tech in AGES and p[AGES[tech]] is None: p[AGES[tech]] = t / 1000.0
-                    p['techs'].setdefault(tech, t / 1000.0)
-                elif aid == 129:                          # queue a unit
-                    sel, btype, unit, amount = struct.unpack_from('<h4xhhh', ab, 3)
-                    if unit in (83, 293): p['vils'] += amount; p['vil_q'].append((t / 1000.0, amount))
-                    elif btype in MIL_BUILDINGS: p['mil'].append((t / 1000.0, unit, amount))
-                elif aid == 102 and len(ab) >= 17:        # place a building
-                    p['builds'].append((t / 1000.0, struct.unpack_from('<h', ab, 15)[0]))
-                elif aid == 11 and p['resign'] is None:
-                    p['resign'] = t / 1000.0
-            elif op == 2:                                 # the clock moves on
-                inc, marker = struct.unpack('<II', b.read(8))
-                if marker:
-                    b.seek(-4, 1)
-                else:
-                    chk, is_de = struct.unpack('<4xI4xI', b.read(16))
-                    if not is_de: b.read(8)
-                    else: b.seek(-16, 1); b.read(4 * 8 * 11 + 4)
-                t += inc
-                if stop_at and t / 1000.0 > stop_at: break
-            elif op == 3: b.read(12)                      # view lock
-            elif op == 4:                                 # chat
-                _, ln = struct.unpack('<II', b.read(8)); b.read(ln)
-            else:
-                break
-        except (struct.error, IndexError):
-            break
-    for p in out.values():
-        p['apm'] = round(p['acts'] / max(1.0, t / 60000.0) * REAL_APM)
-    return {'length': t / 1000.0, 'players': out}
-
-class LiveApm(object):
-    """Your own actions a minute, live, from the recording the game writes as you play. Only your
-    commands are counted; nothing about anyone else is looked at. Reads on from where it got to,
-    and leaves a command that is only half written for next time."""
-    def __init__(self, path, me):
-        self.path, self.me = path, me
-        self.pos = None; self.t = 0
-        self.mine = collections.deque()          # game time (ms) of each of your commands
-        self.n = 0
-    def _start(self, fh):
-        d = fh.read(1 << 20)
-        hl = struct.unpack_from('<I', d, 0)[0]
-        fh.seek(hl); first, = struct.unpack('<I', fh.read(4))
-        if first != 500: fh.read(4)
-        fh.read(20)
-        a, bb, _ = struct.unpack('<III', fh.read(12))
-        if a != 0: fh.seek(-12, 1)
-        if bb == 2: fh.seek(-8, 1)
-        self.pos = fh.tell()
-    def poll(self):
-        with open(self.path, 'rb') as fh:
-            if self.pos is None:
-                try: self._start(fh)
-                except (struct.error, OSError, IndexError): return
-            fh.seek(self.pos); d = fh.read()
-        i, n = 0, len(d)
-        while i + 4 <= n:
-            op, = struct.unpack_from('<I', d, i); j = i + 4
-            try:
-                if op == 1:
-                    length, = struct.unpack_from('<I', d, j); j += 4
-                    if j + length + 4 > n: break             # not all written yet
-                    aid = d[j]; ab = d[j + 1:j + length]; j += length + 4
-                    if aid == 255: i = j; break
-                    if len(ab) >= 3:
-                        pid, ln = struct.unpack_from('<bh', ab, 0)
-                        if len(ab) == ln + 3 and pid == self.me:
-                            self.mine.append(self.t); self.n += 1
-                elif op == 2:
-                    if j + 8 > n: break
-                    inc, marker = struct.unpack_from('<II', d, j)
-                    if marker: j += 4
-                    else:
-                        if j + 24 > n: break
-                        is_de, = struct.unpack_from('<I', d, j + 20)
-                        j += 32 if not is_de else 8 + 4 * 8 * 11 + 4
-                        if j > n: break
-                    self.t += inc
-                elif op == 3:
-                    if j + 12 > n: break
-                    j += 12
-                elif op == 4:
-                    if j + 8 > n: break
-                    _, ln = struct.unpack_from('<II', d, j); j += 8 + ln
-                    if j > n: break
-                else:
-                    break                                     # lost our place: stop counting this game
-            except (struct.error, IndexError):
-                break
-            i = j
-        self.pos += i
-        while self.mine and self.mine[0] < self.t - 6 * 60000: self.mine.popleft()
-    def apm(self, minutes=1.0):
-        """Your commands over the last `minutes` of game time, as a rate a minute."""
-        span = minutes * 60000
-        if self.t < span: return None
-        return sum(1 for x in self.mine if x >= self.t - span) / float(minutes)
-
-AI_API = 'https://api.anthropic.com/v1'
-AI_FALLBACK_MODEL = 'claude-haiku-4-5'
-_AI = {}
-AI_SYSTEM = ("You coach a high-level Age of Empires II: Definitive Edition player during a live ranked game. They "
-             "know the basics, build orders and hotkeys, so skip anything obvious (keep making villagers, build "
-             "houses) and give pro-level calls. Think it through, then tell them what to do from this point in the "
-             "game: exact unit compositions and counts, key upgrade and timing windows, this civ matchup's power "
-             "spikes and weaknesses, and what the opponent is likely to do next. "
-             "Your answer is read out loud while they play, so give only instructions: 3 to 5 short spoken "
-             "commands, each starting with what to do (Build, Make, Research, Scout, Wall...), about 70 words. "
-             "No chatter: no greeting, no praise, no explanations, no restating the question, no lists, no "
-             "symbols, no abbreviations (say men at arms, not MAA). Australian English.")
-
-def _ai_req(url, key, body=None, timeout=30):
-    import urllib.request
-    hdr = {'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json',
-           'User-Agent': 'AoE2-Wingman'}
-    req = urllib.request.Request(url, data=json.dumps(body).encode('utf-8') if body is not None else None,
-                                 headers=hdr, method='POST' if body is not None else 'GET')
-    return json.loads(urllib.request.urlopen(req, timeout=timeout).read().decode('utf-8'))
-
-def ai_model(key):
-    """The newest Haiku this key can use, asked of the API once a session (names move on)."""
-    if _AI.get('model'): return _AI['model']
-    m = None
-    try:
-        got = _ai_req(AI_API + '/models?limit=100', key, timeout=15)
-        hs = [d for d in got.get('data', []) if 'haiku' in d.get('id', '')]
-        hs.sort(key=lambda d: d.get('created_at', ''), reverse=True)
-        if hs: m = hs[0]['id']
-    except Exception as e:
-        log('ai: model list: %r' % (e,))
-    _AI['model'] = m or AI_FALLBACK_MODEL
-    return _AI['model']
-
-def ai_ask(prompt, cfg):
-    """One short answer from Claude Haiku. (ok, text). For now on the player's own key; later a
-    Wingman server that holds the key behind a paid licence (cfg 'ai_server'), same prompt either way."""
-    import urllib.error
-    try:
-        if cfg.get('ai_server'):
-            import urllib.request
-            req = urllib.request.Request(cfg['ai_server'], data=json.dumps(
-                {'prompt': prompt, 'system': AI_SYSTEM, 'licence': cfg.get('ai_licence', '')}).encode('utf-8'),
-                headers={'content-type': 'application/json', 'User-Agent': 'AoE2-Wingman'}, method='POST')
-            got = json.loads(urllib.request.urlopen(req, timeout=30).read().decode('utf-8'))
-            return bool(got.get('text')), got.get('text') or got.get('error') or 'No answer came back.'
-        key = (cfg.get('ai_key') or '').strip()
-        if not key: return False, 'Add your Claude key in Settings first.'
-        room = 8000
-        # Claude thinks it through before answering, every time: a set budget for the thinking, then
-        # the answer on top (you only pay for what's used). If a model wants it asked another way,
-        # 'adaptive' is tried, then its own default.
-        thinking = [{'type': 'enabled', 'budget_tokens': 4000}, {'type': 'adaptive'}, None]
-        for attempt in range(6):
-            model = ai_model(key)
-            body = {'model': model, 'max_tokens': room, 'system': AI_SYSTEM,
-                    'messages': [{'role': 'user', 'content': prompt}]}
-            if thinking and thinking[0]: body['thinking'] = thinking[0]
-            try:
-                got = _ai_req(AI_API + '/messages', key, body, timeout=90)
-                kinds = [b.get('type') for b in got.get('content', [])]
-                txt = ''.join(b.get('text', '') for b in got.get('content', []) if b.get('type') == 'text').strip()
-                if got.get('stop_reason') == 'max_tokens' and '\n' in txt:
-                    txt = txt.rsplit('\n', 1)[0].strip()            # cut off mid-line: drop the half line
-                log('ai: answered by %s (%s in, %s out, %s, %s): %s' % (
-                    model, got.get('usage', {}).get('input_tokens'), got.get('usage', {}).get('output_tokens'),
-                    got.get('stop_reason'), '/'.join(k or '?' for k in kinds), txt.replace('\n', ' | ')[:400]))
-                if not txt and got.get('stop_reason') == 'max_tokens' and room < 32000:
-                    room *= 2; continue                             # it ran out mid-thought: more room
-                return bool(txt), txt or 'No answer came back. Try again.'
-            except urllib.error.HTTPError as e:
-                detail = ''
-                try: detail = e.read().decode('utf-8', 'ignore')[:300]
-                except Exception: pass
-                log('ai: error %d: %s' % (e.code, detail))
-                if e.code == 400 and 'think' in detail.lower() and len(thinking) > 1:
-                    thinking.pop(0); continue                       # asked for thinking the wrong way for this model
-                if e.code == 404 and model != AI_FALLBACK_MODEL:
-                    _AI['model'] = AI_FALLBACK_MODEL; continue
-                if e.code in (401, 403): return False, "That Claude key didn't work. Check it in Settings."
-                if e.code == 429: return False, 'Claude is busy (or the key is out of credit). Try again in a minute.'
-                if e.code == 400 and 'credit' in detail.lower():
-                    return False, 'Your Claude account is out of credit. Top it up at console.anthropic.com.'
-                return False, "Couldn't get an answer (error %d)." % e.code
-    except Exception as e:
-        log('ai: %r' % (e,))
-        return False, "Couldn't reach Claude. Check your internet."
-    return False, "Couldn't get an answer."
-
 def spoken_step(text):
-    """A build step as something to say: '6 to sheep' becomes 'Send 6 to sheep',
-    '5 hunt to wood' becomes 'Move 5 from hunt to wood', and so on."""
+    """A build step as something to say: '6 to sheep under the TC' becomes 'Send 6 to sheep under
+    the T C', '5 hunt to wood' becomes 'Move 5 from hunt to wood', and so on."""
     t = text or ''
     for pat, to in ((r'^(\d+) (more )?hunts? to ', r'Move \1 \2from hunt to '),
                     (r'^(\d+) (more )?hunts?\b', r'Send \1 \2to hunt'),
@@ -888,55 +512,13 @@ def spoken_step(text):
                     (r'^(\d+) houses\b', r'Build \1 houses')):
         t2 = re.sub(pat, to, t)
         if t2 != t: t = t2; break
-    t = re.sub(r'\bthen (\d+) (more )?to ', r'then send \1 \2to ', t)
-    t = re.sub(r'\s*\((?:up|in) at [\d:]+\)', '', t)         # the clock times are for reading, not for hearing
-    t = re.sub(r'\bTC\b', 'town centre', t)
-    t = re.sub(r'\bMAA\b', 'men at arms', t)
-    t = re.sub(r'\b([Ll])ure(s|d)?\b', lambda m: ('Loor' if m.group(1) == 'L' else 'loor') + (m.group(2) or ''), t)   # said the way players say it
-    t = re.sub(r'\s*\(', ', ', t).replace(')', '')
-    return t.strip()
-
-class AdviceVoice(object):
-    """The AI coach, read out loud in Wingman's voice (the build order voice: Windows' natural voices
-    first). Its own speaker, separate from the build order one, so it can be stopped mid-sentence."""
-    def __init__(self):
-        self.p = None
-    def busy(self):
-        return self.p is not None and self.p.poll() is None
-    def say(self, text):
-        import subprocess, base64
-        self.stop()
-        ps = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'WindowsPowerShell',
-                          'v1.0', 'powershell.exe')
-        if not os.path.exists(ps): ps = 'powershell'
-        env = clean_env(); env['WINGMAN_VOICE'] = str(load_settings().get('voice_name') or '')
-        self.p = subprocess.Popen([ps, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-                                   '-EncodedCommand', base64.b64encode(VOICE_PS.encode('utf-16-le')).decode('ascii')],
-                                  stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                  creationflags=0x08000000, env=env)
-        # a sentence a line, so a stop lands between sentences at worst
-        parts = [x.strip() for x in re.split(r'(?<=[.!?])\s+|\n+', text) if x.strip()]
-        try:
-            self.p.stdin.write(('\n'.join(parts) + '\n').encode('ascii', 'replace')); self.p.stdin.close()
-        except Exception as e:
-            log('ai voice: %r' % (e,))
-    def stop(self):
-        p_, self.p = self.p, None
-        if p_ is not None and p_.poll() is None:
-            try: p_.kill()
-            except Exception: pass
-
-ADVICE_VOICE = AdviceVoice()
+    t = re.sub(r'\bTC\b', 'T C', t)
+    return re.sub(r'\s*\(', ', ', t).replace(')', '')
 
 class Voice:
-    """Reads lines out one after another, in order, never cutting one off. One quiet PowerShell for
-    the whole session; it comes back by itself if it ever stops."""
-    VOICE_LOG = os.path.join(GAMES if os.path.isdir(GAMES) else tempfile.gettempdir(), 'wingman_voice.log')
+    """Says one line at a time. A new line cuts off the one before, so it never falls behind."""
     def __init__(self):
-        import queue
         self.p = None
-        self.q = queue.Queue()
-        self.worker = None
         self.lock = threading.Lock()
     def _start(self):
         import subprocess, base64
@@ -944,64 +526,29 @@ class Voice:
                           'v1.0', 'powershell.exe')
         if not os.path.exists(ps): ps = 'powershell'
         enc = base64.b64encode(VOICE_PS.encode('utf-16-le')).decode('ascii')
-        env = clean_env(); env['WINGMAN_VOICE'] = str(load_settings().get('voice_name') or '')
-        try:
-            if getattr(self, 'err', None): self.err.close()
-        except Exception: pass
-        try:
-            mode_ = 'a' if os.path.exists(self.VOICE_LOG) and os.path.getsize(self.VOICE_LOG) < 200000 else 'w'
-            err = self.err = open(self.VOICE_LOG, mode_, encoding='utf-8')
-        except OSError: err = subprocess.DEVNULL
         self.p = subprocess.Popen([ps, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
                                    '-EncodedCommand', enc], stdin=subprocess.PIPE,
-                                  stdout=subprocess.DEVNULL, stderr=err,
-                                  creationflags=0x08000000, env=env)
-        log('voice: started')
-    def _run(self):
-        while True:
-            line = self.q.get()
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  creationflags=0x08000000, env=clean_env())
+    def _send(self, line):
+        with self.lock:
             for _ in range(2):
                 try:
                     if self.p is None or self.p.poll() is not None: self._start()
-                    if line is not None:
-                        self.p.stdin.write((line + '\n').encode('ascii', 'replace')); self.p.stdin.flush()
-                    break
+                    if line is None: return                    # just warming up
+                    self.p.stdin.write((line + '\n').encode('ascii', 'replace'))
+                    self.p.stdin.flush()
+                    return
                 except Exception as e:
                     log('voice: %r' % (e,)); self.p = None
-    def _put(self, line):
-        with self.lock:                                # one reader for the queue, never two talking at once
-            if self.worker is None or not self.worker.is_alive():
-                self.worker = threading.Thread(target=self._run, daemon=True); self.worker.start()
-        self.q.put(line)
     def say(self, text):
         line = re.sub(r'\s+', ' ', str(text or '')).strip()
-        if line: self._put(line)
+        threading.Thread(target=self._send, args=(line,), daemon=True).start()
     def warm(self):
         """Start the speech engine ahead of time, so the first line is not late."""
-        self._put(None)
-    def prep(self, text):
-        """Have a line spoken into memory ahead of time, so when it is said it plays at once."""
-        line = re.sub(r'\s+', ' ', str(text or '')).strip()
-        if line: self._put('#prep:' + line)
+        threading.Thread(target=self._send, args=(None,), daemon=True).start()
     def stop(self):
-        pass                                   # lines are short; the one being read just finishes
-    def set_voice(self, name):
-        self._put('#voice:' + (name or ''))
-    def voices(self, wait=8.0):
-        """[(name, language)] of the voices this PC has, or [] if they could not be read."""
-        path = os.path.join(tempfile.gettempdir(), 'wingman_voices.txt')
-        try: os.remove(path)
-        except OSError: pass
-        self._put('#list:' + path)
-        end = time.time() + wait
-        while time.time() < end:
-            time.sleep(0.2)
-            try:
-                rows = [l_.strip().lstrip('\ufeff') for l_ in open(path, encoding='utf-8-sig') if '|' in l_]
-                if rows: return [tuple(r_.split('|', 1)) for r_ in rows]
-            except OSError:
-                continue
-        return []
+        if self.p is not None: self.say('')
 
 VOICE = Voice()
 
@@ -1102,32 +649,6 @@ def _replay_entries():
             continue
     return out
 
-TIDY_DAYS = 90
-TIDY_DIR = 'Older recordings'
-
-def recordings_count(days=TIDY_DAYS):
-    """(all recorded games, ones older than `days`) across your profiles' savegame folders."""
-    cut = time.time() - days * 86400
-    ent = _replay_entries()
-    return len(ent), sum(1 for _p, t in ent if t < cut)
-
-def tidy_recordings(days=TIDY_DAYS):
-    """Move recorded games older than `days` into a subfolder of the same savegame folder. Nothing is
-    deleted: they are a folder away, and the game's list and Wingman's look-ups stay quick."""
-    cut = time.time() - days * 86400
-    moved = 0
-    for path_, t in _replay_entries():
-        if t >= cut: continue
-        dest = os.path.join(os.path.dirname(path_), TIDY_DIR)
-        try:
-            os.makedirs(dest, exist_ok=True)
-            target = os.path.join(dest, os.path.basename(path_))
-            if not os.path.exists(target): shutil.move(path_, target); moved += 1
-        except OSError as e:
-            log('tidy recordings: %r' % (e,))
-    log('moved %d old recordings aside' % moved)
-    return moved
-
 LIVE = {'path': None, 'size': -1, 't': 0.0}       # the newest recording, its size, and when that last changed
 
 def newest_replay():
@@ -1219,8 +740,6 @@ class _Eval:
         self.herd_groups = []        # sizes of the herds you have to go and find (one 'found' message each)
         self.cur = ''
         self.depth = 0
-        self.circle = None           # (radius %, spread %) the script places player lands at
-        self.in_pl = False
 
     def val(self, toks, i):                       # read a number / const / (expression) / rnd(a,b)
         t = toks[i]
@@ -1285,15 +804,6 @@ class _Eval:
                 self.defs.discard(toks[i + 1]); i += 2; continue
             if tl == '#const':
                 name = toks[i + 1]; v, i = self.val(toks, i + 2); self.consts[name] = v; continue
-            if tl == 'create_player_lands':
-                self.in_pl = True; i += 1; continue
-            if self.in_pl and t == '}':
-                self.in_pl = False; i += 1; continue
-            if self.in_pl and tl == 'circle_radius':
-                r_, i = self.val(toks, i + 1)
-                sp_ = 0
-                if i < n and re.match(r'^(\(|rnd\(|-?[0-9])', toks[i]): sp_, i = self.val(toks, i)
-                self.circle = (r_, sp_); continue
             if tl == 'create_object':
                 nm = toks[i + 1]
                 obj = dict(name=nm, oid=self.consts.get(nm), n=1, groups=None, pscale=False, mscale=False, gaia=False, every=False, maxd=None, file=self.cur)
@@ -1327,23 +837,6 @@ class _Eval:
             i += 1
         self.depth -= 1
         self.cur = prev_file
-
-def circle_facts(inst, script, size, players):
-    """How far from the middle the map script puts each player: (low %, high %, spread %) from its
-    circle_radius, or None when it doesn't say. Spread 0 means every player is the same distance out."""
-    import random
-    if not (inst and script and size): return None
-    folder = os.path.join(inst, 'resources', '_common', 'drs', 'gamedata_x2')
-    path = os.path.join(folder, script)
-    if rms_tokens(path) is None: return None
-    rads, spread = [], 0
-    for k in range(12):
-        e = _Eval(folder, size, max(1, players), random.Random(k))
-        e.run(os.path.join(folder, 'random_map.def'))
-        e.run(path)
-        if not e.circle: return None
-        rads.append(float(e.circle[0])); spread = max(spread, float(e.circle[1] or 0))
-    return (min(rads), max(rads), spread)
 
 def script_facts(inst, script, size, players):
     """Relics and your starting herd, worked out from the map script. Values are (min, max) or None."""
@@ -1388,7 +881,7 @@ def map_text(maps, strings, sel, res, size=None, players=2):
     except Exception: facts = dict(relics=None, herd_start=None, herd_total=None, herd_owned=None)
     rc = facts.get('relics')
     if rc == 'varies': first += '   \u00b7   Relics vary'
-    elif rc and rc[1]: first += '   \u00b7   Relics %s' % (rc[0] if rc[0] == rc[1] else '%d-%d' % rc)   # none: no chip
+    elif rc: first += '   \u00b7   Relics %s' % (rc[0] if rc[0] == rc[1] else '%d-%d' % rc)
     herd = None
     if facts.get('herd_total'):
         hm = HERD_WORD.search(first)
@@ -1398,49 +891,6 @@ def map_text(maps, strings, sel, res, size=None, players=2):
                         group=facts.get('herd_group') or 2,
                         span=hm.span() if hm else None, word=hm.group(1) if hm else 'Herd')
     return name, first, herd
-
-# The hunt comes in many skins from map to map. For reading at a glance they are two things: what runs
-# away (deer) and what fights back (boar). Herdables (sheep, cows and the rest) are left exactly as they are.
-HUNT_KIND = {}
-for _w in ('deer', 'zebra', 'zebras', 'ostrich', 'ostriches', 'ibex', 'gazelle', 'gazelles', 'chicken',
-           'chickens', 'wild camel', 'wild camels', 'camel', 'camels'):
-    HUNT_KIND[_w] = 'Deer'
-for _w in ('boar', 'boars', 'wild boar', 'javelina', 'javelinas', 'elephant', 'elephants', 'wild elephant',
-           'wild elephants', 'rhino', 'rhinos', 'rhinoceros', 'rhinoceroses', 'hippo', 'hippos',
-           'hippopotamus'):
-    HUNT_KIND[_w] = 'Boar'
-
-def _hunt_bit(t):
-    """('Deer', lo, hi) for 'Zebra 3-4' or '4 Ostriches', else None."""
-    t = t.strip()
-    m = re.fullmatch(r'([A-Za-z][A-Za-z ]*?)\s+(\d+)(?:\s*-\s*(\d+))?', t)
-    if m: name, lo, hi = m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))
-    else:
-        m = re.fullmatch(r'(\d+)(?:\s*-\s*(\d+))?\s+([A-Za-z][A-Za-z ]*)', t)
-        if not m: return None
-        name, lo, hi = m.group(3), int(m.group(1)), int(m.group(2) or m.group(1))
-    kind = HUNT_KIND.get(name.strip().lower())
-    return (kind, lo, hi) if kind else None
-
-def merge_hunt(chips):
-    """'Chickens 6-8 OR Deer 3-4' -> 'Deer 3-8'; 'Deer 2', 'Zebra 2' -> 'Deer 4'. Anything that is
-    not deer or boar like (sheep, cows, relics...) comes back untouched, in its place."""
-    out, at = [], {}
-    def span(lo, hi): return '%d' % lo if lo == hi else '%d-%d' % (lo, hi)
-    for ch in chips:
-        alts = [a_.strip() for a_ in re.split(r'\s+OR\s+', ch)]
-        got = [_hunt_bit(a_) for a_ in alts]
-        if not all(got) or len({g[0] for g in got}) != 1:
-            out.append(ch); continue
-        kind = got[0][0]; lo = min(g[1] for g in got); hi = max(g[2] for g in got)
-        num_first = alts[0][:1].isdigit()                # keep '4 Boar' or 'Boar 4', whichever it was
-        fmt = (lambda k_, sp: '%s %s' % (sp, k_)) if num_first else (lambda k_, sp: '%s %s' % (k_, sp))
-        if kind in at:                                   # a second lot of the same kind: add them up
-            k_, plo, phi, f_ = at[kind]
-            at[kind] = (k_, plo + lo, phi + hi, f_); out[k_] = f_(kind, span(plo + lo, phi + hi))
-        else:
-            at[kind] = (len(out), lo, hi, fmt); out.append(fmt(kind, span(lo, hi)))
-    return out
 
 def herd_count(herd, notices):
     """The game shows one 'Sheep Found' message per herd found, not per animal. The first one is the
@@ -1858,15 +1308,12 @@ class TCWatcher(threading.Thread):
             self.t0 = started if started and 0 < started <= now else now
             self.clock, self.clock_t, self.speed = None, 0, 1.7
             self.food = self.food_last = None; self.food_t = 0
-            self.debugged = set(); self.clock_miss = 0; self.food_miss = 0
         self.set('off')
 
     def needs_house(self, mins, now):
         """Warn before you get housed: how close to the limit depends on how far into the game you are."""
         if not self.pop: return False
-        if now - getattr(self, 'cfg_t', 0) > 5:
-            self.cfg_c, self.cfg_t = load_settings(), now
-        cfg = self.cfg_c
+        cfg = load_settings()
         room = house_room(mins, self.pop[1], cfg)
         grace = cfg.get('house_grace', HOUSE_GRACE_MIN)
         return (self.pop[1] < 200 and self.pop[1] - self.pop[0] <= room
@@ -1921,7 +1368,7 @@ class TCWatcher(threading.Thread):
         except Exception as e:
             log('pop / clock reading off: %r' % (e,)); return
         while True:
-            time.sleep(0.3)                  # quick: the build order moves the moment a villager starts
+            time.sleep(0.7)
             r = getattr(self, 'rect', None)
             # The pop counter is read whenever the game is in front, game seen or not: the build order
             # follows it, and that should not hang on the recording being found and read.
@@ -1933,18 +1380,11 @@ class TCWatcher(threading.Thread):
                          box=(int(x + w / 2.0 - 20 * s), int(y + 51 * s), int(320 * s), int(60 * s)))
                 p = self.read_pop(read, grab, a)
                 if p and self.pop_ok(p):
-                    # one more villager than last time, same cap: that is the next one starting, take
-                    # it at once. Anything else has to read the same twice running first.
-                    step_up = bool(self.pop) and p[0] == self.pop[0] + 1 and p[1] == self.pop[1]
-                    if p == self.pop_last or step_up:
+                    if p == self.pop_last:                       # the same reading twice running
                         if p != self.pop and (self.pop is None or abs(p[0] - self.pop[0]) > 0):
                             if not getattr(self, 'pop_logged', 0) or now - self.pop_logged > 60:
                                 self.pop_logged = now; log('pop %d/%d' % p)
-                        changed_ = p != self.pop
                         self.pop = p; self.pop_t = now
-                        if changed_ and getattr(self, 'on_pop', None):
-                            try: self.on_pop()
-                            except Exception: pass
                     self.pop_last = p
                 if not self.active: continue                     # the rest is for a game we know about
                 if now - self.clock_t > 3:
@@ -1969,34 +1409,13 @@ class TCWatcher(threading.Thread):
             except Exception as e:
                 log('pop / clock read: %r' % (e,)); time.sleep(2)
 
-    def debug_band(self, name, shot, lines):
-        """Once a game for each kind: keep the picture that would not read, and what was read off it,
-        so the reading can be tuned to what is really on your screen."""
-        done = getattr(self, 'debugged', None)
-        if done is None: done = self.debugged = set()
-        if name in done: return
-        done.add(name)
-        try:
-            from PIL import Image
-            buf, gw, gh = shot
-            os.makedirs(TC_DEBUG, exist_ok=True)
-            Image.frombuffer('RGBA', (gw, gh), buf, 'raw', 'BGRA', 0, 1).convert('RGB').save(
-                os.path.join(TC_DEBUG, '%s_%s.png' % (name, time.strftime('%H%M%S'))))
-            log('%s did not read: %s' % (name, ' | '.join(str(l_) for l_ in lines)[:200] or 'nothing'))
-        except Exception as e:
-            log('debug band %s: %r' % (name, e))
-
     def read_clock(self, read, grab, x, y, w, s):
         """In-game seconds off the game timer ('00:02:19 (Fast - 2.0)') under the resource bar."""
         cx = x + w / 2.0
         k = 2 if s < 0.7 else 1
-        shot = grab((int(cx - 450 * s), int(y + 240 * s), int(900 * s), int(80 * s), k))
-        lines = read(*shot)
-        for t in lines:
+        for t in read(*grab((int(cx - 450 * s), int(y + 240 * s), int(900 * s), int(80 * s), k))):
             m = re.search(r'(\d{1,2})\s*[:.]\s*(\d{2})\s*[:.]\s*(\d{2})', t)
             if m: return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
-        self.clock_miss = getattr(self, 'clock_miss', 0) + 1
-        if self.clock_miss == 20: self.debug_band('clock', shot, lines)
         return None
 
     def timer_stopped(self):
@@ -2033,18 +1452,14 @@ class TCWatcher(threading.Thread):
         k = 3 if s < 0.7 else 2
         band = (int(px - (SPAN + 80) * s), int(cy - 34 * s), int((SPAN + 60) * s), int(68 * s), k)
         nums = []
-        shot = grab(band)
-        got = read(*shot, words=True)
-        for _, ws in got:
+        for _, ws in read(*grab(band), words=True):
             for t, wx, wy, ww, wh in ws:
                 t = t.replace('O', '0').replace('o', '0').replace(',', '')
                 if re.fullmatch(r'\d{1,6}', t): nums.append((wx, wh, int(t)))
-        tall = max([h for _, h, _ in nums] or [0])
+        if not nums: return None
+        tall = max(h for _, h, _ in nums)
         big = sorted((x_, v) for x_, h, v in nums if h >= 0.7 * tall)
-        if len(big) >= 4: return big[1][1]
-        self.food_miss = getattr(self, 'food_miss', 0) + 1
-        if self.food_miss == 5: self.debug_band('food', shot, [t for t, _ in got])
-        return None
+        return big[1][1] if len(big) >= 4 else None
 
     def read_pop(self, read, grab, a):
         bx, by, bw, bh = a['box']
@@ -2060,16 +1475,13 @@ class TCWatcher(threading.Thread):
             ok = ensure_pillow() and ensure_numpy()
         except Exception as e:
             log('idle TC alert off: %r' % (e,)); return
-        try:
-            from PIL import Image
-        except Exception as e:
-            log('idle TC alert and pop reading off, no Pillow: %r' % (e,)); return
+        from PIL import Image
         ctypes, wintypes, u, _ = _win()
         threading.Thread(target=self.slow_loop, daemon=True).start()
         last_shot = 0
         last_fg = 0
         while True:
-            time.sleep(0.08)                       # as fast as before: an idle TC alert is only useful if it is quick
+            time.sleep(0.08)
             now_ = time.time()
             if now_ - last_fg > 0.8:                     # where the game is, for the pop reader, game seen or not
                 last_fg = now_
@@ -2185,42 +1597,6 @@ def minimap_colours():
         if isinstance(c, list) and len(c) >= 3:
             out[i] = (int(c[0]), int(c[1]), int(c[2]))
     return out
-
-def minimap_gold_diamond(bgr, np):
-    """The minimap's diamond from its gold edge line: (cx, cy, a, b, score) inside the grab, or None.
-    Each edge is a straight line, so for the right slope the gold pixels pile up on just two
-    values of x - y/q (one pair of sides) and two of x + y/q (the other pair). The frame's
-    straight lines and corner bits don't pile up, so they can't fool it. Works on any map,
-    explored or not, All Visible included."""
-    B, G, R = bgr[:, :, 0], bgr[:, :, 1], bgr[:, :, 2]
-    # gold or bright yellow (the frame's colour changes with the game's UI): warm, bright, not white
-    gold = (R >= 180) & (G >= 130) & (B <= 140) & (R - B >= 90) & (G - R <= 10) & (R - G <= 75)
-    ys, xs = np.nonzero(gold)
-    gh, gw = gold.shape
-    if len(xs) < 150: return None
-    xs = xs.astype(np.float64); ys = ys.astype(np.float64)
-    def peaks(vals):
-        lo = int(vals.min()) - 2; n = int(vals.max()) - lo + 4
-        h = np.bincount(np.clip((vals - lo).astype(np.int64), 0, n - 1), minlength=n).astype(np.float64)
-        h = h[:-1] + h[1:]                       # two-pixel bins: the line is a few pixels thick
-        i1 = int(h.argmax()); h2 = h.copy()
-        sep = int(gw * 0.3)
-        h2[max(0, i1 - sep):i1 + sep] = 0
-        i2 = int(h2.argmax())
-        return min(i1, i2) + lo + 1.0, max(i1, i2) + lo + 1.0, min(h[i1], h[i2])
-    best = None
-    for q in np.arange(0.44, 0.62, 0.005):
-        u1, u2, su = peaks(xs - ys / q)
-        v1, v2, sv = peaks(xs + ys / q)
-        a1, a2 = (u2 - u1) / 2.0, (v2 - v1) / 2.0
-        if abs(a1 - a2) > 6: continue
-        a = (a1 + a2) / 2.0
-        if not (gw * 0.2 < a < gw * 0.6): continue
-        sc = min(su, sv) / a                      # gold pixels per pixel of edge, on the weakest side
-        if best is None or sc > best[4]:
-            pp, mm = (u1 + u2) / 2.0, (v1 + v2) / 2.0
-            best = ((pp + mm) / 2.0, (mm - pp) / 2.0 * q, a, a * q, sc)
-    return best
 
 def _align(a):
     """'BottomCentre' -> ('Bottom', 'Centre'). The vertical word comes first."""
@@ -2432,23 +1808,12 @@ class ScoreWatcher(threading.Thread):
 SETTINGS = os.path.join(os.environ.get('APPDATA', HOME), 'AoE2MapOverlay', 'settings.json')
 
 def load_settings():
-    try:
-        with open(SETTINGS, encoding='utf-8') as fh: return json.load(fh)
+    try: return json.load(open(SETTINGS, encoding='utf-8'))
     except Exception: return {'webhook': '', 'friends': [], 'channel': 'wesley'}
 
-_SAVE_LOCK = threading.Lock()
-
 def save_settings(cfg):
-    """Written to a new file that then takes the old one's place, so a read at the same moment
-    never sees half a file (which used to fall back to the defaults)."""
     os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
-    with _SAVE_LOCK:
-        tmp = SETTINGS + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as fh: json.dump(cfg, fh, indent=2)
-        for i in range(5):
-            try: os.replace(tmp, SETTINGS); return
-            except PermissionError: time.sleep(0.05 * (i + 1))   # someone reading it right now
-        os.replace(tmp, SETTINGS)
+    json.dump(cfg, open(SETTINGS, 'w', encoding='utf-8'), indent=2)
 
 STATS = os.path.join(os.path.dirname(SETTINGS), 'stats.json')
 PIDFILE = os.path.join(os.path.dirname(SETTINGS), 'overlay.pid')
@@ -3037,64 +2402,15 @@ def ver_num(v):
     m = re.search(r'(\d+)', str(v or ''))
     return int(m.group(1)) if m else 0
 
-def _cert_trouble(e):
-    """A web request failed because Python couldn't check the site's certificate, as opposed to the
-    site being down. Windows itself can usually still get there (it fetches missing certificate
-    authorities on its own; Python can't)."""
-    import ssl
-    while e is not None:
-        if isinstance(e, ssl.SSLError) or 'CERTIFICATE_VERIFY_FAILED' in str(e): return True
-        e = getattr(e, 'reason', None) if not isinstance(e, ssl.SSLError) else None
-    return False
-
-def web_fetch(url, headers=None, timeout=20, method=None, to_file=None):
-    """GET (or HEAD) a web address: (final address after redirects, body bytes or None). Python's own
-    connection first; if that fails on the certificate, Windows' own web stack through PowerShell."""
-    import urllib.request
-    hdr = dict(headers or {}); hdr.setdefault('User-Agent', 'AoE2-Wingman')
-    try:
-        r = urllib.request.urlopen(urllib.request.Request(url, headers=hdr, method=method), timeout=timeout)
-        if to_file:
-            with open(to_file, 'wb') as fh: shutil.copyfileobj(r, fh)
-            return r.geturl(), None
-        return r.geturl(), (r.read() if method != 'HEAD' else b'')
-    except Exception as e:
-        if not _cert_trouble(e) or os.name != 'nt': raise
-        log('web: certificate check failed for %s, using Windows instead' % url.split('?')[0])
-    import subprocess, base64
-    out = to_file or os.path.join(tempfile.gettempdir(), 'wingman_web_%d.tmp' % os.getpid())
-    ps = ("$ProgressPreference='SilentlyContinue'\n"
-          "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12\n"
-          "$h=@{}; ($env:WM_HDR | ConvertFrom-Json).PSObject.Properties | % { $h[$_.Name]=$_.Value }\n"
-          "try {\n"
-          "  if ($env:WM_METHOD -eq 'HEAD') { $r=Invoke-WebRequest -UseBasicParsing -Uri $env:WM_URL -Headers $h -Method Head }\n"
-          "  else { $r=Invoke-WebRequest -UseBasicParsing -Uri $env:WM_URL -Headers $h -OutFile $env:WM_OUT -PassThru }\n"
-          "  Write-Output ('URL:' + $r.BaseResponse.ResponseUri.AbsoluteUri)\n"
-          "} catch { Write-Output ('ERR:' + $_.Exception.Message); exit 1 }\n")
-    env = clean_env(); env.update(WM_URL=url, WM_OUT=out, WM_METHOD=method or 'GET', WM_HDR=json.dumps(hdr))
-    exe = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-    p = subprocess.run([exe if os.path.exists(exe) else 'powershell', '-NoProfile', '-NonInteractive',
-                        '-ExecutionPolicy', 'Bypass', '-EncodedCommand', base64.b64encode(ps.encode('utf-16-le')).decode()],
-                       capture_output=True, text=True, timeout=max(60, timeout * 3), env=env, creationflags=0x08000000)
-    said = (p.stdout or '').strip().splitlines()
-    final = next((l[4:] for l in said if l.startswith('URL:')), None)
-    if p.returncode != 0 or not final:
-        raise RuntimeError('Windows could not fetch it either: %s' % (' '.join(said)[-200:] or p.stderr[-200:]))
-    if to_file or method == 'HEAD': return final, None
-    try:
-        with open(out, 'rb') as fh: body = fh.read()
-    finally:
-        try: os.remove(out)
-        except OSError: pass
-    return final, body
-
 def latest_release(fresh=False):
     """The newest public release: {'ver': 'v115', 'exe': url, 'bat': url, 'page': url}, or None."""
     if not fresh and _REL.get('t', 0) > time.time() - 600: return _REL.get('rel')
     rel = None
-    _REL['err'] = False
     try:
-        got = json.loads(web_fetch(RELEASES_API, {'Accept': 'application/vnd.github+json'}, timeout=15)[1].decode('utf-8'))
+        import urllib.request
+        req = urllib.request.Request(RELEASES_API, headers={'User-Agent': 'AoE2-Wingman',
+                                                            'Accept': 'application/vnd.github+json'})
+        got = json.loads(urllib.request.urlopen(req, timeout=15).read().decode('utf-8'))
         # The newest release that has its Wingman.exe up. Each publish makes the release first and
         # the exe lands a couple of minutes later, so the very newest one can still be empty.
         best = None
@@ -3111,13 +2427,6 @@ def latest_release(fresh=False):
                    'page': d.get('html_url')}
     except Exception as e:
         log('release check: %r' % (e,))
-        # GitHub only answers 60 of these an hour per home connection (lots of restarts in a night of
-        # testing uses that up). The plain release page isn't limited, so ask that instead.
-        try:
-            rel = latest_release_page()
-            if rel: log('release check: from the release page instead: %s' % rel['ver'])
-        except Exception as e2:
-            log('release check (page): %r' % (e2,)); _REL['err'] = True
         if FROZEN and not _REL.get('traced'):           # once: where it broke, to fix the exe build by
             _REL['traced'] = True
             try:
@@ -3127,20 +2436,6 @@ def latest_release(fresh=False):
             except Exception: pass
     _REL.update(t=time.time(), rel=rel)
     return rel
-
-def latest_release_page():
-    """The newest release with its Wingman.exe up, from github.com itself rather than the rate-limited API.
-    releases/latest redirects to the newest tag's page; then check the exe is there yet."""
-    final, _b = web_fetch('https://github.com/%s/releases/latest' % REPO, timeout=15, method='HEAD')
-    tag = final.rstrip('/').rsplit('/', 1)[-1]
-    if not ver_num(tag): return None
-    exe = 'https://github.com/%s/releases/download/%s/Wingman.exe' % (REPO, tag)
-    try:
-        web_fetch(exe, timeout=15, method='HEAD')
-    except Exception:
-        return None                                         # the release is there, the exe isn't yet
-    return {'ver': 'v%d' % ver_num(tag), 'tag': tag, 'exe': exe, 'bat': None,
-            'page': 'https://github.com/%s/releases/tag/%s' % (REPO, tag)}
 
 def newer_release():
     """The release if it is newer than this copy, else None."""
@@ -3157,7 +2452,9 @@ def update_exe(rel, progress=lambda t: None):
     new = os.path.join(here, 'Wingman.new.exe')
     old = os.path.join(here, 'Wingman.old.exe')
     progress('Downloading %s...' % rel['ver'])
-    web_fetch(rel['exe'], timeout=120, to_file=new)
+    req = urllib.request.Request(rel['exe'], headers={'User-Agent': 'AoE2-Wingman'})
+    with urllib.request.urlopen(req, timeout=120) as r, open(new, 'wb') as fh:
+        shutil.copyfileobj(r, fh)
     with open(new, 'rb') as fh:
         if fh.read(2) != b'MZ' or os.path.getsize(new) < 1000000:
             raise RuntimeError('the download was not a working Wingman.exe')
@@ -3166,89 +2463,9 @@ def update_exe(rel, progress=lambda t: None):
     except OSError:                                    # the last old one is still closing: pick another name
         old = os.path.join(here, 'Wingman.old.%d.exe' % int(time.time()))
     os.replace(me, old)
-    try:
-        os.replace(new, me)
-    except OSError:                                    # could not put the new one in: the old one goes back
-        os.replace(old, me)
-        raise
+    os.replace(new, me)
     log('updated the exe to %s' % rel['ver'])
     return me
-
-def startup_check():
-    """Windows starting an old Wingman: find whatever opens Wingman when Windows starts (a shortcut
-    or file in the Startup folder, or a Run entry in the registry), write down what each points at,
-    and point any that open an older copy at this one. Only the exe does this, and only towards a
-    copy at least as new as the one it points at."""
-    if not FROZEN or os.name != 'nt': return
-    import subprocess, base64
-    me = os.path.normcase(os.path.abspath(sys.executable))
-    def newer_or_same(target):
-        try: return os.path.getmtime(me) >= os.path.getmtime(target) - 60
-        except OSError: return True                       # it points at nothing: ours is better
-    def ps(script, **envs):
-        env = clean_env(); env.update({k: str(v) for k, v in envs.items()})
-        exe = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-        r = subprocess.run([exe if os.path.exists(exe) else 'powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy',
-                            'Bypass', '-EncodedCommand', base64.b64encode(script.encode('utf-16-le')).decode()],
-                           capture_output=True, text=True, timeout=30, env=env, creationflags=0x08000000)
-        return (r.stdout or '').strip()
-    look = re.compile(r'wingman|map.?overlay', re.I)
-    found = 0
-    try:                                                  # the Startup folder
-        sf = os.path.join(os.environ.get('APPDATA', ''), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
-        for n in (os.listdir(sf) if os.path.isdir(sf) else []):
-            if not look.search(n) or n.endswith('.off'): continue
-            path = os.path.join(sf, n); found += 1
-            if n.lower().endswith('.lnk'):
-                tgt = ps("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:WM_LNK); $s.TargetPath", WM_LNK=path)
-                log('startup: shortcut %s opens %s' % (n, tgt or '?'))
-                if tgt and os.path.normcase(os.path.abspath(tgt)) != me and newer_or_same(tgt):
-                    ps("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:WM_LNK); $s.TargetPath=$env:WM_EXE;"
-                       " $s.WorkingDirectory=$env:WM_DIR; $s.Arguments=''; $s.Save()",
-                       WM_LNK=path, WM_EXE=sys.executable, WM_DIR=os.path.dirname(sys.executable))
-                    log('startup: pointed %s at %s' % (n, sys.executable))
-            else:
-                # a .bat or other file straight in the folder: an old copy of the app itself. Put it
-                # aside (renamed, not deleted) and start this one instead.
-                log('startup: %s sits in the Startup folder itself; switching it for a shortcut to %s' % (n, sys.executable))
-                os.replace(path, path + '.off')
-                ps("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:WM_LNK); $s.TargetPath=$env:WM_EXE;"
-                   " $s.WorkingDirectory=$env:WM_DIR; $s.Save()",
-                   WM_LNK=os.path.join(sf, 'Wingman.lnk'), WM_EXE=sys.executable, WM_DIR=os.path.dirname(sys.executable))
-    except Exception as e:
-        log('startup folder: %r' % (e,))
-    try:                                                  # the registry's Run lists
-        import winreg
-        RUN = r'Software\Microsoft\Windows\CurrentVersion\Run'
-        for hive, hn in ((winreg.HKEY_CURRENT_USER, 'HKCU'), (winreg.HKEY_LOCAL_MACHINE, 'HKLM')):
-            try: key = winreg.OpenKey(hive, RUN, 0, winreg.KEY_READ)
-            except OSError: continue
-            items = []
-            i = 0
-            while True:
-                try: items.append(winreg.EnumValue(key, i)); i += 1
-                except OSError: break
-            winreg.CloseKey(key)
-            for name, data, kind in items:
-                if not (look.search(name) or look.search(str(data))): continue
-                found += 1
-                log('startup: %s Run "%s" = %s' % (hn, name, data))
-                m_ = re.match(r'\s*"([^"]+)"|\s*(\S+)', str(data))
-                tgt = (m_.group(1) or m_.group(2)) if m_ else ''
-                if hn == 'HKCU' and tgt and os.path.normcase(os.path.abspath(tgt)) != me and newer_or_same(tgt):
-                    with winreg.OpenKey(hive, RUN, 0, winreg.KEY_SET_VALUE) as k2:
-                        winreg.SetValueEx(k2, name, 0, winreg.REG_SZ, '"%s"' % sys.executable)
-                    log('startup: pointed Run "%s" at %s' % (name, sys.executable))
-    except Exception as e:
-        log('startup registry: %r' % (e,))
-    try:                                                  # scheduled tasks: just say what's there
-        out = ps("Get-ScheduledTask | ? { $_.TaskName -match 'wingman|overlay' -or ($_.Actions | ? { $_.Execute -match 'wingman|overlay' }) } |"
-                 " % { $_.TaskName + ' -> ' + (($_.Actions | % { $_.Execute + ' ' + $_.Arguments }) -join '; ') }")
-        for l in out.splitlines():
-            found += 1; log('startup: scheduled task %s' % l)
-    except Exception as e:
-        log('startup tasks: %r' % (e,))
-    if not found: log('startup: nothing opens Wingman when Windows starts')
 
 def clear_old_exe():
     """Tidy away the exe this one replaced. The old copy is usually still closing when the new one
@@ -3682,23 +2899,11 @@ def relaunch_as_admin(resume=''):
         w = os.path.join(os.path.dirname(exe), 'pythonw.exe')
         if os.path.isfile(w): exe = w
         args = '-x "%s" --wait-turn' % self_path() + (' --resume %s' % resume if resume else '')
-    old_env = None
-    if FROZEN:
-        # The new copy picks up this one's environment. Left as it is, it would run out of this copy's
-        # temp folder, and this one could not clear that folder when it closes ('Failed to remove
-        # temporary directory'). We are about to close anyway, so clean our own environment first.
-        # (Worked out before clearing, or there would be nothing left to clean; put back if you say no.)
-        old_env, new_env = dict(os.environ), clean_env()
-        os.environ.clear(); os.environ.update(new_env)
-        try: ctypes.windll.kernel32.SetDllDirectoryW(None)
-        except Exception: pass
     se = ctypes.windll.shell32.ShellExecuteW
     se.restype = ctypes.c_void_p
     se.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_int]
     r = se(None, 'runas', exe, args, os.path.dirname(self_path()), 1) or 0
     log('restart as admin: %s' % ('ok' if r > 32 else 'declined or failed (%d)' % r))
-    if r <= 32 and old_env is not None:                  # staying: our own environment back as it was
-        os.environ.clear(); os.environ.update(old_env)
     return r > 32
 
 ADMIN_MSG = ("The game runs as administrator, so Windows won't let Wingman click it. "
@@ -3866,19 +3071,6 @@ def ensure_pkg(mod, pip_name=None, why=''):
 
 class LiveFail(Exception): pass
 
-LIVE_CANCEL = threading.Event()          # set when Go Live gives up, so a slow Discord step stops clicking
-
-def front_is(names):
-    """True if the window in front belongs to a program whose name starts with one of names."""
-    try:
-        ctypes, wintypes, u, _ = _win()
-        fg = u.GetForegroundWindow()
-        pid = wintypes.DWORD(); u.GetWindowThreadProcessId(fg, ctypes.byref(pid))
-        n_ = _proc_name(pid.value).lower()
-        return any(n_.startswith(x) for x in names)
-    except Exception:
-        return False
-
 def _uia_find(auto, root, match, wait=6.0, depth=60):
     """The first control under root that match(control) likes. Discord is a Chromium app: its
     controls only show up to Windows' accessibility once something asks, so the first look can
@@ -3991,9 +3183,6 @@ def _uia_fast_wait(auto, names, wait=4.0):
 def _uia_click(c):
     """A real left click in the middle of the control, for when asking it nicely does nothing."""
     try:
-        # only ever a click on Discord itself: never if Go Live has given up, or the game is in front
-        if LIVE_CANCEL.is_set() or not front_is(('discord',)):
-            log('go live: Discord is not in front, so no click'); return False
         r = c.BoundingRectangle
         if r.right - r.left < 2 or r.bottom - r.top < 2: return False
         x, y = (r.left + r.right) // 2, (r.top + r.bottom) // 2
@@ -4070,47 +3259,15 @@ def discord_channel_link(text):
 def discord_join_channel(auto):
     """Not in a call? Join the voice channel picked in Settings, so there is something to stream to.
     In a call already (Discord shows a Disconnect button), or no channel picked: leave it be."""
-    want = str(load_settings().get('live_channel') or '').strip()
-    if not want: return False
-    link = discord_channel_link(want)
+    link = discord_channel_link(load_settings().get('live_channel'))
+    if not link: return False
     if _uia_fast_wait(auto, ['Disconnect'], wait=1.5):
         log('go live: already in a call, not joining the set channel'); return False
     log('go live: not in a call, joining the set voice channel')
-    if link:
-        try:
-            os.startfile('discord://-/channels/%s/%s' % link)      # Discord opens the channel itself
-        except Exception as e:
-            log('go live, open channel: %r' % (e,)); return False
-    else:
-        # by name: the voice channel in the server list on screen ('Name (voice channel), 2 users')
-        nm = want.lstrip('#').strip().lower()
-        hit = None
-        for c, n in _uia_all(auto):
-            l_ = n.strip().lower()
-            if (l_ == nm or l_.startswith(nm + ' ') or l_.startswith(nm + ',')) and 'voice' in l_:
-                hit = c; break
-        if hit is not None:
-            for fn in (_uia_click, _uia_press):
-                try:
-                    if fn(hit): break
-                except Exception as e:
-                    log('go live, channel click: %r' % (e,))
-        else:
-            # Not on screen (Discord is on your friends list, say): Discord's own quick switcher.
-            # Ctrl+K, then '!' and the name lists only voice channels, and Enter joins the top one.
-            log('go live: "%s" is not on screen, using the quick switcher' % want)
-            try:
-                d_ = find_discord_window()
-                if d_: focus_window(d_); time.sleep(0.2)
-                if LIVE_CANCEL.is_set() or not front_is(('discord',)):
-                    log('go live: Discord did not come to the front, so nothing was typed'); return False
-                tap_combo('CTRL+K'); time.sleep(0.7)
-                if not front_is(('discord',)): return False
-                type_text('!' + want.lstrip('#!').strip()); time.sleep(1.2)
-                if not front_is(('discord',)): return False
-                tap_key(0x0D)
-            except Exception as e:
-                log('go live, quick switcher: %r' % (e,)); return False
+    try:
+        os.startfile('discord://-/channels/%s/%s' % link)          # Discord opens the channel itself
+    except Exception as e:
+        log('go live, open channel: %r' % (e,)); return False
     joined = _uia_fast_wait(auto, ['Disconnect'], wait=3)           # some versions join straight away
     if not joined:
         btn = _uia_fast_wait(auto, ['Join Voice', 'Join Voice Channel', 'Join Call'], wait=6)
@@ -4269,7 +3426,7 @@ def discord_share_game():
     if not cands:
         log('go live: no share button. Names Discord showed: %s' % ' | '.join(_uia_names(auto)[:400]))
         raise LiveFail('no Share Your Screen button in Discord. Join a voice channel or call first'
-                       + ('.' if str(load_settings().get('live_channel') or '').strip()
+                       + ('.' if discord_channel_link(load_settings().get('live_channel'))
                           else ', or pick a channel to join in Settings.'))
     for c in cands:
         try: r = c.BoundingRectangle; where = '%d,%d %dx%d' % (r.left, r.top, r.right - r.left, r.bottom - r.top)
@@ -4426,18 +3583,10 @@ def go_live(cfg, in_game=True, status=lambda t: None, timer=None):
             s_ = load_settings(); s_['live_pause_key'] = c['live_pause_key']; save_settings(s_)
         except Exception: pass
     g = find_game_window()
-    LIVE_CANCEL.clear()
-    def game_front():
-        try: return _win()[2].GetForegroundWindow() == g
-        except Exception: return False
     if in_game:
         if not g: raise LiveFail('the game is not running')
         if game_needs_admin(): raise LiveFail(ADMIN_MSG)
         status('pausing'); focus_window(g); time.sleep(0.3)
-        if not game_front():
-            focus_window(g); time.sleep(0.4)
-            if not game_front():                              # keys only ever go to the game
-                raise LiveFail('the game would not come to the front, so nothing was pressed')
         # the pause key toggles, so pressing it on a paused game would set it going again
         if game_paused(timer):
             log('go live: the game is already paused, so pause was not pressed')
@@ -4453,16 +3602,13 @@ def go_live(cfg, in_game=True, status=lambda t: None, timer=None):
             try: discord_share_game()
             except BaseException as e: box['e'] = e
         th = threading.Thread(target=run_, daemon=True); th.start(); th.join(90)
-        if th.is_alive():
-            LIVE_CANCEL.set()                                 # whatever it was doing, it stops clicking now
-            raise LiveFail('Discord took too long to answer')
+        if th.is_alive(): raise LiveFail('Discord took too long to answer')
         if 'e' in box: raise box['e']
     finally:
         if g and _win()[2].GetForegroundWindow() != g:
             status('back'); time.sleep(0.2); focus_window(g); time.sleep(0.5)
     if in_game:
-        if game_front(): game_chat(c['live_after'])
-        else: log('go live: the game is not in front, so the second chat line was not sent')
+        game_chat(c['live_after'])
 
 STOP = threading.Event()                 # set by the Stop button
 OVERLAY_TOP = [None]                     # the overlay's window, so a click that lands on it can pass through
@@ -4682,8 +3828,6 @@ def name_variants(name):
     if m and _norm2(m.group(1)): out.append(m.group(1))
     return out
 
-BUTTON_WORDS = re.compile(r'(?i)\b(?:i\s*n\s*v\s*i\s*t\s*e|r\s*e\s*t\s*r\s*a\s*c\s*t|c\s*a\s*n\s*c\s*e\s*l)\b')
-
 def name_score(text, name):
     """3 exact, 2 exact after dropping 1-2 junk letters (globe icon, clan tag) or the clan tag, 1 close, 0 no match."""
     t = _norm2(text)
@@ -4798,10 +3942,6 @@ class RankedParty(threading.Thread):
                 if thresh: buf = buf.translate(THRESH)
                 raw = ' '.join(read(buf, ow, oh))
                 txt = ' '.join(t for t in raw.split() if _norm(t) not in (on, off)).strip()
-                # the strip runs through the row's button too: 'Taizi I NVITE' has to come out as
-                # 'Taizi', or the name never matches and the friend is wrongly called offline
-                txt = BUTTON_WORDS.sub(' ', txt).replace('\u2022', ' ').strip(' .,|-')
-                txt = re.sub(r'\s+', ' ', txt)
                 if _norm2(txt): break
             out.append((ry, txt, st_))
         return out
@@ -4942,7 +4082,7 @@ class RankedParty(threading.Thread):
             click(x + sp[0] / k, y + sp[1] / k); time.sleep(0.5)
         # 3) invite each friend who is online: click Invite on the same row as their name
         invited, offline, already, missing = [], [], [], list(friends)
-        seen, same, row_names = None, 0, []
+        seen, same = None, 0
         for page in range(25):
             (x, y, k), lines = self.ocr(read, grab, h)
             log('list page %d: %s' % (page, ' | '.join(t for t, _ in lines)[:500]))
@@ -4958,21 +4098,13 @@ class RankedParty(threading.Thread):
                 if best[0]: p = (0, best[1], 0)
                 if not p:
                     p = find_name(lines, name)             # fall back to the whole-window read
-                    if p:
-                        # only on one of the list's rows, left of its buttons: the same name in your
-                        # party at the side, or anywhere else on screen, says nothing about them
-                        rh_ = rows[0][2] if rows else 30
-                        if not rows or p[0] > col or not any(abs(r[0] - p[1]) < max(p[2] or 0, rh_) * 1.2 for r in rows):
-                            log('%s: name seen at %s, not on a row of the list, so not used' % (name, (int(p[0]), int(p[1]))))
-                            p = None
                 if not p: continue
                 nx, ny, nh = p
                 nh = nh or (rows[0][2] if rows else 30)
                 near = [r for r in rows if abs(r[0] - ny) < nh * 1.2]
                 status = min(near, key=lambda r: abs(r[0] - ny))[1] if near else 'on'
                 missing.remove(name)
-                if status == 'off':
-                    log('%s is on an offline row (y %d)' % (name, int(ny))); offline.append(name); continue
+                if status == 'off': offline.append(name); continue
                 btn = self.button_at(lines, col, ny, nh)
                 if btn.startswith('retr') or btn == _norm(self.l_retract):
                     log('%s already invited (button says %r), leaving it' % (name, btn))
@@ -4997,11 +4129,7 @@ class RankedParty(threading.Thread):
         parts = []
         if invited: parts.append('Invited ' + ', '.join(invited))
         if already: parts.append('already invited: ' + ', '.join(already))
-        if offline: parts.append('offline: ' + ', '.join(offline))
-        if missing:
-            parts.append("couldn't spot " + ', '.join(missing) + ' in the list')
-            log('invite: not found in the list: %s (online rows read: %s)' % (', '.join(missing), ' | '.join(
-                t for _, t, s_ in row_names if s_ == 'on')))
+        if offline or missing: parts.append('not online: ' + ', '.join(offline + missing))
         self.say(('; '.join(parts) or 'Nobody to invite') + '.')
         url = self.cfg.get('webhook', '').strip()
         if url and invited:
@@ -5079,7 +4207,7 @@ class ScoutWatcher(threading.Thread):
     # same spot on a few looks in a row. A scout wandering past is left alone; a house, a camp or a
     # Town Center coming into view is called inside a second or so.
     SEEN = 2               # other colours: the same spot on this many looks in a row (LOOK apart)
-    BUILDING = 12          # pixels for the smallest building, on a minimap 616 wide (scaled to yours);
+    BUILDING = 16          # pixels for the smallest building, on a minimap 616 wide (scaled to yours);
                            # a scout's dot is 4 to 9, so this still leaves scouts alone
     STILL = 3              # how far its middle may drift between looks and still be not moving
     MARKERS = ((254, 0, 0), (255, 255, 1), (255, 0, 0), (255, 255, 0))
@@ -5091,7 +4219,7 @@ class ScoutWatcher(threading.Thread):
     PAD = 0.06             # the slack minimap_rect adds round the map, taken off again here
     BAND, WORDS = 18, 30   # this many pixels of one colour within a strip this tall is a line of writing
     WIDE, TOP = 70, 0.4    # ...or, across the top of the map where the messages run on: this wide, this far down
-    EARLY = 15             # seconds: a building's worth of colour this soon was on the map from the start
+    EARLY = 45             # seconds: a building's worth of colour this soon was on the map from the start
 
     def __init__(self, notify):
         super().__init__(daemon=True)
@@ -5707,7 +4835,6 @@ def civ_text(civ, strings, icons):
             lines.append(b if len(b) <= 80 else b[:79].rstrip() + '\u2026')
     shown = uu_counter(civ, strings, icons)[0]         # its first three counters are on the panel already
     for uu in unique_units(blurb):
-        if uu == shown: continue                       # already on its own line above, with what beats it
         strong, beat, maybe = uu_facts(uu, strings, icons) or ('', [], [])
         more = ((beat[3:] if uu == shown else beat) + maybe)[:3]
         strong = strong.split(';')[0].strip()
@@ -5927,35 +5054,6 @@ def short_opening(label, parts=2, cap=20):
         bits.pop(); out = ' > '.join(bits)
     return out
 
-def fill_openings(me, limit=60):
-    """How you opened in each game on your record ('Scouts > Knights', 'Fast Castle'...), read from
-    your own recordings on this PC with the same reader used for opponents. Kept on the game's row,
-    so each recording is only read once. Returns how many games were filled in."""
-    if not me: return 0
-    with STATS_LOCK:
-        todo = [g.get('id') for g in load_stats()['games'] if 'opening' not in g and g.get('id')][-limit:]
-    if not todo: return 0
-    paths = {os.path.basename(pth): pth for pth, _ in _replay_entries()}
-    found = {}
-    for gid in todo:
-        pth = paths.get(gid)
-        if not pth: found[gid] = ''; continue                 # recording gone: nothing to read
-        try:
-            if time.time() - os.path.getmtime(pth) < 180: continue    # still being written: later
-            with open(pth, 'rb') as fh: raw = fh.read()
-            o = replay_openings(raw).get(str(me))
-            found[gid] = short_opening(o['o']) if o else ''
-        except Exception as e:
-            log('opening for %s: %r' % (gid, e)); found[gid] = ''
-    if found:
-        with STATS_LOCK:
-            d = load_stats()
-            for g in d['games']:
-                if g.get('id') in found: g['opening'] = found[g['id']]
-            save_stats(d)
-        log('your openings: read %d game(s): %s' % (len(found), ', '.join(v for v in found.values() if v)[:300]))
-    return len(found)
-
 def top_openings(rows, n=2):
     """The openings this player uses most, as [(short label, how many times)]. Compound openings
     are counted under their first move too, so 'Scouts' and 'Scouts > Knights' pull together."""
@@ -6040,28 +5138,28 @@ def intel_predict(rows, civ=None):
 # their most common opening from their public games. It answers a habit, not this game: it
 # never knows what they are doing right now.
 OPENING_ANSWERS = [
- ('fc boom', 'punish the greed. Scouts or MAA early, then towers on their wood or gold.'),
- ('fast castle', 'hit them in Feudal. Scouts or MAA, towers, and make them pay for it.'),
- ('fc', 'hit them in Feudal before their Castle units arrive. Pikes or camels if knights come.'),
- ('drush', 'loom before they land, 2 houses by the wood, keep villagers working. Wall if you can.'),
- ('militia', 'loom before they land, keep villagers working. Archers or towers clean them up.'),
- ('maa', 'wall early and wall well. Archers or towers on your wood, skirms if archers follow.'),
- ('tower', 'scout for forward villagers. Loom, pull villagers back, get stone and build your own.'),
- ('scouts', 'spears and walls, or archers with a few spears. Keep villagers close to the TC.'),
- ('cav archer', 'skirms and walls, or your own archers in bigger numbers.'),
- ('archers', 'skirms, or scouts to raid their archers and villagers. Wall your gold.'),
- ('skirm', 'scouts or MAA. Skirms lose to both.'),
- ('eagle', 'militia line or scouts with forging. Towers help. Archers struggle.'),
- ('knight', 'pikes or camels, walls, and a castle of your own if you can.'),
- ('lancer', 'pikes and camels. Archers behind them.'),
- ('elephant', 'monks, pikes or halbs. Do not fight them with cavalry.'),
- ('nothing early', 'they tend to boom. Punish early with scouts or MAA.'),
+ ('fc boom', 'Answer: punish the greed. Scouts or MAA early, then towers on their wood or gold.'),
+ ('fast castle', 'Answer: hit them in Feudal. Scouts or MAA, towers, and make them pay for it.'),
+ ('fc', 'Answer: hit them in Feudal before their Castle units arrive. Pikes or camels if knights come.'),
+ ('drush', 'Answer: loom before they land, 2 houses by the wood, keep villagers working. Wall if you can.'),
+ ('militia', 'Answer: loom before they land, keep villagers working. Archers or towers clean them up.'),
+ ('maa', 'Answer: wall early and wall well. Archers or towers on your wood, skirms if archers follow.'),
+ ('tower', 'Answer: scout for forward villagers. Loom, pull villagers back, get stone and build your own.'),
+ ('scouts', 'Answer: spears and walls, or archers with a few spears. Keep villagers close to the TC.'),
+ ('cav archer', 'Answer: skirms and walls, or your own archers in bigger numbers.'),
+ ('archers', 'Answer: skirms, or scouts to raid their archers and villagers. Wall your gold.'),
+ ('skirm', 'Answer: scouts or MAA. Skirms lose to both.'),
+ ('eagle', 'Answer: militia line or scouts with forging. Towers help. Archers struggle.'),
+ ('knight', 'Answer: pikes or camels, walls, and a castle of your own if you can.'),
+ ('lancer', 'Answer: pikes and camels. Archers behind them.'),
+ ('elephant', 'Answer: monks, pikes or halbs. Do not fight them with cavalry.'),
+ ('nothing early', 'Answer: they tend to boom. Punish early with scouts or MAA.'),
 ]
 
 def opening_answer(opening):
     o = (opening or '').lower()
     for key, text in OPENING_ANSWERS:
-        if o.startswith(key) or (' ' + key) in (' ' + o): return text[:1].upper() + text[1:]
+        if o.startswith(key) or (' ' + key) in (' ' + o): return text
     return None
 
 def mmss(sec):
@@ -6239,9 +5337,7 @@ class LoadWatcher(threading.Thread):
             log('loading screen watch off: %r' % (e,)); return
         ctypes, wintypes, u, _ = _win()
         while True:
-            # quick off the mark at the menu, quicker to clear; in a game there is no loading screen
-            # to catch, only the end screen (checked every few seconds), so it looks far less often
-            time.sleep(0.18 if self.showing else (1.2 if self.in_game() else 0.35))
+            time.sleep(0.18 if self.showing else 0.35)         # quick off the mark, quicker to clear
             if self.pause: continue
             try:
                 fg = u.GetForegroundWindow()
@@ -6390,57 +5486,21 @@ def live_pill(parent, bg):
         def __init__(self):
             tk.Canvas.__init__(self, parent, bg=bg, highlightthickness=0, bd=0, cursor='hand2', height=self.H)
             self.font = tkfont.Font(family='Segoe UI', size=7, weight='bold')
-            self.text, self.col, self.solid, self.ink, self.hot = 'GO LIVE', LIVE_RED, False, 'white', False
+            self.text, self.col, self.solid, self.ink, self.hot = 'LIVE', LIVE_RED, False, 'white', False
             self.img = None
-            self.spin_on, self.frames, self.fi, self.img_id = False, [], 0, None
             self.bind('<Enter>', lambda e: self._hover(True), add='+')
             self.bind('<Leave>', lambda e: self._hover(False), add='+')
             self.draw()
         def _hover(self, on):
             self.hot = on; self.draw()
         def set(self, text, col=LIVE_RED, solid=True, ink='white'):
-            self.spin_on = False
             self.text, self.col, self.solid, self.ink = text, col, solid, ink; self.draw()
-        def busy(self):
-            """Working on it: a dark red pill, 'GOING LIVE', and a small spinning ring where the
-            arrow was. The frames are drawn once and then shown in turn."""
-            if self.spin_on: return
-            self.spin_on = True; self.text = 'GOING LIVE'; self.fi = 0
-            self.draw(); self._tick()
-        def _tick(self):
-            if not self.spin_on or not self.frames: return
-            self.fi = (self.fi + 1) % len(self.frames)
-            try:
-                self.itemconfigure(self.img_id, image=self.frames[self.fi])
-                self.after(55, self._tick)
-            except tk.TclError:
-                pass
-        def spin_frames(self, w, h):
-            try:
-                from PIL import Image, ImageDraw, ImageTk
-            except Exception:
-                return []
-            k = 4; out = []
-            fill = _mix(bg, LIVE_RED, 0.30)
-            cx, cy = (self.PAD + self.DOT / 2.0) * k, h * k / 2.0
-            r = (self.DOT / 2.0 + 1.6) * k
-            for n in range(12):
-                im = Image.new('RGB', (w * k, h * k), bg)
-                d = ImageDraw.Draw(im)
-                d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=h * k // 2, fill=fill,
-                                    outline=LIVE_RED, width=int(1.3 * k))
-                d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=_mix(fill, LIVE_RED, 0.55), width=int(1.8 * k))
-                a0 = n * 30
-                d.arc((cx - r, cy - r, cx + r, cy + r), a0, a0 + 120, fill='#ffffff', width=int(1.8 * k))
-                out.append(ImageTk.PhotoImage(im.resize((w, h), Image.LANCZOS)))
-            return out
         def colours(self):
             if self.solid:
                 fill = LIVE_HOT if (self.hot and self.col == LIVE_RED) else self.col
                 return fill, self.ink, self.ink
-            # waiting to be pressed: a red outline with a play arrow, a button rather than a light
-            fill = _mix(bg, self.col, 0.28) if self.hot else bg
-            return fill, self.col, '#f6dcd8' if self.hot else '#e8b4ad'
+            fill = _mix(bg, self.col, 0.55 if self.hot else 0.32)       # a dark red that sits in the panel
+            return fill, self.col, '#f6dcd8'
         def smooth(self, w, h, fill, dot):
             try:
                 from PIL import Image, ImageDraw, ImageTk
@@ -6449,15 +5509,9 @@ def live_pill(parent, bg):
             k = 4
             im = Image.new('RGB', (w * k, h * k), bg)
             d = ImageDraw.Draw(im)
+            d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=h * k // 2, fill=fill)
             cx, cy, r = (self.PAD + self.DOT / 2.0) * k, h * k / 2.0, self.DOT * k / 2.0
-            if self.solid:                                            # live (or busy): a solid pill and a dot
-                d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=h * k // 2, fill=fill)
-                d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=dot)
-            else:                                                     # press me: outline and a play arrow
-                d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=h * k // 2, fill=fill,
-                                    outline=self.col, width=int(1.3 * k))
-                r2 = r * 1.15
-                d.polygon([(cx - r2 * 0.75, cy - r2), (cx - r2 * 0.75, cy + r2), (cx + r2, cy)], fill=dot)
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=dot)
             return ImageTk.PhotoImage(im.resize((w, h), Image.LANCZOS))
         def draw(self):
             h = self.H
@@ -6465,13 +5519,6 @@ def live_pill(parent, bg):
             self.configure(width=w)
             self.delete('all')
             fill, dot, ink = self.colours()
-            if self.spin_on:
-                if not self.frames or self.frames[0].width() != w: self.frames = self.spin_frames(w, h)
-                if self.frames:
-                    self.img_id = self.create_image(0, 0, image=self.frames[self.fi % len(self.frames)], anchor='nw')
-                    self.create_text(self.PAD + self.DOT + 4, h / 2.0, text=self.text, anchor='w',
-                                     fill='#f6dcd8', font=self.font)
-                    return
             self.img = self.smooth(w, h, fill, dot)
             if self.img is not None:
                 self.create_image(0, 0, image=self.img, anchor='nw')
@@ -6525,8 +5572,6 @@ def _smooth_shape(w, h, bg, draw):
     draw(ImageDraw.Draw(im), k)
     return ImageTk.PhotoImage(im.resize((w, h), Image.LANCZOS))
 
-_SWITCH_IMGS = {}                  # each switch look is drawn once and shared
-
 def Check(parent, text='', variable=None, bg=INK, **_ignored):
     """A small switch and its sentence, in place of Tk's square tick box (which comes out as a
     grey Windows 95 box). Click the switch or the words. Same arguments as tk.Checkbutton, so
@@ -6550,9 +5595,7 @@ def Check(parent, text='', variable=None, bg=INK, **_ignored):
             cx = (W - H / 2.0) * k if on else (H / 2.0) * k
             d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=knob)
         sw.delete('all')
-        key_ = (on, st_['hot'], bg)
-        if key_ not in _SWITCH_IMGS: _SWITCH_IMGS[key_] = _smooth_shape(W, H, bg, paint)
-        st_['img'] = _SWITCH_IMGS[key_]
+        st_['img'] = _smooth_shape(W, H, bg, paint)
         if st_['img'] is not None:
             sw.create_image(0, 0, image=st_['img'], anchor='nw')
         else:
@@ -6668,7 +5711,7 @@ def build_list(parent, current, on_pick, bg=INK, width=330):
         for p_ in rows.values(): p_()
         on_pick(name)
     last = None
-    for g, n, pop, _st in all_builds():
+    for g, n, pop, _st in BUILDS:
         if g != last:
             hd = tk.Frame(box, bg=bg); hd.pack(fill='x', pady=(8 if last else 2, 2))
             tk.Label(hd, text=g.upper(), fg=BRONZE, bg=bg, font=(F_TINY[0], F_TINY[1], 'bold')).pack(side='left')
@@ -6858,19 +5901,17 @@ def map_sections(name, desc=''):
     return [('How it starts', t['start']), ('Map tips', t['tips']), ('Plans that work', t['plans'])]
 
 # ---------------------------------------------------------------- window
-WAKE_FILE = os.path.join(os.path.dirname(PIDFILE), 'overlay.wake')
-
 def single_instance():
     """Only one overlay at a time. A second copy, however it was started, bows out quietly.
     Also leaves its process id where the watchdog can find it to close it later."""
     try:
         import ctypes
-        k32 = ctypes.WinDLL('kernel32', use_last_error=True)   # so the 'already exists' answer is reliable
+        k32 = ctypes.windll.kernel32
         # Restarted as admin: the old copy is still closing, so wait for it rather than bow out.
         tries = 50 if '--wait-turn' in sys.argv else 1
         for i in range(tries):
             h = k32.CreateMutexW(None, False, 'AoE2MapOverlay.SingleInstance')
-            taken = ctypes.get_last_error() == 183                     # ERROR_ALREADY_EXISTS
+            taken = k32.GetLastError() == 183                          # ERROR_ALREADY_EXISTS
             if h and not taken: break
             if h: k32.CloseHandle(h)
             if i == tries - 1: return False
@@ -6905,12 +5946,7 @@ def main():
     import tkinter as tk
     warm_imports()
     if not single_instance():
-        # Opening it again means you cannot see the one that is running: ask that one to come
-        # back to the front, in a spot on the screen.
-        try:
-            with io.open(WAKE_FILE, 'w', encoding='utf-8') as fh: fh.write(str(time.time()))
-        except Exception: pass
-        log('another copy is already running: asked it to show itself'); return
+        log('another copy is already running'); return
     maps, strings, icons = load_data()
     me = my_profile()
     root = tk.Tk()
@@ -6921,7 +5957,7 @@ def main():
         log('window icon: %r' % (e,))
     pick_fonts()
     root.overrideredirect(True); root.attributes('-topmost', True)
-    try: root.attributes('-alpha', 0.0)           # built out of sight, then faded in once it's all in place
+    try: root.attributes('-alpha', 0.88)
     except tk.TclError: pass
     BG, FG, GOLD, RED = INK, TXT, GOLDC, REDC
     root.configure(bg=RIM)                          # a bronze edge around the panel, like the game's frames
@@ -6951,25 +5987,7 @@ def main():
         badge = tk.Label(head, image=crest_img, bg=BG, bd=0); badge.image = crest_img
     except Exception:
         badge = tk.Label(head, text='', bg=BG)
-    badge.grid(row=0, column=0, sticky='w', padx=(0, 4))
-    badge.config(cursor='hand2')
-    # the crest with a small gold padlock on it: shown while the overlay is locked in place
-    crest_locked = None
-    try:
-        from PIL import Image as _Im, ImageDraw as _Dr, ImageTk as _ITk
-        _c = _Im.open(io.BytesIO(__import__('base64').b64decode(CREST_20_PNG))).convert('RGBA')
-        K_ = 4; big = _Im.new('RGBA', (20 * K_, 20 * K_), (0, 0, 0, 0)); d_ = _Dr.Draw(big)
-        # body and shackle, bottom right, with a dark edge so it reads over the crest
-        x0, y0 = 11 * K_, 11 * K_
-        d_.rounded_rectangle((x0 - K_, y0 + 2 * K_ - K_, x0 + 8 * K_ + K_, y0 + 9 * K_ + K_), radius=2 * K_, fill=(20, 16, 10, 255))
-        d_.arc((x0 + 1 * K_, y0 - 2 * K_, x0 + 7 * K_, y0 + 5 * K_), 180, 360, fill=(20, 16, 10, 255), width=4 * K_)
-        d_.arc((x0 + 1 * K_ + K_ // 2, y0 - 1 * K_, x0 + 7 * K_ - K_ // 2, y0 + 5 * K_), 180, 360, fill=(232, 196, 104, 255), width=int(1.6 * K_))
-        d_.rounded_rectangle((x0, y0 + 2 * K_, x0 + 8 * K_, y0 + 9 * K_), radius=int(1.5 * K_), fill=(232, 196, 104, 255))
-        d_.ellipse((x0 + 3 * K_, y0 + 4 * K_, x0 + 5 * K_, y0 + 6 * K_), fill=(20, 16, 10, 255))
-        _c.alpha_composite(big.resize((20, 20), _Im.LANCZOS))
-        crest_locked = _ITk.PhotoImage(_c)
-    except Exception:
-        pass
+    badge.grid(row=0, column=0, sticky='w', padx=(0, 6))
     HEAD_NAME = 'Wingman'             # the crest already says AoE2; the short name keeps the header in one row
     title = tk.Label(head, text=HEAD_NAME, fg=GOLDC, bg=BG, font=F_HEADLINE, anchor='w', cursor='hand2',
                      justify='left', wraplength=PANEL_W - 170)
@@ -6978,34 +5996,22 @@ def main():
                      highlightthickness=1, highlightbackground=RIM)
     state.grid(row=0, column=2, sticky='e', padx=(10, 2))
     live_btn = live_pill(head, BG)                                      # pause, chat, stream on Discord
-    # your actions a minute, while you play (off unless switched on in Settings)
-    apm_chip = tk.Frame(head, bg=PANEL, highlightthickness=1, highlightbackground=RIM)
-    apm_num = tk.Label(apm_chip, text='', fg=MUT, bg=PANEL, font=F_TINY, padx=6, pady=3)
-    apm_num.pack(side='left')
-    # a small red arrow beside the number when your pace has dropped well below your usual
-    apm_arr = tk.Canvas(apm_chip, width=9, height=9, bg=PANEL, highlightthickness=0)
-    apm_arr.create_polygon(1, 2, 8, 2, 4.5, 8, fill=REDC, outline='')
-    apm_chip.grid(row=0, column=2, sticky='e', padx=(10, 2)); apm_chip.grid_remove()
-    # brings a hidden build order back: a small gold B badge
-    bo_open = tk.Label(head, text='', bg=BG, padx=0, pady=0, cursor='hand2', bd=0)
-    try:
+    bo_open = icon_button(head, '', BG, size=10)                        # brings a hidden build order back
+    try:                                         # the build order's own mark: the gold age-up arrow
         from PIL import ImageTk
-        bo_open_imgs = [ImageTk.PhotoImage(draw_build_badge(23, BG, hot)) for hot in (False, True)]
-        bo_open.config(image=bo_open_imgs[0]); bo_open.images = bo_open_imgs
-        bo_open.bind('<Enter>', lambda e: bo_open.config(image=bo_open_imgs[1]), add='+')
-        bo_open.bind('<Leave>', lambda e: bo_open.config(image=bo_open_imgs[0]), add='+')
+        bo_open_img = ImageTk.PhotoImage(draw_step_icon('age', 18, BG))
+        bo_open.configure(image=bo_open_img, padx=4, pady=2); bo_open.image = bo_open_img
     except Exception:
-        bo_open.config(text='B', fg='#f4ead2', bg='#2f569c', font=(DISPLAY, 10, 'bold'), padx=6)
-    bo_open.grid(row=0, column=3, sticky='e', padx=(3, 0)); bo_open.grid_remove()
-    live_btn.grid(row=0, column=4, sticky='e', padx=(5, 1))
+        bo_open.configure(text='\u2630', padx=3)
+    bo_open.grid(row=0, column=3, sticky='e', padx=(4, 0)); bo_open.grid_remove()
+    live_btn.grid(row=0, column=4, sticky='e', padx=(6, 2))
     stats_btn = icon_button(head, 'W/L', BG, size=8)
     stats_btn.configure(font=(DISPLAY, 8, 'bold'))
-    stats_btn.grid(row=0, column=5, sticky='e', padx=(2, 0))
+    stats_btn.grid(row=0, column=5, sticky='e', padx=(4, 0))
     gear = icon_button(head, '\u2699', BG)
-    gear.grid(row=0, column=6, sticky='e', padx=(1, 0))
+    gear.grid(row=0, column=6, sticky='e', padx=(4, 0))
     close = icon_button(head, '\u2715', BG, hot=REDC)
     close.grid(row=0, column=7, sticky='e')
-    for b_ in (stats_btn, gear, close): b_.config(padx=4)          # tight, so the header fits the panel's width
     sep = Rule(frame)
     sep.grid(row=1, column=0, columnspan=4, sticky='we', pady=(4, 5))
 
@@ -7036,8 +6042,8 @@ def main():
             self.text = text; self.render()
 
         def _chip(self, row, label):
-            c = tk.Frame(row, bg=PANEL)                               # a quiet tag, like every other tag
-            tk.Label(c, text=label, fg=TXT, bg=PANEL, font=F_SMALL, padx=7, pady=2).pack()
+            c = tk.Frame(row, bg=PANEL, highlightthickness=1, highlightbackground=RIM)
+            tk.Label(c, text=label, fg=TXT, bg=PANEL, font=F_SMALL, padx=6, pady=1).pack()
             c.pack(side='left', padx=(0, 4), pady=(0, 4))
             return c
 
@@ -7081,8 +6087,6 @@ def main():
                     self.prose.append(n)
                     if not self.show_prose: n.pack_forget()
                 row, used = None, 0
-                try: chips = merge_hunt(chips)                       # deer-like and boar-like as one each
-                except Exception: pass
                 for ch in chips:
                     ch = ch.replace(' OR ', ' / ')
                     w = self.font.measure(ch) + 18                    # the words, the chip around them, the gap after
@@ -7126,51 +6130,24 @@ def main():
     # the build order strip: one step at a time, because mid game you have no time for a list
     # i is where your pop says you are (live); view is a step you clicked to look at, None for live
     bo = {'name': None, 'i': 0, 'view': None, 'pop': 0, 'hidden': False, 'voice': False, 'said': -1,
-          'voice_at': None, 'game_t': 0, 'pop_t': 0, 'done': False, 'done_t': 0, 'said_done': False,
-          'said_set': set()}
+          'voice_at': None, 'game_t': 0}
     BO_WRAP = 260                               # the narrowest the strip wraps to
     bo_box = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=5)
     bo_box.grid(row=3, column=0, columnspan=4, sticky='we', pady=(6, 0)); bo_box.grid_remove()
     bo_box.columnconfigure(0, weight=1)
-    # the build's name is a button (with a drop-down arrow) that opens the list of builds
-    bo_caprow = tk.Frame(bo_box, bg=PANEL, cursor='hand2')
-    bo_caprow.grid(row=0, column=0, sticky='w')
-    bo_cap = tk.Label(bo_caprow, text='', fg=GOLDC, bg=INK, font=(F_TINY[0], F_TINY[1], 'bold'), anchor='w',
-                      cursor='hand2', padx=7, pady=2, highlightthickness=1, highlightbackground=RIM)
-    bo_cap.pack(side='left')
-    # right of the build's name: [LIVE or 3/6] [POP 12-17], both fixed widths, so nothing moves
-    bo_right = tk.Frame(bo_box, bg=PANEL)
-    bo_right.grid(row=0, column=1, sticky='e')
-    bo_at = tk.Label(bo_right, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 10, 'bold'), anchor='e', padx=2, pady=0,
-                     width=9)                    # one width for 'POP 7' and 'POP 12-17', so nothing beside it shifts
-    bo_at.pack(side='right')
-    # back and forward through the steps; your pop moving on brings it back to where you are
-    bo_navf = tk.Frame(bo_box, bg=PANEL)
-    bo_navf.grid(row=0, column=2, sticky='e', padx=(6, 0))
-    bo_back = tk.Label(bo_navf, text='\u25c2', fg=MUT, bg=PANEL, font=('Segoe UI', 14, 'bold'), padx=4, cursor='hand2')
-    bo_fwd = tk.Label(bo_navf, text='\u25b8', fg=MUT, bg=PANEL, font=('Segoe UI', 14, 'bold'), padx=4, cursor='hand2')
-    # One fixed space before the arrows, for either the LIVE button (looking at another step) or
-    # the 3/6 counter (live). It never changes size, so stepping never shifts anything sideways.
-    bo_slot = tk.Frame(bo_right, bg=PANEL)
-    # shown only while you look at a step that is not the live one; click it to go back
-    bo_prev = tk.Label(bo_slot, text='\u21a9 LIVE', fg=INK, bg=GOLDC, font=(F_TINY[0], F_TINY[1], 'bold'),
-                       padx=6, pady=1, cursor='hand2')
-    # which villager of a several-villager step is training now ('3/6')
-    bo_cnt = tk.Label(bo_slot, text='', fg=GOLDC, bg=INK, font=(F_SMALL[0], F_SMALL[1], 'bold'), padx=5, pady=0)
-    bo_slot.update_idletasks()
-    bo_slot.config(width=max(bo_prev.winfo_reqwidth(), bo_cnt.winfo_reqwidth() + 22) + 2,
-                   height=max(bo_prev.winfo_reqheight(), bo_cnt.winfo_reqheight()))
-    bo_slot.pack_propagate(False)
-    bo_slot.pack(side='right', padx=(0, 2))
-    bo_back.pack(side='left'); bo_fwd.pack(side='left')
+    bo_cap = tk.Label(bo_box, text='', fg=BRONZE, bg=PANEL, font=F_TINY, anchor='w', cursor='hand2',
+                      justify='left', wraplength=BO_WRAP - 60)
+    bo_cap.grid(row=0, column=0, sticky='w')
+    bo_at = tk.Label(bo_box, text='', fg=MUT, bg=PANEL, font=F_TINY, anchor='e')
+    bo_at.grid(row=0, column=1, sticky='e')
     bo_snd = icon_button(bo_box, '', PANEL, size=9)                   # reads the steps out loud, or not
-    bo_snd.config(padx=4, pady=2)
-    bo_snd.grid(row=2, column=3, rowspan=2, sticky='e', padx=(8, 0))   # beside the step and the next one
+    bo_snd.config(padx=3, pady=0)
+    bo_snd.grid(row=0, column=2, sticky='ne', padx=(6, 0))
     bo_snd_img = {}
     try:
         from PIL import ImageTk
         for k_ in ('sound_on', 'sound_off'):
-            bo_snd_img[k_] = ImageTk.PhotoImage(draw_step_icon(k_, 26, PANEL))
+            bo_snd_img[k_] = ImageTk.PhotoImage(draw_step_icon(k_, 15, PANEL))
     except Exception:
         pass
     def bo_voice_draw():
@@ -7183,19 +6160,7 @@ def main():
     bo_x.grid(row=0, column=3, sticky='ne', padx=(2, 0))
     bo_now = tk.Label(bo_box, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 12, 'bold'),
                       anchor='w', justify='left', cursor='hand2', wraplength=BO_WRAP - 30)
-    bo_now.grid(row=2, column=0, columnspan=3, sticky='w', pady=(1, 0))
-    try:
-        import tkinter.font as tkfont
-        _ls = tkfont.Font(font=(DISPLAY, 12, 'bold')).metrics('linespace')
-        bo_box.grid_rowconfigure(2, minsize=max(36, 2 * _ls + 4))     # the strip does not grow or shrink step to step
-        _nfont = tkfont.Font(font=F_SMALL)
-    except Exception:
-        _nfont = None
-    def one_line(t_, px_):
-        """Cut a line to fit the room, with an ellipsis, so the NEXT line never wraps."""
-        if not _nfont or not t_ or _nfont.measure(t_) <= px_: return t_
-        while t_ and _nfont.measure(t_ + '\u2026') > px_: t_ = t_[:-1]
-        return t_.rstrip(' ,.') + '\u2026'
+    bo_now.grid(row=2, column=0, columnspan=4, sticky='w', pady=(1, 0))
     # how far through the build you are: one short bar per step, gold for the one you are on
     bo_prog = tk.Canvas(bo_box, height=3, bg=PANEL, highlightthickness=0, bd=0)
     bo_prog.grid(row=1, column=0, columnspan=4, sticky='we', pady=(3, 3))
@@ -7213,10 +6178,7 @@ def main():
             bo_prog.create_rectangle(x0, 0, x0 + seg, 3, fill=col, outline='')
     bo_prog.bind('<Configure>', bo_prog_draw, add='+')
     bo_nrow = tk.Frame(bo_box, bg=PANEL)
-    bo_nrow.grid(row=3, column=0, columnspan=3, sticky='we', pady=(1, 0))
-    # the build's goal ('19 pop, Feudal 8:50'), small, at the end of the NEXT line
-    bo_goal = tk.Label(bo_nrow, text='', fg=FAINT, bg=PANEL, font=F_TINY, anchor='e', cursor='hand2')
-    bo_goal.pack(side='right', anchor='n', pady=(1, 0))
+    bo_nrow.grid(row=3, column=0, columnspan=4, sticky='w', pady=(1, 0))
     bo_ntag = tk.Label(bo_nrow, text='NEXT', fg=BRONZE, bg=PANEL, font=(F_TINY[0], F_TINY[1], 'bold'), anchor='nw')
     bo_ntag.pack(side='left', anchor='n', padx=(0, 6), pady=(1, 0))
     bo_next = tk.Label(bo_nrow, text='', fg=FAINT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
@@ -7231,11 +6193,9 @@ def main():
         # bigger than the box's own padding so the wrap can never push the box out a pixel and
         # set off another resize.
         w = max(BO_WRAP, bo_box.winfo_width() - 34)
-        try: cur_ = int(str(bo_now.cget('wraplength')))
-        except ValueError: cur_ = -1
-        if cur_ != w - 84:                     # room for the step picture and the speaker
-            bo_now.config(wraplength=w - 84); bo_next.config(wraplength=w - 76); bo_live.config(wraplength=w - 10)
-            if bo.get('name'): root.after_idle(bo_draw)
+        if bo_now.cget('wraplength') != w - 30:                     # room for the step pictures too
+            bo_now.config(wraplength=w - 30); bo_next.config(wraplength=w - 36); bo_live.config(wraplength=w - 10)
+            bo_cap.config(wraplength=max(BO_WRAP - 60, w - 60))
     bo_box.bind('<Configure>', bo_wrap, add='+')
 
     def bo_draw():
@@ -7247,20 +6207,18 @@ def main():
             # nothing on screen to click and no way to find the feature at all. In a game it stays
             # hidden: if you have not picked one by then you do not want a prompt mid match.
             if waiting_now[0]:
-                bo_cap.config(text='BUILD ORDER  \u25be'); bo_goal.config(text='')
+                bo_cap.config(text='BUILD ORDER')
                 bo_at.config(text='')
                 bo_now.config(text='Pick one', font=(DISPLAY, 10, 'bold'), image='')
                 bo_next.config(image='')
                 bo_next.config(text=BUILD_SOURCE); bo_ntag.pack_forget()
-                bo_box.config(highlightbackground=EDGE, highlightthickness=1)
+                bo_box.config(highlightbackground=EDGE)
                 bo_prog.grid_remove(); bo_snd.grid_remove(); bo_live.grid_remove()
-                bo_right.grid_remove(); bo_navf.grid_remove()
                 bo_box.grid()
             else:
                 bo_box.grid_remove()
             bo_open_sync(); foot_fit(); return
         bo_now.config(font=(DISPLAY, 12, 'bold'))
-        bo_right.grid(); bo_navf.grid()
         name, pop, steps = found
         live = max(0, min(bo['i'], len(steps) - 1))
         bo['i'] = live
@@ -7268,46 +6226,27 @@ def main():
             bo['view'] = max(0, min(bo['view'], len(steps) - 1))
             if bo['view'] == live: bo['view'] = None
         i = live if bo['view'] is None else bo['view']          # the step on show
-        if bo['done'] and bo['view'] is None:
-            bo_cap.config(text='%s  \u25be' % name.upper()); bo_goal.config(text=pop)
-            bo_at.config(text='DONE', fg=GREEN)
-            img_ = step_icon('militia', 33, PANEL, 10)          # the sword picture
-            bo_now.config(text=BO_DONE, image=img_ or '', compound='left', fg=GOLDD); bo_now.image = img_
-            bo_next.config(text='Right-click to look back over the build.', image='')
-            bo_ntag.pack_forget(); bo_live.grid_remove()
-            bo_box.config(highlightbackground=EDGE, highlightthickness=1); bo_prev.pack_forget()
-            bo_prog.grid(); bo_prog_draw(); bo_snd.grid()
-            bo_box.grid(); bo_open_sync(); foot_fit(); return
         lo, hi, text = steps[i]
         span = '%d' % lo if lo == hi else ('%d+' % lo if hi >= 99 else '%d-%d' % (lo, hi))
-        bo_cap.config(text='%s  \u25be' % name.upper()); bo_goal.config(text=pop)
-        bo['span'] = (lo, span, hi, i == live)
-        bo_pop_text(fg=GOLDD if i == live else '#efe6d2')
-        previewing = i != live                         # looking ahead (or back) at a step that is not live
-        bo_live.grid_remove()
-        if previewing and not bo_prev.winfo_manager():
-            bo_cnt.pack_forget(); bo_prev.pack(side='right')
-        elif not previewing:
-            bo_prev.pack_forget()
-            if bo_cnt.cget('text') and not bo_cnt.winfo_manager(): bo_cnt.pack(side='right')
-        img_ = step_icon(text, 33, PANEL, 10)
+        bo_cap.config(text='%s  \u00b7  %s' % (name.upper(), pop))
+        bo_at.config(text='pop %s' % span, fg=MUT if i == live else '#efe6d2')
+        if i != live:                                  # looking ahead (or back): where you really are, to go back to
+            bo_live.config(text='\u25c2 Back to live:  %s' % steps[live][2]); bo_live.grid()
+        else:
+            bo_live.grid_remove()
+        img_ = step_icon(text, 22, PANEL, 8)
         bo_now.config(text=text, image=img_ or '', compound='left',
                       fg=GOLDD if i == live else '#cfc8b6')        # a step you are only looking at is paler
         bo_now.image = img_
         nxt = steps[i + 1][2] if i + 1 < len(steps) else None
-        try: room_ = int(str(bo_next.cget('wraplength'))) - 10 - (bo_goal.winfo_reqwidth() if bo_goal.cget('text') else 0)
-        except Exception: room_ = 260
-        bo_next.config(text=one_line(nxt or 'Last step. Over to you.', room_), image='')
+        bo_next.config(text=nxt or 'Last step. Over to you.', image='')
         if nxt and not bo_ntag.winfo_manager():
             bo_ntag.pack(side='left', anchor='n', padx=(0, 6), pady=(1, 0), before=bo_next)
         elif not nxt:
             bo_ntag.pack_forget()
         # the moment to click up gets a gold edge, so it stands out from the villager steps
         up_ = any(k in text.lower() for k in ('click feudal', 'click castle'))
-        # a step you are only looking at: a pale double edge round the whole strip, so it is plain
-        # at a glance that this is not where you are
-        bo_box.config(highlightbackground='#efe6d2' if previewing else (GOLDC if up_ else EDGE),
-                      highlightthickness=2 if previewing else 1)
+        bo_box.config(highlightbackground=GOLDC if up_ else EDGE)
         bo_prog.grid(); bo_prog_draw(); bo_snd.grid()
         bo_box.grid(); bo_open_sync(); foot_fit()
 
@@ -7327,9 +6266,8 @@ def main():
 
     def bo_pick(name):
         bo['name'] = name or None
-        bo['i'] = 0; bo['pop'] = 0; bo['said_set'] = set(); bo['view'] = None
-        bo['done'] = False; bo['done_t'] = 0; bo['said_done'] = False
-        bo['hidden'] = not bo['name']          # 'No build order': the strip goes, the B badge brings the list back
+        bo['i'] = 0; bo['pop'] = 0; bo['said'] = -1; bo['view'] = None
+        if bo['name']: bo['hidden'] = False
         cfg_ = load_settings(); cfg_['build_order'] = bo['name'] or ''
         cfg_['build_order_hidden'] = bo['hidden']
         save_settings(cfg_)
@@ -7352,8 +6290,6 @@ def main():
         pop_ = tk.Toplevel(root); st['bo_pop'] = pop_
         pop_.withdraw()
         pop_.overrideredirect(True); pop_.attributes('-topmost', True); pop_.configure(bg=RIM)
-        try: pop_.attributes('-alpha', 0.0)          # drawn out of sight, shown once it is all in place
-        except tk.TclError: pass
         inner = tk.Frame(pop_, bg=INK, padx=10, pady=8); inner.pack(padx=1, pady=1)
         hd = tk.Frame(inner, bg=INK); hd.pack(fill='x')
         tk.Frame(hd, bg=GOLDC, width=3, height=14).pack(side='left', padx=(0, 7))
@@ -7397,7 +6333,6 @@ def main():
             down = lambda: bool(u32.GetAsyncKeyState(0x01) & 0x8000) or bool(u32.GetAsyncKeyState(0x02) & 0x8000)
         except Exception:
             down = lambda: False
-        fade_in(pop_, to=0.97, wait=20, ms=90)        # drawn see-through, then up in one go
         def over(w):
             try:
                 px, py = w.winfo_pointerxy()
@@ -7430,24 +6365,6 @@ def main():
     def bo_live_again():
         bo['view'] = None; bo_draw()
 
-    def bo_pop_text(fg=None):
-        """The gold box: your pop as the game shows it, and the pop the step on show is for when you
-        are not there yet ('POP 7 \u203a 8'). Without a reading it falls back to the step's own pop."""
-        lo, span, hi, live_ = bo.get('span') or (0, '', 0, True)
-        t_ = 'POP %s' % span                                    # the pops this step is for
-        # A step that covers several villagers ('6 to sheep', '6 to the boar'): how many of them are
-        # already out doing it, the way you would count them on screen. 5 on sheep reads 5/6.
-        p_ = bo['pop'] or 0
-        cnt_ = ('%d/%d' % (p_ - lo + 1, hi - lo + 1)) if (live_ and p_ and hi < 99 and hi > lo
-                                                          and lo - 1 <= p_ <= hi) else ''
-        if bo_cnt.cget('text') != cnt_:
-            bo_cnt.config(text=cnt_)
-            if cnt_ and not bo_cnt.winfo_manager() and not bo_prev.winfo_manager(): bo_cnt.pack(side='right')
-            elif not cnt_: bo_cnt.pack_forget()
-        kw = {'text': t_}
-        if fg: kw['fg'] = fg
-        if bo_at.cget('text') != t_ or fg: bo_at.config(**kw)
-
     def bo_follow(pop):
         """Move with the pop counter the Town Center watcher already reads off your screen.
 
@@ -7458,457 +6375,23 @@ def main():
         if not bo['name'] or pop < 1: return
         found = build_by_name(bo['name'])
         if not found: return
-        steps = found[2]
-        now = time.time()
-        if bo['pop'] and pop > bo['pop'] + 3:
-            # a big jump is most likely a misread ('14' as '41'): only believe it if it holds
-            if bo.get('jump') != pop: bo['jump'], bo['jump_t'] = pop, now; return
-            if now - bo.get('jump_t', now) < 3: return
-        bo['jump'] = None
-        if pop != bo['pop']:
-            # Only a pop back at a starting count, with no game known, is a new game. Losing
-            # villagers mid game is not (a drush can do that), and neither is a misread.
-            if pop <= 5 and bo['pop'] >= 8 and not tcw.active: bo_fresh(force=True)
-            bo['pop'] = pop; bo['pop_t'] = now
-            if not bo['done'] and bo['view'] is None:
-                try: bo_pop_text()                         # 'n of 6' moves on with every villager
-                except Exception: pass
-
-        if bo['done']: return                                # finished: stays that way until the next game
-        # Straight off your pop counter, which counts the villagers already out. The one training
-        # now is pop + 1, so its step shows (and is said) as it starts training: at pop 7 the 8th
-        # villager is in the Town Centre and you hear 'Send 2 to wood' for it.
-        i = build_step_at(steps, pop + 1)
-        if i > bo['i']:
+        i = build_step_at(found[2], pop)
+        # Only ever forwards, so a click ahead holds until the pop catches up. A pop that falls
+        # well back is a new game, and that starts the build again from wherever the pop is.
+        new_game = pop < bo['pop'] - 3
+        bo['pop'] = pop
+        if new_game or i > bo['i']:
             bo['i'] = i; bo['view'] = None; bo_draw()      # ticked over: back to live
-        if bo['i'] == len(steps) - 1 and not bo['done_t']: bo['done_t'] = now
-        # the last step has had its time: well past its pop and a minute and a half on
-        if (bo['i'] == len(steps) - 1 and bo['done_t'] and now - bo['done_t'] > 90
-                and pop >= steps[-1][0] + 6):
-            bo['done'] = True; bo['view'] = None; bo_draw(); log('build order done')
 
-    # ---- post game: what happened, from what Wingman already watched during the game
-    an = {}
-    def an_game_s(t_real):
-        """Game seconds at a moment in real time."""
-        try: return max(0.0, tcw.game_minutes(t_real) * 60.0)
-        except Exception: return 0.0
-    def an_start():
-        an.clear()
-        an.update(t0=time.time(), idle=0.0, idle_n=0, idle_max=(0.0, 0.0), house=0.0, house_n=0,
-                  pops={}, first={}, maxpop=0, state=None, since=0.0)
-    def an_close_state(now):
-        prev, since = an.get('state'), an.get('since') or 0
-        if not prev or not since: return
-        d = (now - since) * getattr(tcw, 'speed', 1.7)           # in game seconds
-        if 'idle' in prev and d >= 3:                            # a flicker is not an idle TC
-            an['idle'] += d; an['idle_n'] += 1
-            if d > an['idle_max'][0]: an['idle_max'] = (d, an_game_s(since))
-        if 'house' in prev and d >= 3:
-            an['house'] += d; an['house_n'] += 1
-    def an_state(state):
-        if not an or not tcw.active: return
-        now = time.time()
-        if state == an.get('state'): return
-        an_close_state(now)
-        an['state'], an['since'] = state, now
-    def an_pop(pop):
-        if not an or not tcw.active or not pop: return
-        g_ = an_game_s(time.time())
-        an['maxpop'] = max(an['maxpop'], pop)
-        if pop not in an['first'] and pop <= 60: an['first'][pop] = g_   # when each pop was first reached
-        for mark in (10, 15, 20):
-            if g_ >= mark * 60 and mark not in an['pops']: an['pops'][mark] = pop
-
-    TIPS = {
-        'idle': ["Keep the TC busy. The idle time was about {v} villagers you never made.",
-                 "Queue two villagers when you head off to do something else, so the TC never stops.",
-                 "Glance at the TC every time you place a building. {idle} idle cost you about {v} villagers.",
-                 "Tap your TC hotkey every 20 seconds or so. {v} villagers' worth of TC time went missing."],
-        'house': ["Get houses up a little earlier: start one when you're 3 pop off the cap.",
-                  "Once you're in Feudal, build houses two at a time so you're never housed mid-fight.",
-                  "When the house warning shows, send a villager straight away, not after the next job."],
-        'feudal': ["Your Feudal click was {late} behind a busy TC. Tighten the Dark Age and it comes forward.",
-                   "Aim to click Feudal by {perfect}. Fewer idle seconds and earlier houses get you there."],
-        'bo': ["Try to finish the build order next game, even slowly. The habit matters more than the speed.",
-               "You got to step {step} of {steps}. Next game, see if you can get one step further."],
-        'good': ["Solid start. Next game, try to scout their base before 4 minutes.",
-                 "Clean game. Push for a slightly earlier Feudal click next time.",
-                 "Nice work. Next game, aim for 2 more villagers by 15 minutes.",
-                 "Good start. Next game, keep an eye on the minimap every time you place a building.",
-                 "Tidy game. Next time, get your second TC building on time if you go for one.",
-                 "Strong economy. Next game, try to put that lead into army sooner."]}
-
-    def an_tip(info):
-        """One tip for next game, from what went wrong most, worded differently each time so it
-        doesn't read the same game after game."""
-        import random
-        keys = []
-        if info.get('v', 0) >= 2: keys.append('idle')
-        if info.get('late', 0) >= 60: keys.append('feudal')
-        if info.get('house_n', 0) >= 2: keys.append('house')
-        if info.get('steps') and not info.get('done'): keys.append('bo')
-        if not keys: keys = ['good']
-        key = keys[0] if len(keys) == 1 or random.random() < 0.65 else random.choice(keys[1:])  # mostly the worst
-        cfg_ = load_settings(); last = cfg_.get('last_tip')
-        pool = [t for t in TIPS[key] if t != last] or TIPS[key]
-        tip = random.choice(pool)
-        try: cfg_['last_tip'] = tip; save_settings(cfg_)
-        except Exception: pass
-        fmt = dict(v=info.get('v', 0), idle=mmss(info.get('idle', 0)), late=mmss(info.get('late', 0)),
-                   perfect=mmss(info.get('perfect', 0)), step=info.get('step', 0), steps=info.get('steps', 0))
-        try: return tip.format(**fmt)
-        except Exception: return tip
-
-    def an_lines():
-        """The post game notes: short lines about your own game, then one tip for next game (last)."""
-        sp_ = []; info = {}
-        found_ = build_by_name(bo.get('name'))
-        steps_ = found_[2] if found_ else []
-        click = next((lo for lo, hi, t in steps_ if 'click feudal' in t.lower()), None)
-        if click and click > 4:
-            perfect = (click - 4) * 25                           # a Town Centre that never stops
-            got = an['first'].get(click)
-            if got:
-                late = got - perfect; info.update(late=late, perfect=perfect)
-                sp_.append(('Feudal click (pop %d) at %s. A busy TC: %s%s.'
-                            % (click, mmss(got), mmss(perfect),
-                               '' if late < 10 else '. You were %s behind' % mmss(late)), TXT))
-        if an['idle'] >= 5:
-            big, at = an['idle_max']
-            sp_.append(('TC idle %s, %d time%s. Longest %s, at %s.'
-                        % (mmss(an['idle']), an['idle_n'], '' if an['idle_n'] == 1 else 's', mmss(big), mmss(at)), TXT))
-        else:
-            sp_.append(('Your TC never sat idle. Lovely.', GREEN))
-        if an['house_n']:
-            sp_.append(('House warning: %d time%s.' % (an['house_n'], '' if an['house_n'] == 1 else 's'), TXT))
-
-        if steps_:
-            if bo.get('done'): sp_.append(('Build order followed to the end.', TXT))
-            else: sp_.append(('Build order: step %d of %d.' % (min(bo['i'] + 1, len(steps_)), len(steps_)), TXT))
-        info.update(v=int(an['idle'] // 25), idle=an['idle'], house_n=an['house_n'], steps=len(steps_),
-                    step=min(bo['i'] + 1, len(steps_)) if steps_ else 0, done=bool(bo.get('done')))
-        sp_.append((an_tip(info), GOLDD))
-        return sp_
-
-    def an_review(rec, me_num, opps, mates, live):
-        """The review, from the recording now the game is over: a small table of you, your team and
-        them, then only the points where you were well behind (the useful ones), and one tip from
-        the biggest of those. Returns (rows, notes, tip) or None."""
-        if not rec or not me_num: return None
-        rs_ = replay_stats(rec); ps = rs_['players']
-        if me_num not in ps: return None
-        me_ = ps[me_num]
-        game_len = rs_.get('length') or 0
-        def vils_by(p_, sec):
-            """Villagers actually out by `sec` of game time. Queuing isn't making: a Town Centre turns
-            out one every 25 seconds, and nothing comes out while you're housed. So play the queue
-            through each TC (a new TC joins in once it's had time to go up), holding each villager
-            until there's house room for it. Cancelled villagers aren't in it, so it's a best case."""
-            builds = p_.get('builds', [])
-            room = sorted([(t + 35, 5) for t, b_ in builds if b_ == 70] +            # houses
-                          [(t + 150, 5) for t, b_ in builds if b_ in (109, 621)] +   # town centres
-                          [(t + 200, 20) for t, b_ in builds if b_ == 82])          # castles
-            army = sorted(t + 30 for t, _u, n in p_.get('mil', []) for _ in range(max(1, int(n))))
-            def cap_at(t): return 5 + sum(n for at, n in room if at <= t)
-            def army_at(t): return sum(1 for at in army if at <= t)
-            lanes = sorted(t + 150 for t, b_ in builds if b_ in (109, 621) and t + 150 < sec)
-            free = [0.0]; made = 0; done = []
-            # what the TC researches (Loom, the ages, Wheelbarrow...) holds up villagers on it
-            busy = sorted((t, TC_TECH_SECS[k]) for k, t in p_.get('techs', {}).items() if k in TC_TECH_SECS)
-            def tc_free_after(start):
-                for bt, bd in busy:
-                    if bt <= start < bt + bd: return bt + bd
-                return start
-            for t, n in sorted(p_.get('vil_q', [])):
-                while lanes and lanes[0] <= t: free.append(lanes.pop(0))
-                for _ in range(max(1, int(n))):
-                    i_ = min(range(len(free)), key=lambda k: free[k])
-                    start = max(t, free[i_])
-                    if i_ == 0: start = tc_free_after(start)
-                    for _w in range(200):                       # housed: wait for the next house
-                        if 4 + sum(1 for d in done if d <= start) + army_at(start) < cap_at(start): break
-                        nxt = [at for at, _n in room if at > start]
-                        if not nxt: start = None; break
-                        start = nxt[0]
-                    if start is None: break
-                    free[i_] = start + 25; done.append(free[i_])
-                    if free[i_] <= sec: made += 1
-                    if start > sec: break
-            # never more than the TCs could have made: 3 to start, one per 25 seconds per TC,
-            # less the time the first one spent researching
-            most = perfect_by(p_, sec) + sum(int(max(0, sec - at) // 25) for at in
-                                             sorted(t + 150 for t, b_ in builds if b_ in (109, 621)))
-            return min(3 + made, most)
-        def tcs_by(p_, sec): return 1 + sum(1 for t, b in p_.get('builds', []) if b in (109, 621) and t <= sec)
-        def perfect_by(p_, sec):
-            """A first TC that never stops: one villager every 25 seconds from the start, less the time
-            it spends on Loom, Feudal and the like (the ones this player actually researched)."""
-            held = sum(max(0, min(t + d, sec) - t) for k, t in p_.get('techs', {}).items()
-                       for d in [TC_TECH_SECS.get(k)] if d and t < sec)
-            return 3 + int(round((sec - held) / 25.0))
-        rows = []
-        def row(nm, side, num):
-            p_ = ps.get(num)
-            if p_ is None: return
-            rows.append((nm, side, p_.get('feudal'), p_.get('castle'), p_.get('imperial'), p_.get('apm'),
-                         vils_by(p_, 900)))
-        row('You', 'me', me_num)
-        for nm, num in list(mates)[:3]: row(nm, 'mate', num)
-        for nm, num in list(opps)[:4]: row(nm, 'opp', num)
-        them = [(nm, ps[num]) for nm, num in opps if num in ps]
-        short = lambda n: n if len(n) <= 12 else n[:11] + '\u2026'
-        issues = []                 # (how bad, key, note, facts for the tip)
-        # Castle Age: the biggest single swing, if you went up well after them
-        for key, label in (('castle', 'Castle'), ('feudal', 'Feudal')):
-            ts = [(p_.get(key), nm) for nm, p_ in them if p_.get(key)]
-            if not ts: continue
-            best_t, best_nm = min(ts)
-            mine_t = me_.get(key)
-            gap = (mine_t - best_t) if mine_t else None
-            if mine_t is None:
-                end_ = me_.get('resign') or 0
-                if end_ and end_ < best_t + 120: continue        # the game was over before it mattered
-                txt = '%s Age: you never got there; %s clicked it at %s.' % (label, short(best_nm), mmss(best_t))
-                issues.append((300, key + '_never', txt, dict(who=short(best_nm), at=mmss(best_t))))
-                break
-            if gap >= (180 if key == 'castle' else 90):
-                txt = '%s Age: you %s, %s %s. %s behind.' % (label, mmss(mine_t), short(best_nm), mmss(best_t), mmss(gap))
-                issues.append((gap / (2.0 if key == 'castle' else 1.0), key, txt,
-                               dict(gap=mmss(gap), who=short(best_nm), at=mmss(best_t))))
-                break
-        # villagers: the economy everything else comes from
-        # The pop read off the screen wasn't reliable, so no villager line. Instead: how long you took
-        # from reaching Feudal to clicking Castle, against them (straight from the recording).
-        vil_issue = False
-        nomad = any(b_ in (109, 621) and t < 120 for t, b_ in me_.get('builds', []))   # no TC to start with
-        def f2c(p_):
-            f_, c_ = p_.get('feudal'), p_.get('castle')
-            return (c_ - (f_ + 130)) if f_ and c_ else None
-        mine_g = f2c(me_)
-        theirs_g = [(f2c(p_), nm) for nm, p_ in them if f2c(p_) is not None and f2c(p_) >= 60]
-        if mine_g is not None and theirs_g and not any(k_ == 'castle' for _w, k_, _t, _f in issues):
-            best_g, who_g = min(theirs_g)
-            if mine_g - best_g >= 90:
-                issues.append(((mine_g - best_g) / 2.0, 'f2c',
-                               'Feudal to Castle click: you %s, %s %s.' % (mmss(mine_g), short(who_g), mmss(best_g)),
-                               dict(gap=mmss(mine_g - best_g), who=short(who_g), mine=mmss(mine_g), theirs=mmss(best_g))))
-        # eco upgrades: late or missing ones
-        late = []
-        for tid, nm in ECO_TECHS:
-            mine_t = me_.get('techs', {}).get(tid)
-            ts = [(p_.get('techs', {}).get(tid), n_) for n_, p_ in them]
-            ts = [x for x in ts if x[0]]
-            if ts and ((mine_t is None and game_len > min(ts)[0] + 180) or (mine_t is not None and mine_t - min(ts)[0] >= 120)):
-                late.append((nm, mine_t, min(ts)[0], min(ts)[1]))
-        if late:
-            bits = ['%s %s (%s %s)' % (nm, mmss(m) if m else 'never', short(who), mmss(o)) for nm, m, o, who in late[:3]]
-            issues.append((60 * len(late), 'eco', 'Eco upgrades: ' + ', '.join(bits) + '.',
-                           dict(up=late[0][0], at=mmss(late[0][2]), who=short(late[0][3]))))
-        # army: first units made, against the first ones they made
-        mine_m = me_.get('mil') or []
-        firsts = [(p_['mil'][0][0], nm, p_['mil'][0][1]) for nm, p_ in them if p_.get('mil')]
-        if firsts:
-            t0, nm0, u0 = min(firsts)
-            mine_t = mine_m[0][0] if mine_m else None
-            # (nothing on record isn't proof of no army: units can come off auto-queue, so only when you did make some)
-            if mine_t is not None and mine_t - t0 >= 120:
-                txt = 'First army: you %s, %s %s%s.' % (mmss(mine_t), short(nm0), mmss(t0),
-                                                        (' (%s)' % UNIT_NAMES[u0]) if u0 in UNIT_NAMES else '')
-                issues.append(((mine_t - t0) / 2.0, 'army', txt,
-                               dict(who=short(nm0), at=mmss(t0), unit=UNIT_NAMES.get(u0, 'units'))))
-        # more Town Centres than you
-        if them and not nomad:
-            mine_tc = tcs_by(me_, 1500)
-            top_tc, top_nm = max((tcs_by(p_, 1500), nm) for nm, p_ in them)
-            if top_tc - mine_tc >= 2:
-                issues.append(((top_tc - mine_tc) * 70, 'tc', 'Town Centres by 25 min: you %d, %s %d.' % (mine_tc, short(top_nm), top_tc),
-                               dict(n=top_tc - mine_tc, who=short(top_nm))))
-        # your TC sitting idle (from watching the game, not the recording)
-        if live.get('idle', 0) >= 60 and not (nomad and live['idle_max'][1] < 150):
-            issues.append((live['idle'] * 0.6, 'idle', 'TC idle %s in total, %d time%s. Longest %s, at %s.' % (
-                mmss(live['idle']), live.get('idle_n', 0), '' if live.get('idle_n', 0) == 1 else 's',
-                mmss(live['idle_max'][0]), mmss(live['idle_max'][1])),
-                dict(v=int(live['idle'] // 25), idle=mmss(live['idle']))))
-        if game_len < 600:                                # over in the Dark Age: nothing fair to say
-            return rows, [('A short game (%s), so there\'s not much to go on.' % mmss(game_len), MUT)], ''
-        issues.sort(key=lambda x: -x[0])
-        notes = [(t, TXT) for _w, _k, t, _f in issues[:4]]
-        if not notes: notes = [('No big gaps: you kept up with them on age-ups and upgrades.', GREEN)]
-        tip = an_tip2(issues)
-        return rows, notes, tip
-
-    TIPS2 = {
-        'castle': ["Click Castle Age sooner. {who} went up {gap} before you, at {at}.",
-                   "Aim to start Castle Age within 10 minutes of reaching Feudal. You were {gap} behind {who}.",
-                   "Plan your Castle click from Feudal: keep the food coming and go up around {at}, like {who}."],
-        'f2c': ["Spend less time in Feudal before clicking Castle: {mine} for you, {theirs} for {who}.",
-                "Get your two Feudal buildings up sooner so Castle comes {gap} earlier, like {who}."],
-        'castle_never': ["Get to Castle Age next game: {who} was there from {at}.",
-                         "Plan your Castle click: {who} went up at {at} and you never did."],
-        'feudal_never': ["Get to Feudal Age next game: {who} clicked it at {at}."],
-        'feudal': ["Tighten the Dark Age: {who} hit Feudal {gap} before you.",
-                   "Get to Feudal by {at}, like {who}: keep the TC busy and houses ahead of time."],
-        'vils': ["Make more villagers: you were {n} short by {m} minutes. Keep the TC queuing all game.",
-                 "Your economy was {n} villagers light by {m} minutes. Never let the TC sit, even while fighting.",
-                 "Add a second (and third) TC once you hit Castle Age to catch up on villagers."],
-        'eco': ["Get {up} earlier. {who} had it at {at}.",
-                "Eco upgrades pay for themselves fast: get {up} by about {at} next game.",
-                "When you're floating resources, spend them on {up} first."],
-        'army': ["Have something to defend with by {at}: {who} made {unit} first.",
-                 "Make your first army a little sooner. {who} had {unit} out at {at}.",
-                 "Scout what {who} is making and answer it: they had {unit} at {at}."],
-        'tc': ["Add Town Centres when you reach Castle Age: {who} had {n} more than you by 25 minutes.",
-               "Boom harder: {n} more TCs would have kept you level with {who}."],
-        'idle': ["Keep the TC busy: the idle time was about {v} villagers you never made.",
-                 "Queue two villagers when you look away, so the TC never sits ({idle} idle this game).",
-                 "Check your TC every time you place a building: {idle} idle cost about {v} villagers."],
-        'good': ["Solid game. Next time, try to scout their base before 4 minutes.",
-                 "Nice. Next game, push for a slightly earlier Castle click.",
-                 "Good game. Next time, get your eco upgrades a minute earlier than you think you need them.",
-                 "Tidy game. Next time, put your lead into army sooner."]}
-
-    def an_tip2(issues):
-        import random
-        key, facts = ('good', {}) if not issues else (issues[0][1], issues[0][3])
-        if len(issues) > 1 and random.random() < 0.3: key, facts = issues[1][1], issues[1][3]   # now and then the next one
-        cfg_ = load_settings(); last = cfg_.get('last_tip')
-        pool = [t for t in TIPS2[key] if t != last] or TIPS2[key]
-        tip = random.choice(pool)
-        try: cfg_['last_tip'] = tip; save_settings(cfg_)
-        except Exception: pass
-        try: return tip.format(**facts)
-        except Exception: return tip
-
-    def an_render(lines_, table_=None):
-        """The card: who clicked up when and how busy each of you were (a small table), the notes
-        on your own game as short points, then the tip for next game on its own."""
-        for w in card_an.winfo_children(): w.destroy()
-        def hush(w):
-            bind_all(w); st['actions'][w] = hide_card
-        if table_:
-            tb = tk.Frame(card_an, bg=PANEL); tb.pack(fill='x', pady=(0, 6)); hush(tb)
-            tb.grid_columnconfigure(0, weight=1)
-            heads = ('', 'FEUDAL', 'CASTLE', 'IMP', 'APM')
-            show_imp = any(r[4] is not None for r in table_)
-            for c_, h_ in enumerate(heads):
-                if c_ == 3 and not show_imp: continue
-                l_ = tk.Label(tb, text=h_, fg=FAINT, bg=PANEL, font=(F_TINY[0], F_TINY[1], 'bold'),
-                              anchor='w' if c_ == 0 else 'e')
-                l_.grid(row=0, column=c_, sticky='we', padx=(0 if c_ == 0 else 10, 0)); hush(l_)
-            best = {}
-            for k_ in (2, 3, 4):
-                ts = [r[k_] for r in table_ if r[k_] is not None]
-                if ts: best[k_] = min(ts)
-            r_i = 1; last_side = None
-            for nm, side, f_, c2, i_, apm, *more_ in table_:
-                vil = more_[0] if more_ else None
-                if last_side in ('me', 'mate') and side == 'opp':
-                    sep_ = tk.Frame(tb, bg=EDGE, height=1); sep_.grid(row=r_i, column=0, columnspan=6, sticky='we', pady=3)
-                    r_i += 1
-                last_side = side
-                col = GOLDC if side == 'me' else (GREEN if side == 'mate' else '#e3a497')
-                shown = nm if len(nm) <= 16 else nm[:15] + '\u2026'
-                l_ = tk.Label(tb, text=shown, fg=col, bg=PANEL, anchor='w',
-                              font=(F_SMALL[0], F_SMALL[1], 'bold') if side == 'me' else F_SMALL)
-                l_.grid(row=r_i, column=0, sticky='w'); hush(l_)
-                for c_, k_, v_ in ((1, 2, f_), (2, 3, c2), (3, 4, i_), (4, 5, apm)):
-                    if c_ == 3 and not show_imp: continue
-                    if k_ == 6:
-                        top_v = max([r[6] for r in table_ if len(r) > 6] or [0])
-                        txt = '%d' % v_ if v_ is not None else '\u2013'; fg_ = GREEN if v_ is not None and v_ == top_v else TXT
-                    elif k_ == 5:
-                        txt = '%d' % v_ if v_ is not None else '\u2013'; fg_ = TXT
-                    else:
-                        txt = mmss(v_) if v_ is not None else '\u2013'
-                        fg_ = GREEN if (v_ is not None and best.get(k_) == v_) else (TXT if v_ is not None else FAINT)
-                    l_ = tk.Label(tb, text=txt, fg=fg_, bg=PANEL, font=F_SMALL, anchor='e')
-                    l_.grid(row=r_i, column=c_, sticky='e', padx=(10, 0)); hush(l_)
-                r_i += 1
-        notes = [x for x in lines_ if x[1] != GOLDD]
-        tips = [x for x in lines_ if x[1] == GOLDD]
-        if notes:
-            hd = tk.Label(card_an, text='YOUR GAME', fg=BRONZE, bg=PANEL, font=(F_TINY[0], F_TINY[1], 'bold'), anchor='w')
-            hd.pack(fill='x', pady=(2, 1)); hush(hd)
-        for t_, col_ in notes:
-            r_ = tk.Frame(card_an, bg=PANEL); r_.pack(fill='x', anchor='w'); hush(r_)
-            d_ = tk.Label(r_, text='\u2022', fg=BRONZE, bg=PANEL, font=F_SMALL); d_.pack(side='left', anchor='n', padx=(2, 6)); hush(d_)
-            l_ = tk.Label(r_, text=t_, fg=col_, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
-                          wraplength=PANEL_W - 50)
-            l_.pack(side='left', fill='x', anchor='w'); hush(l_)
-        for t_, _c in tips:
-            box = tk.Frame(card_an, bg=INK, highlightthickness=1, highlightbackground=EDGE)
-            box.pack(fill='x', pady=(8, 2)); hush(box)
-            tg = tk.Label(box, text='NEXT GAME', fg=INK, bg=GOLDD, font=(F_TINY[0], F_TINY[1], 'bold'), padx=5, pady=1)
-            tg.pack(side='left', anchor='n', padx=(6, 8), pady=6); hush(tg)
-            l_ = tk.Label(box, text=t_, fg=GOLDC, bg=INK, font=F_SMALL, anchor='w', justify='left',
-                          wraplength=PANEL_W - 130)
-            l_.pack(side='left', fill='x', anchor='w', pady=5, padx=(0, 6)); hush(l_)
-
-    def an_finish():
-        """The game is over: put the notes on the card, at the menu."""
-        if not an or not an.get('t0'): return
-        now = time.time()
-        if now - an['t0'] < 150:                              # too short to say anything useful
-            an.clear(); return
-        an_close_state(now); an['state'] = None
-        try: lines_ = an_lines()
-        except Exception as e:
-            log('post game: %r' % (e,)); an.clear(); return
-        rec_, me_, opps_ = an.get('rec'), an.get('me_num'), list(an.get('opps') or [])
-        mates_ = list(an.get('mates') or [])
-        live_ = {k: an.get(k) for k in ('idle', 'idle_n', 'idle_max', 'house_n', 'pops')}
-        an.clear()
-        log('post game (live): %s' % ' | '.join(t for t, _ in lines_))
-        def more():                                           # the recording, read off the main thread
-            time.sleep(3)                                     # the game finishes writing it first
-            try: rv = an_review(rec_, me_, opps_, mates_, live_)
-            except Exception as e:
-                log('post game, recording: %r' % (e,)); rv = None
-            if not rv:                                        # the recording couldn't be read: what was seen live
-                def plain():
-                    if st.get('last') is not None or not card_an.winfo_children(): return
-                    calm(an_render)(lines_)
-                try: root.after(0, plain)
-                except Exception: pass
-                return
-            rows, notes, tip = rv
-            log('post game: %s | %s | tip: %s' % (
-                ' | '.join('%s %s/%s/%s apm %s vils15 %s' % (r[0], *[mmss(x) if x is not None else '-' for x in r[2:5]], r[5], r[6]) for r in rows),
-                ' | '.join(t for t, _ in notes), tip))
-            def show():
-                if st.get('last') is not None or not card_an.winfo_children(): return   # a new game, or closed
-                calm(an_render)(notes + ([(tip, GOLDD)] if tip else []), rows)
-            try: root.after(0, show)
-            except Exception: pass
-        threading.Thread(target=more, daemon=True).start()
-        an_render([(t, c) for t, c in lines_ if c == GOLDD][:0] + [('Reading the game\u2026', FAINT)])
-        card_an.grid()
-        if not card_word.cget('text') or st.get('card') is None:
-            card.config(highlightbackground=EDGE)
-            card_word.config(text='LAST GAME', fg=GOLDC); card_elo.config(text=''); card_line.config(text='')
-            card_line.grid_remove()
-        st['card'] = st.get('card') or 'post'
-        rec_line.config(text=''); rec_line.grid_remove()
-        if not st.get('rolled'): card.grid()
-
-    def pop_now():
-        """The pop just changed: move the build order and say the step now, not at the next tick."""
-        try:
-            if tcw.pop: bo_follow(tcw.pop[0]); an_pop(tcw.pop[0])
-            bo_voice_tick()
-        except Exception as e_:
-            log('build follow: %r' % (e_,))
     def bo_voice_set(on):
         """The speaker on the strip. On, it reads each step out as you reach it."""
         bo['voice'] = bool(on)
         cfg_ = load_settings(); cfg_['build_voice'] = bo['voice']; save_settings(cfg_)
         bo_voice_draw()
         if not on: VOICE.stop(); return
-        bo['said_set'] = set()                                   # say the step you are on now
+        bo['said'] = -1                                   # say the step you are on now
         if waiting_now[0] or not bo['voice_at'] or time.time() < bo['voice_at']:
             VOICE.say('Voice on')                          # so you know the sound works
-            bo['said_set'] = {bo['i']}                     # and the step is read when the game gets to it
 
     def bo_voice_tick():
         """Twice a second: read the step out the first time you reach it."""
@@ -7917,52 +6400,31 @@ def main():
         if not bo['voice_at'] or time.time() < bo['voice_at']: return
         found = build_by_name(bo['name'])
         if not found: return
-        if bo['done']:
-            if not bo['said_done']: bo['said_done'] = True; VOICE.say(BO_DONE)
-            return
-        steps = found[2]
-        said = bo.setdefault('said_set', set())
-        i = max(0, min(bo['i'], len(steps) - 1))
-        if i not in said:                                  # the step on the strip, read out as it comes up
-            said.add(i); VOICE.say(spoken_step(steps[i][2]))
-            if i + 1 < len(steps): VOICE.prep(spoken_step(steps[i + 1][2]))   # the next one, ready to go
+        i = max(0, min(bo['i'], len(found[2]) - 1))
+        if i == bo['said']: return
+        bo['said'] = i
+        VOICE.say(spoken_step(found[2][i][2]))
 
-    def bo_fresh(at=None, force=False):
+    def bo_fresh(at=None):
         """Back to the first step for a new game. Called by the recording turning up and by the loading
         screen going, whichever is first: the second one within a couple of minutes changes nothing."""
         now = time.time()
-        if not force and now - bo['game_t'] < 120:
+        if now - bo['game_t'] < 120:
             if at and not bo['voice_at']: bo['voice_at'] = at
             return
         bo['game_t'] = now
-        bo['i'] = 0; bo['pop'] = 0; bo['said_set'] = set(); bo['view'] = None; bo['voice_at'] = at
-        bo['done'] = False; bo['done_t'] = 0; bo['said_done'] = False; bo['pop_t'] = now
-        if bo['voice'] and bo['name']:
-            VOICE.warm()
-            try:
-                found_ = build_by_name(bo['name'])
-                if found_: VOICE.prep(spoken_step(found_[2][0][2]))      # the first line, ready
-            except Exception: pass
+        bo['i'] = 0; bo['pop'] = 0; bo['said'] = -1; bo['view'] = None; bo['voice_at'] = at
+        if bo['voice'] and bo['name']: VOICE.warm()
         try: bo_draw()
         except Exception: pass
 
     def bo_loaded():
-        """The loading screen has gone, so the game clock is running now. Mid game the screen can
-        look like a loading screen for a moment; a big pop read in the last minute means it was not."""
-        p_ = getattr(tcw, 'pop', None)
-        if p_ and p_[0] > 10 and time.time() - getattr(tcw, 'pop_t', 0) < 60:
-            log('loading screen gone, but a game was already on: the build order carries on'); return
-        bo_fresh(time.time() + bo_voice_wait())
-
-    def bo_voice_wait():
-        found_ = build_by_name(bo['name'])
-        return voice_start_s(found_[2] if found_ else [])
+        """The loading screen has gone, so the game clock is running now."""
+        bo_fresh(time.time() + VOICE_START_S)
 
     def bo_game_start(f):
         """A new game: the build starts again, and the voice waits until the clock has run a bit."""
-        bo_fresh(force=True)
-        an_start()
-        wait_ = bo_voice_wait()
+        bo_fresh()
         def work():
             try:
                 fresh = time.time() - os.path.getctime(f) <= 40       # not opened part way through
@@ -7971,9 +6433,9 @@ def main():
                     for _ in range(120):              # the recording grows once the game clock runs
                         if os.path.getsize(f) > size0: break
                         time.sleep(0.25)
-                at = time.time() + (wait_ if fresh else min(wait_, 3))
+                at = time.time() + (VOICE_START_S if fresh else 3)
             except OSError:
-                at = time.time() + wait_
+                at = time.time() + VOICE_START_S
             def go():
                 if st.get('last') == f and not bo['voice_at']: bo['voice_at'] = at
             root.after(0, go)
@@ -7983,9 +6445,8 @@ def main():
     rec_line.grid(row=4, column=0, columnspan=4, sticky='w', pady=(3, 0)); rec_line.grid_remove()
 
     # the card that goes up once the service confirms how the last game went
-    card = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=8)
-    # room under it too, so its bottom edge never runs into the panel's corner trim
-    card.grid(row=4, column=0, columnspan=4, sticky='we', pady=(8, 8)); card.grid_remove()
+    card = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=RIM, padx=10, pady=7)
+    card.grid(row=4, column=0, columnspan=4, sticky='we', pady=(8, 0)); card.grid_remove()
     card.columnconfigure(1, weight=1)
     card_word = tk.Label(card, text='', fg=GREEN, bg=PANEL, font=(DISPLAY, 11, 'bold'), anchor='w')
     card_word.grid(row=0, column=0, sticky='w')
@@ -7994,14 +6455,12 @@ def main():
     card_line = tk.Label(card, text='', fg=TXT, bg=PANEL, font=F_SMALL, anchor='w', justify='left',
                          wraplength=PANEL_W - 24)
     card_line.grid(row=1, column=0, columnspan=2, sticky='w', pady=(3, 0))
-    card_an = tk.Frame(card, bg=PANEL)                    # the post game notes, under the result
-    card_an.grid(row=2, column=0, columnspan=2, sticky='we', pady=(5, 0)); card_an.grid_remove()
     # the score line: how your side's total compares, and the flag when the game looks gone
-    score_line = tk.Label(frame, text='', fg=MUT, bg=PANEL, font=F_SMALL, anchor='w', padx=9, pady=4,
-                          justify='left', wraplength=PANEL_W - 24, highlightthickness=1, highlightbackground=EDGE)
-    score_line.grid(row=5, column=0, columnspan=4, sticky='we', pady=(6, 0)); score_line.grid_remove()
-    opp_area = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=6)
-    opp_area.grid(row=6, column=0, columnspan=4, sticky='we'); opp_area.grid_remove()
+    score_line = tk.Label(frame, text='', fg=MUT, bg=BG, font=F_SMALL, anchor='w', pady=1,
+                          justify='left', wraplength=PANEL_W)
+    score_line.grid(row=5, column=0, columnspan=4, sticky='we', pady=(3, 0)); score_line.grid_remove()
+    opp_area = tk.Frame(frame, bg=BG)
+    opp_area.grid(row=6, column=0, columnspan=4, sticky='we')
 
     # footer: the one action, with the hint that only appears while the mouse is over the overlay
     footsep = Rule(frame)
@@ -8013,12 +6472,12 @@ def main():
     # so with no game on the whole panel is one row. The row below it only appears when the
     # button has something to say.
     btn_plate = tk.Frame(head, bg=RIM, padx=1, pady=1)           # dark edge around the bronze face
-    host_btn = tk.Label(btn_plate, text='Ranked invite', fg='#2a2113', bg=GOLD, font=(DISPLAY, 9, 'bold'),
+    host_btn = tk.Label(btn_plate, text='Ranked party invite', fg='#2a2113', bg=GOLD, font=(DISPLAY, 9, 'bold'),
                         padx=8, pady=3, cursor='hand2')
     host_btn.pack()
     host_btn.bind('<Enter>', lambda e: host_btn.cget('bg') == GOLD and host_btn.config(bg=GOLDD), add='+')
     host_btn.bind('<Leave>', lambda e: host_btn.cget('bg') == GOLDD and host_btn.config(bg=GOLD), add='+')
-    btn_plate.grid(row=0, column=2, sticky='e', padx=(6, 2))
+    btn_plate.grid(row=0, column=2, sticky='e', padx=(8, 2))
     state.grid_remove()                                          # the app opens with no game on
     hint = tk.Label(host_row, text='drag to move  \u00b7  click the name to roll up  \u00b7  W/L for your record', fg=FAINT, bg=BG,
                     font=F_TINY, anchor='e', justify='right', wraplength=PANEL_W - 20)
@@ -8045,120 +6504,6 @@ def main():
     except Exception:
         px, py = 20, 120
     root.geometry('+%d+%d' % (px, py))
-    OV_W = PANEL_W + 2 * 12 + 2 + 4        # the panel, its padding, its edge and the bronze rim
-    _hold = {'hwnd': None, 'short': 0.0, 'said': 0.0}
-    def repaint():
-        """Have Windows draw the whole overlay now, every part of it, so a resize never leaves a
-        black strip or a part still drawn where it used to be."""
-        try:
-            import ctypes as _ct
-            u_ = _ct.windll.user32
-            if not _hold['hwnd']:
-                u_.GetAncestor.restype = _ct.c_void_p
-                _hold['hwnd'] = u_.GetAncestor(root.winfo_id(), 2)
-            u_.RedrawWindow(_ct.c_void_p(_hold['hwnd']), None, None, 0x0001 | 0x0004 | 0x0080 | 0x0100 | 0x0400)
-        except Exception:
-            pass
-    def refit():
-        try:
-            frame.pack_configure(fill='both', expand=True, padx=2, pady=2)   # re-lays it out to the window
-            root.update_idletasks()
-        except tk.TclError:
-            pass
-    def hold_now():
-        # the height everything inside asks for: the panel's own request (plus its 2px margin),
-        # or the window's, whichever is more
-        h_ = max(root.winfo_reqheight(), frame.winfo_reqheight() + 4)
-        if root.winfo_width() != OV_W or root.winfo_height() != h_:
-            root.geometry('%dx%d' % (OV_W, h_))
-            root.update_idletasks()
-            refit()
-            repaint()
-        elif frame.winfo_height() + 4 < h_ - 1:
-            # Windows did not tell Tk the window had grown, so the panel was left at the old size
-            # with the bottom cut off (seen in the log as 'overlay squeezed'): lay it out again
-            refit(); repaint()
-        # anything still squeezed for more than a second gets written down, to find out why
-        now_ = time.time()
-        if frame.winfo_height() + 1 < frame.winfo_reqheight():
-            if not _hold['short']: _hold['short'] = now_
-            elif now_ - _hold['short'] > 1 and now_ - _hold['said'] > 60:
-                _hold['said'] = now_
-                log('overlay squeezed: window %dx%d (asks %d), panel %d (asks %d)' % (
-                    root.winfo_width(), root.winfo_height(), root.winfo_reqheight(),
-                    frame.winfo_height(), frame.winfo_reqheight()))
-        else:
-            _hold['short'] = 0.0
-    # Changes in one piece. When a part of the overlay is rebuilt (the opponents, the build order
-    # step, a section opening or closing), the new layout and the new window size are worked out
-    # and applied together, straight away, rather than the size catching up a moment later. That
-    # moment was the text hanging below the edge and the black strip while it grew.
-    _calm = {'n': 0}
-    _fx = {'n': 0}
-    def overlay_fade(frm=0.0, ms=150):
-        """Ease the overlay up from see-through to its usual look over a few frames."""
-        _fx['n'] += 1; me_ = _fx['n']
-        st['fading'] = True; st['alpha'] = None          # hover_fade waits, then sets it fresh
-        steps = 8
-        def step(i):
-            if _fx['n'] != me_: return                   # a newer fade took over
-            try:
-                px_, py_ = root.winfo_pointerxy()
-                inside = (root.winfo_rootx() <= px_ < root.winfo_rootx() + root.winfo_width() and
-                          root.winfo_rooty() <= py_ < root.winfo_rooty() + root.winfo_height())
-                to = 0.97 if inside else 0.88
-                t = i / float(steps); e = 1 - (1 - t) ** 3                 # quick start, soft landing
-                root.attributes('-alpha', frm + (to - frm) * e)
-                if i >= steps:
-                    st['alpha'] = to; st['fading'] = False; return
-                root.after(max(10, ms // steps), lambda: step(i + 1))
-            except Exception:
-                st['fading'] = False                     # never leave it half see-through
-        step(0)
-    def calm(fn, hide=False):
-        # hide=True: a part that is rebuilt in several passes (the opponents, the game starting or
-        # ending), so it goes out of sight before the first pass, not after
-        def run_(*a, **k):
-            if _calm['n']: return fn(*a, **k)              # already inside one: the outer one sizes it
-            _calm['n'] += 1
-            hid = False
-            try:
-                h0 = root.winfo_height()
-                try: shown = bool(root.winfo_viewable())
-                except tk.TclError: shown = False
-                if hide and shown:
-                    try: root.attributes('-alpha', 0.0); hid = True
-                    except tk.TclError: pass
-                r_ = fn(*a, **k)
-                try:
-                    root.update_idletasks()
-                    # A part opening or closing: hide the overlay for the instant it takes to lay
-                    # the new shape out and draw it (that instant was the overlap and the black
-                    # strip), then ease it back in. Small changes, like the next build step, just swap.
-                    h1 = max(root.winfo_reqheight(), frame.winfo_reqheight() + 4)
-                    if not hid and shown and abs(h1 - h0) > 14:
-                        root.attributes('-alpha', 0.0); hid = True
-                    hold_now(); root.update_idletasks(); repaint()
-                except Exception: pass
-            finally:
-                _calm['n'] -= 1
-                if hid: overlay_fade(0.2, 140)
-            return r_
-        return run_
-    def hold_size():
-        # One width, always: the overlay never jumps sideways as things come and go. Anything
-        # wider than that wraps (or, at worst, is cut at the edge). Only the height follows.
-        # Straight to the new height in one go: every resize makes Windows redraw the whole
-        # see-through window, so it happens once, not over several frames.
-        try:
-            hold_now()
-        except Exception as e:
-            if not _hold.get('err'): _hold['err'] = 1; log('overlay size: %r' % (e,))
-        try: root.after(16, hold_size)              # never stops, whatever happened above
-        except Exception: pass
-    root.geometry('%dx%d' % (OV_W, root.winfo_reqheight()))
-    root.after(20, hold_size)
-    bo_draw = calm(bo_draw); idle_size = calm(idle_size, True)
     st = {'drag': None, 'last': None, 'actions': {}, 'shift': False,
           'first': None, 'herd': None, 'extra': 0}
     root.update_idletasks()
@@ -8250,16 +6595,13 @@ def main():
 
     def tc_pulse():
         """Flash whatever is up (silently), each strip between its own two shades."""
-        try:
-            if tc['win'] is not None and tc['win'].winfo_viewable():
-                tc['flash'] ^= 1
-                tc['label'].config(bg=TC_RED[tc['flash']]); tc['sub'].config(bg=TC_RED[tc['flash']])
-                tc['house'].config(bg=TC_BLUE[tc['flash']])
-                tc['note'].config(bg=TC_GOLD[tc['flash']])
-            if tc.get('note_until') and time.time() >= tc['note_until']:
-                tc['note_until'] = 0; tc_draw()         # the reminder has had its few seconds
-        except Exception as e_:
-            if not st.get('pulse_err'): st['pulse_err'] = 1; log('tc pulse: %r' % (e_,))
+        if tc['win'] is not None and tc['win'].winfo_viewable():
+            tc['flash'] ^= 1
+            tc['label'].config(bg=TC_RED[tc['flash']]); tc['sub'].config(bg=TC_RED[tc['flash']])
+            tc['house'].config(bg=TC_BLUE[tc['flash']])
+            tc['note'].config(bg=TC_GOLD[tc['flash']])
+        if tc.get('note_until') and time.time() >= tc['note_until']:
+            tc['note_until'] = 0; tc_draw()         # the reminder has had its few seconds
         try:
             if tcw.pop: bo_follow(tcw.pop[0])
         except Exception: pass
@@ -8289,19 +6631,14 @@ def main():
         nudge to check the two buildings it needs. If the food can't be read off the screen, it falls
         back to 17 minutes. Not if you are already in Castle Age, and only once a game."""
         if st.get('last') is None or st.get('castle_note') or not tcw.active: return
-        if time.time() - st.get('watch_t', 0) < 60: return       # just opened, or just restarted: look first
         want = reminders(); food_at = want['castle_food']
         mins = tcw.game_minutes(time.time())
         if mins < CASTLE_NOTE_MIN: return
         food = getattr(tcw, 'food', None)
-        pop = tcw.pop[0] if tcw.pop else None
         if food is not None and food < food_at: return
-        # No food reading to go on: 17 minutes, but only with an economy that could be clicking up.
-        # (Without the game clock the minutes are a guess that counts pauses, so the pop decides.)
-        if food is None and (mins < CASTLE_NOTE_LATE or pop is None or pop < 22): return
+        if food is None and mins < CASTLE_NOTE_LATE: return
         st['castle_note'] = True
         if tcw.age >= 3 or not want['castle']: return
-        if st.get('ended') and st.get('ended') == st.get('last'): return     # that game has finished
         log('castle reminder shown (food %s, %.1f min)' % (food, mins))
         tc_note(('%d FOOD' % food_at if food is not None else '%d MIN' % CASTLE_NOTE_LATE)
                 + '  \u00b7  2 BUILDINGS FOR CASTLE AGE?')
@@ -8389,8 +6726,6 @@ def main():
     def tc_notify(state, where):
         def go():
             tc['state'] = state
-            try: an_state(state)
-            except Exception: pass
             if where:
                 import ctypes
                 tc['where'] = (where[0], where[1], ctypes.windll.user32.GetSystemMetrics(0))
@@ -8404,7 +6739,6 @@ def main():
     tcw = TCWatcher(strings, tc_notify)
     tcw.enabled = True
     tc_settings()
-    tcw.on_pop = lambda: root.after(0, pop_now)       # the build order moves the moment the pop does
     tcw.start(); tc_pulse()
     watcher.on_lines = tcw.message_lines
 
@@ -8413,19 +6747,26 @@ def main():
         """The 'Red found' note sits on the score's line, over on the right. When the two do not
         fit side by side, or the red concede bar has the line, it takes the line above instead."""
         if ' found' not in rec_line.cget('text') or st.get('rolled'): return
-        rec_line.grid(row=4, column=0, columnspan=4, sticky='w', pady=(3, 0))   # its own line, under the build order
+        beside = bool(score_line.winfo_manager()) and score_line.cget('bg') == BG
+        if beside:
+            frame.update_idletasks()
+            beside = score_line.winfo_reqwidth() + rec_line.winfo_reqwidth() + 12 <= 400
+        rec_line.grid(row=4 if beside else 3, column=0, columnspan=4, sticky='e' if beside else 'w', pady=(3, 0))
+        rec_line.lift()                               # the score's label runs the full width under it
 
     def score_notify(mine_, theirs, behind, flag):
         def go():
             if mine_ is None or st.get('last') is None:
                 score_line.config(text=''); score_line.grid_remove(); place_found(); return
             pct = int(round(abs(behind) * 100))
-            nums = '{:,} v {:,}'.format(mine_, theirs)          # short, so the bar stays on one line
+            nums = '{:,} against {:,}'.format(mine_, theirs)
             if flag:
                 score_line.config(text=' CONCEDE AVAILABLE  \u00b7  %d%% behind  \u00b7  %s ' % (pct, nums),
                                   fg='white', bg='#b3261e', font=(DISPLAY, 9, 'bold'))
-            else:                                     # only the concede flag earns a line; the plain score is not shown
-                score_line.config(text=''); score_line.grid_remove(); place_found(); return
+            else:
+                where = 'level' if pct == 0 else '%d%% %s' % (pct, 'behind' if behind > 0 else 'ahead')
+                score_line.config(text='Score   %s   \u00b7   %s' % (nums, where), bg=BG, font=F_SMALL,
+                                  fg=REDC if behind > CONCEDE_BEHIND else MUT)
             if not st.get('rolled'): score_line.grid()
             place_found()
         try: root.after(0, go)
@@ -8437,402 +6778,6 @@ def main():
     def score_off():
         scorew.active = False
         score_line.config(text=''); score_line.grid_remove()
-
-    # ---- beta: where their Town Centre could be, as a ring on your minimap
-    # On the usual maps every player starts the same distance from the middle of the map. So once
-    # your own Town Centre is on the minimap (it is, from the first second), a ring through it round
-    # the middle of the map shows every spot their Town Centre could be. Nothing about them is read:
-    # only your own start and the shape of the map, which you already know. Like the TC Map Orbit mod.
-    orbit = {'win': None, 'game': None, 'box': None, 'searching': None, 'done': None,
-             'fits': {}, 'fit': None, 'snap': 0}
-    ORBIT_KEY = '#010203'
-    def orbit_off():
-        w_ = orbit.get('win'); orbit['win'] = None; orbit['game'] = None
-        orbit['canvas'] = None; orbit['segs'] = []; orbit['hid'] = set()
-        if w_ is not None:
-            try: w_.destroy()
-            except tk.TclError: pass
-    def orbit_show(box, cx, cy, a, b, k, arc=None):
-        """Draw the ring: an ellipse on the minimap's diamond, through your Town Centre. arc is
-        (from, length) in degrees round the map: in team games only the enemy's side is drawn."""
-        orbit_off()
-        bx, by, bw, bh = box
-        try:
-            w_ = tk.Toplevel(root); w_.overrideredirect(True); w_.attributes('-topmost', True)
-            try: w_.attributes('-transparentcolor', ORBIT_KEY)
-            except tk.TclError: w_.destroy(); return
-            w_.geometry('%dx%d+%d+%d' % (bw, bh, bx, by))
-            c_ = tk.Canvas(w_, width=bw, height=bh, bg=ORBIT_KEY, highlightthickness=0); c_.pack()
-            ra, rb = a * k, b * k
-            # drawn in short pieces so each piece can go once you've explored the ground under it:
-            # their TC can't be anywhere you've already seen
-            import math
-            n_ = max(48, int(2 * math.pi * ((ra * ra + rb * rb) / 2.0) ** 0.5 / 6))
-            n_ += n_ % 2
-            pts_ = [(cx + ra * math.cos(2 * math.pi * i / n_), cy + rb * math.sin(2 * math.pi * i / n_)) for i in range(n_ + 1)]
-            segs_ = []; off_ = set()
-            for i in range(n_):
-                (x1, y1), (x2, y2) = pts_[i], pts_[i + 1]
-                if arc and (360.0 * (i + 0.5) / n_ - arc[0]) % 360.0 > arc[1]:
-                    segs_.append(([], (0, 0), (0, 0))); off_.add(i); continue    # your team's side: not drawn
-                ids_ = [c_.create_line(x1, y1, x2, y2, fill='#1a1206', width=4, capstyle='round')]   # a dark edge so it reads on any ground
-                ids_.append(c_.create_line(x1, y1, x2, y2, fill='#f2e2a8', width=2, capstyle='round'))   # solid
-                # where to look for explored ground: just inside and just outside this piece, not
-                # under it, since the ring itself now shows up in screen grabs (and screenshots)
-                tm_ = 2 * math.pi * (i + 0.5) / n_
-                mx_, my_ = cx + ra * math.cos(tm_), cy + rb * math.sin(tm_)
-                nx_, ny_ = math.cos(tm_) / max(ra, 1), math.sin(tm_) / max(rb, 1)
-                nl_ = (nx_ * nx_ + ny_ * ny_) ** 0.5 or 1
-                nx_, ny_ = nx_ / nl_ * 5, ny_ / nl_ * 5
-                segs_.append((ids_, (mx_ - nx_, my_ - ny_), (mx_ + nx_, my_ + ny_)))
-            orbit['canvas'] = c_; orbit['segs'] = segs_; orbit['hid'] = off_
-            w_.update_idletasks()
-            try:
-                import ctypes
-                u_ = ctypes.windll.user32
-                h_ = u_.GetParent(w_.winfo_id()) or w_.winfo_id()
-                u_.SetWindowLongW(h_, -20, u_.GetWindowLongW(h_, -20) | 0x20 | 0x80 | 0x08000000 | 0x80000)
-                # left visible to screenshots, so you can show it; Wingman's own reads look beside it
-            except Exception:
-                pass
-            orbit['win'] = w_; orbit['game'] = st.get('last')
-        except tk.TclError:
-            pass
-    def orbit_team_arc(bgr, np, cx, cy, a, b, px, py, xs, ys):
-        """Team games: where your teammates start (you see their bases from the off), and so which
-        side of the ring the enemy is on. Players go round the map evenly spaced with each team
-        side by side, so the enemy fills the gap your team leaves. (from, length) in degrees, or None."""
-        import math
-        allies, n_pl = st.get('ally_colours') or [], st.get('n_players') or 2
-        if not allies or n_pl < 3: return None
-        cols = minimap_colours()
-        inner_ = (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 0.97
-        def ang(x_, y_): return math.degrees(math.atan2((y_ - cy) / b, (x_ - cx) / a)) % 360.0
-        team = [ang(px, py)]
-        w_ = max(4, int(round(a / 10.0)))
-        for ci in allies:
-            col = cols.get(ci)
-            if not col: return None
-            m = (np.abs(bgr.astype(np.int16) - np.array([col[2], col[1], col[0]], dtype=np.int16)).sum(axis=2) <= 34) & inner_
-            if int(m.sum()) < 8:
-                log('tc ring: teammate colour %s not on the minimap yet, so the whole ring' % ci); return None
-            ii = np.pad(m.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
-            bs = ii[w_:, w_:] - ii[:-w_, w_:] - ii[w_:, :-w_] + ii[:-w_, :-w_]
-            ty, tx = np.unravel_index(int(bs.argmax()), bs.shape)
-            sy, sx = np.nonzero(m[max(0, ty - w_):ty + 2 * w_, max(0, tx - w_):tx + 2 * w_])
-            ax_, ay_ = max(0, tx - w_) + sx.mean(), max(0, ty - w_) + sy.mean()
-            if ((ax_ - cx) / a) ** 2 + ((ay_ - cy) / b) ** 2 < 0.01: return None    # right in the middle: no angle
-            team.append(ang(ax_, ay_))
-        step = 360.0 / n_pl
-        t_ = sorted(team)
-        gaps = [((t_[(i + 1) % len(t_)] - t_[i]) % 360.0, i) for i in range(len(t_))]
-        gap, gi = max(gaps)
-        span = 360.0 - gap
-        if span > (len(team) - 1) * step + step * 0.6:
-            log('tc ring: your team is spread round the map (not placed together), so the whole ring'); return None
-        start = (t_[gi] + step / 2.0) % 360.0                 # just past the last of your team...
-        length = gap - step                                   # ...to just before the first
-        if length < step * 0.5: return None
-        log('tc ring: your team at %s degrees, so the enemy side is %d to %d' % (
-            ', '.join('%d' % v for v in team), start, (start + length) % 360))
-        return (start, length)
-    def orbit_find(colour_idx, game):
-        """Off the main thread: find your own colour on the minimap a few seconds in (your Town
-        Centre, villagers and scout are all still round it), and work out the ring."""
-        log('tc ring: looking for your start on the minimap (colour %s)' % colour_idx)
-        try:
-            orbit_find_(colour_idx, game)
-        finally:
-            orbit['searching'] = None
-    def orbit_find_(colour_idx, game):
-        seen = {'front': 0, 'few': 0}
-        try:
-            if not ensure_numpy(): return
-            import numpy as np
-            col = minimap_colours().get(colour_idx)
-            if not col: log('tc ring: no minimap colour for you'); return
-            grab = _grabber()
-            for attempt in range(20):
-                time.sleep(1 if attempt < 3 else 3)              # soon: the camera starts on your TC
-                if st.get('last') != game: return               # that game is over
-                h_ = find_game_window()
-                if not h_ or _win()[2].GetForegroundWindow() != h_:
-                    seen['front'] += 1; continue
-                x, y, w, hh = client_rect(h_)
-                box = minimap_rect(w, hh)
-                if not box: log('tc ring: could not find the minimap'); return
-                bx, by, bw, bh = box
-                PAD = 0.06
-                cx, cy = bw / 2.0, bh / 2.0
-                a, b = bw / (2 * (1 + 2 * PAD)), bh / (2 * (1 + 2 * PAD))
-                # only what is on the screen: past its edge a grab comes back black, which would
-                # look just like unexplored map
-                if bx < 0: cx += bx; bw += bx; bx = 0
-                if by < 0: cy += by; bh += by; by = 0
-                bw, bh = min(bw, w - bx), min(bh, hh - by)
-                if bw < 60 or bh < 30: log('tc ring: the minimap is off the screen'); return
-                raw, gw, gh = grab((x + bx, y + by, bw, bh, 1))
-                bgr = np.frombuffer(raw, dtype=np.uint8).reshape(gh, gw, 4)[:, :, :3].astype(np.int16)
-                how = 'layout'
-                # The map itself, off the screen rather than the layout file (mods move and resize it).
-                # Best: its gold edge line, there whatever the map looks like.
-                gd = minimap_gold_diamond(bgr, np)
-                if gd and gd[4] >= 0.5:
-                    cx, cy = gd[0], gd[1]
-                    a, b = gd[2] * (1 - 0.0135), gd[3] * (1 - 0.017)    # the map starts just inside the line
-                    how = 'gold edge'
-                    fit_ = (round(cx + bx, 1), round(cy + by, 1), round(a, 1), round(b, 1))
-                    orbit['fits'][(w, hh)] = fit_
-                    try:                                         # kept for next time, in case that look fails
-                        c_ = load_settings(); fs_ = dict(c_.get('tc_map_fit') or {})
-                        if fs_.get('%dx%d' % (w, hh)) != list(fit_):
-                            fs_['%dx%d' % (w, hh)] = list(fit_); c_['tc_map_fit'] = fs_; save_settings(c_)
-                    except Exception: pass
-                elif (w, hh) in orbit['fits'] or '%dx%d' % (w, hh) in (load_settings().get('tc_map_fit') or {}):
-                    # the edge didn't show this time (something over it): the map is the same shape
-                    # on this screen as the last time it did
-                    fx, fy, a, b = orbit['fits'].get((w, hh)) or load_settings()['tc_map_fit']['%dx%d' % (w, hh)]
-                    cx, cy = fx - bx, fy - by; how = 'last good look'
-                else:
-                    # Next: everything you have not explored is pure black, so the black diamond's
-                    # far corners are the map's corners
-                    blk = bgr.max(axis=2) < 14
-                    def run_(counts, need):
-                        best_, cur_, start_ = (0, 0, 0), 0, 0
-                        for i_, c_ in enumerate(counts.tolist()):
-                            if c_ >= need:
-                                if cur_ == 0: start_ = i_
-                                cur_ += 1
-                                if cur_ > best_[0]: best_ = (cur_, start_, i_)
-                            else:
-                                cur_ = 0
-                        return best_
-                    if int(blk.sum()) > 2000:
-                        rr = run_(blk.sum(axis=1), 3); cc = run_(blk.sum(axis=0), 3)
-                        if rr[0] > 20 and cc[0] > 40:
-                            y0_, y1_, x0_, x1_ = rr[1], rr[2], cc[1], cc[2]
-                            a2, b2 = (x1_ - x0_) / 2.0, (y1_ - y0_) / 2.0
-                            if 1.6 < a2 / max(b2, 1) < 2.4 and a2 > bw * 0.25:
-                                cx, cy, a, b = (x0_ + x1_) / 2.0, (y0_ + y1_) / 2.0, a2, b2
-                                how = 'screen'
-                    if how == 'layout' and (w, hh) in orbit['fits']:
-                        fx, fy, a, b = orbit['fits'][(w, hh)]       # what the gold edge showed last time
-                        cx, cy = fx - bx, fy - by; how = 'last good look'
-                m = (np.abs(bgr - np.array([col[2], col[1], col[0]], dtype=np.int16)).sum(axis=2) <= 34)
-                ys, xs = np.mgrid[0:gh, 0:gw]
-                m &= (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 0.97       # inside the map, not beside it
-                if int(m.sum()) < 8:
-                    seen['few'] += 1
-                    if seen['few'] == 3: log('tc ring: only %d pixels in your colour %s on the minimap so far' % (int(m.sum()), col))
-                    continue
-                # Your Town Centre. The game opens with the camera on it, and the minimap draws the
-                # camera as a white box, so look inside that box (if your colour is in it, in case
-                # you have already looked away). Then the most solid block of your colour there:
-                # the TC is your biggest building; villagers are dots and walls (Arena) thin lines.
-                tc_how = 'colour'
-                inside_ = (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 1.0
-                # Best of all at the start: the only ground you have seen is what your TC, villagers
-                # and scout can see, and the TC sees furthest, so it sits in the middle of that
-                # patch.
-                # (Not the game's own rings or the camera box: gold and white aren't ground.)
-                inner_ = (np.abs(xs - cx) / a + np.abs(ys - cy) / b) <= 0.97
-                Bc, Gc, Rc = bgr[:, :, 0], bgr[:, :, 1], bgr[:, :, 2]
-                goldish = (Rc > 150) & (Gc * 100 > Rc * 65) & (Gc * 100 < Rc * 90) & (Bc < 110)   # not orange or yellow players
-                seen_ = inner_ & (bgr.max(axis=2) >= 14) & ~goldish & ~(bgr.min(axis=2) > 200)
-                r_ = max(2, int(round(a / 75.0)))                   # shave the edges off: thin lines (rings,
-                pad_ = np.pad(seen_, r_); core_ = np.ones_like(seen_)  # tracks) go, the patch stays
-                for dy_ in range(-r_, r_ + 1):
-                    for dx_ in range(-r_, r_ + 1):
-                        core_ &= pad_[r_ + dy_:r_ + dy_ + gh, r_ + dx_:r_ + dx_ + gw]
-                wh = (bgr.min(axis=2) > 200) & inside_
-                mm = m; cam_c = None
-                rows_ = np.nonzero(wh.sum(axis=1) >= 15)[0]; cols_ = np.nonzero(wh.sum(axis=0) >= 8)[0]
-                if len(rows_) >= 2 and len(cols_) >= 2:
-                    t_, b_, l_, r_ = rows_.min(), rows_.max(), cols_.min(), cols_.max()
-                    vw, vh = r_ - l_, b_ - t_
-                    if 15 <= vw <= a and 8 <= vh <= b and 1.1 < vw / float(max(vh, 1)) < 3.0 \
-                            and int(m[t_:b_ + 1, l_:r_ + 1].sum()) >= 8:
-                        keep = np.zeros_like(m)
-                        keep[max(0, t_ - 3):b_ + 4, max(0, l_ - 3):r_ + 4] = True
-                        mm = m & keep; tc_how = 'camera'
-                        cam_c = ((l_ + r_) / 2.0, (t_ + b_) / 2.0)   # the game opens with the camera on your TC
-                w_ = max(3, int(round(a / 32.0)))                   # about the size a TC is drawn
-                ii = np.pad(mm.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
-                box_sum = ii[w_:, w_:] - ii[:-w_, w_:] - ii[w_:, :-w_] + ii[:-w_, :-w_]
-                ty, tx = np.unravel_index(int(box_sum.argmax()), box_sum.shape)
-                y0_, x0_ = max(0, ty - w_), max(0, tx - w_)         # the whole building, not just the window
-                sy_, sx_ = np.nonzero(mm[y0_:ty + 2 * w_, x0_:tx + 2 * w_])
-                px, py = float(x0_ + sx_.mean()), float(y0_ + sy_.mean())
-                # Only your own patch of seen ground: in team games your teammates' ground shows too.
-                # Start where the camera opened (or your colour's busiest spot) and grow out through
-                # the seen ground that joins on to it, so the whole of your patch counts, however big
-                # (walled starts on some maps make it big), and nobody else's does.
-                sx0, sy0 = cam_c or (px, py)
-                all_seen = int(seen_.sum()) > int(inner_.sum()) * 0.5        # All Visible, or a game well under way
-                cy_, cx_ = np.nonzero(core_) if not all_seen else (np.array([]), np.array([]))
-                if len(cx_):
-                    d2_ = ((cx_ - sx0) / a) ** 2 + ((cy_ - sy0) / b) ** 2
-                    j_ = int(d2_.argmin())
-                    if d2_[j_] ** 0.5 <= 0.15:
-                        comp = np.zeros_like(core_); comp[cy_[j_], cx_[j_]] = True; n_ = 1
-                        for _g in range(400):
-                            g_ = comp.copy()
-                            g_[1:] |= comp[:-1]; g_[:-1] |= comp[1:]; g_[:, 1:] |= comp[:, :-1]; g_[:, :-1] |= comp[:, 1:]
-                            g_ &= core_; n2_ = int(g_.sum())
-                            comp = g_
-                            if n2_ == n_: break
-                            n_ = n2_
-                        # a teammate right next door can join on: then keep to the part round yours
-                        cols_ = minimap_colours(); mate_px = 0
-                        for ci_ in st.get('ally_colours') or []:
-                            c3 = cols_.get(ci_)
-                            if c3:
-                                mate_px += int(((np.abs(bgr - np.array([c3[2], c3[1], c3[0]], dtype=np.int16)).sum(axis=2) <= 34) & comp).sum())
-                        if mate_px >= 8:
-                            comp &= (((xs - sx0) / (a / 6.0)) ** 2 + ((ys - sy0) / (b / 6.0)) ** 2) <= 1.0
-                        if 30 <= int(comp.sum()) <= int(inner_.sum()) * 0.15:      # not 'All Visible', or most of the map seen
-                            # the middle of the patch: your villagers stand round the TC, and on some
-                            # minimap styles the TC isn't drawn any bigger than them, so no snapping
-                            px, py = float(xs[comp].mean()), float(ys[comp].mean())
-                            tc_how = 'ground you can see' + (' (teammate next door)' if mate_px >= 8 else '')
-                k = ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2
-                k = k ** 0.5
-                # Same distance out as you, unless the map script says starts vary (Arabia 1v1: each
-                # player 27-39% out). Then the ring goes at the script's usual distance instead, since
-                # where you landed says nothing about where they did.
-                circ_ = st.get('circle'); why_ = 'same distance out as you'
-                if circ_ and circ_[2] > 2:                          # a point or two either way: yours is still the best guide
-                    k_own = k
-                    k = (circ_[0] + circ_[1]) / 2.0 * (2 ** 0.5) / 100.0       # % of the map's width, as a share of the way to a corner
-                    reach_ = 2 * circ_[2] * (2 ** 0.5) / 100.0                # can't be further from yours than both spreads
-                    k = min(max(k, k_own - reach_), k_own + reach_)
-                    why_ = 'the map puts starts %g-%g%% out, you were %.2f' % (
-                        (circ_[0] + circ_[1]) / 2.0 - circ_[2], (circ_[0] + circ_[1]) / 2.0 + circ_[2], k_own)
-                try:                                             # a picture of what it saw, to check it by
-                    from PIL import Image, ImageDraw
-                    im_ = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1].astype(np.uint8)))
-                    d_ = ImageDraw.Draw(im_)
-                    for kk_ in (k,):
-                        d_.ellipse((cx - a * kk_, cy - b * kk_, cx + a * kk_, cy + b * kk_), outline=(242, 226, 168))
-                    d_.polygon([(cx - a, cy), (cx, cy - b), (cx + a, cy), (cx, cy + b)], outline=(80, 160, 255))
-                    d_.rectangle((px - 3, py - 3, px + 3, py + 3), outline=(255, 0, 255))
-                    os.makedirs(TC_DEBUG, exist_ok=True)
-                    im_.resize((im_.width * 2, im_.height * 2)).save(os.path.join(TC_DEBUG, 'tc_ring.png'))
-                except Exception as e:
-                    log('tc ring picture: %r' % (e,))
-                if k < 0.1:
-                    log('tc ring: your start is right in the middle of the map, so no ring'); return
-                arc_ = None
-                try: arc_ = orbit_team_arc(bgr, np, cx, cy, a, b, px, py, xs, ys)
-                except Exception as e: log('tc ring: team side: %r' % (e,))
-                log('tc ring: your TC at %d,%d of the minimap (from the %s; box %d,%d %dx%d, map from the %s %d,%d %dx%d), ring %.2f of the way out (%s)'
-                    % (px, py, tc_how, x + bx, y + by, bw, bh, how, cx, cy, a, b, k, why_))
-                def put():
-                    if st.get('last') == game and load_settings().get('tc_orbit'):
-                        orbit_show((x + bx, y + by, bw, bh), cx, cy, a, b, k, arc_)
-                        orbit['fit'] = (x + bx, y + by, bw, bh, cx, cy, a, b, k)
-                        log('tc ring: drawn' if orbit.get('win') is not None else 'tc ring: could not draw it')
-                root.after(0, put)
-                return
-            log('tc ring: never saw your start on the minimap (game not in front %d times, too few pixels %d times)'
-                % (seen['front'], seen['few']))
-        except Exception as e:
-            log('tc ring: %r' % (e,))
-    def orbit_explored():
-        """Off the main thread: which bits of the ring now sit on ground you've explored.
-        Unexplored minimap is pure black, so anything else under a piece means you've seen it."""
-        try:
-            f = orbit.get('fit'); segs_ = orbit.get('segs') or []
-            if not f or not segs_ or not ensure_numpy(): return
-            import numpy as np
-            X, Y, W, H = f[:4]
-            raw, gw, gh = _grabber()((X, Y, W, H, 1))
-            bgr = np.frombuffer(raw, dtype=np.uint8).reshape(gh, gw, 4)[:, :, :3]
-            seen_ = (bgr.max(axis=2) >= 14) & ~(bgr.min(axis=2) > 200)    # not black; not the camera box
-            new_ = []
-            for i, (_ids, pin, pout) in enumerate(segs_):
-                if i in orbit['hid']: continue
-                got, n9 = 0, 0
-                for (mx, my) in (pin, pout):
-                    x0, y0 = int(round(mx)) - 1, int(round(my)) - 1
-                    if x0 < 0 or y0 < 0 or x0 + 3 > gw or y0 + 3 > gh: continue
-                    got += int(seen_[y0:y0 + 3, x0:x0 + 3].sum()); n9 += 9
-                if n9 and got >= n9 * 2 // 3: new_.append(i)
-            if new_:
-                c_ = orbit.get('canvas')
-                def hide():
-                    if orbit.get('canvas') is not c_ or c_ is None: return
-                    for i in new_:
-                        orbit['hid'].add(i)
-                        for id_ in segs_[i][0]:
-                            try: c_.itemconfigure(id_, state='hidden')
-                            except tk.TclError: pass
-                root.after(0, hide)
-        except Exception as e:
-            log('tc ring explored check: %r' % (e,))
-        finally:
-            orbit['checking'] = False
-    def orbit_snap():
-        """The ring can't be screenshotted (it stays out of captures), so every couple of minutes
-        Wingman saves its own picture: the minimap as it is now, with the ring drawn on."""
-        try:
-            f = orbit.get('fit')
-            if not f or not ensure_numpy(): return
-            import numpy as np
-            from PIL import Image, ImageDraw
-            X, Y, W, H, cx, cy, a, b, k = f
-            raw, gw, gh = _grabber()((X, Y, W, H, 1))
-            bgr = np.frombuffer(raw, dtype=np.uint8).reshape(gh, gw, 4)[:, :, :3]
-            im_ = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1]))
-            d_ = ImageDraw.Draw(im_)
-            import math
-            segs_ = orbit.get('segs') or []
-            n_ = len(segs_) or 1
-            for i in range(n_):
-                if i in orbit.get('hid', ()): continue                  # only what's still showing
-                t1, t2 = 2 * math.pi * i / n_, 2 * math.pi * (i + 1) / n_
-                d_.line((cx + a * k * math.cos(t1), cy + b * k * math.sin(t1), cx + a * k * math.cos(t2), cy + b * k * math.sin(t2)),
-                        fill=(242, 226, 168), width=2)
-            os.makedirs(TC_DEBUG, exist_ok=True)
-            im_.resize((im_.width * 2, im_.height * 2)).save(os.path.join(TC_DEBUG, 'tc_ring_now.png'))
-        except Exception as e:
-            log('tc ring picture: %r' % (e,))
-    def orbit_tick():
-        """Only over the game: hidden whenever something else is in front, gone when the game ends."""
-        try:
-            w_ = orbit.get('win')
-            if not load_settings_cached().get('tc_orbit'): orbit['done'] = None    # switched on again later: look again
-            if (w_ is None and st.get('last') and tcw.active and st.get('my_colour') is not None
-                    and tcw.game_minutes(time.time()) < 12
-                    and load_settings_cached().get('tc_orbit') and orbit.get('searching') != st['last']
-                    and orbit.get('done') != st['last']):
-                orbit['searching'] = orbit['done'] = st['last']   # one search per game (or per switching it on)
-                threading.Thread(target=orbit_find, args=(st['my_colour'], st['last']), daemon=True).start()
-            if w_ is not None and tcw.active and tcw.game_minutes(time.time()) >= 12:
-                orbit_snap(); log('tc ring: 12 minutes in, so it goes'); orbit_off(); w_ = None   # done == this game: not again
-            if w_ is not None:
-                if st.get('last') != orbit.get('game') or not load_settings_cached().get('tc_orbit'):
-                    if not load_settings_cached().get('tc_orbit'): orbit['done'] = None   # on again: look again
-                    orbit_off()
-                else:
-                    h_ = find_game_window()
-                    front = bool(h_) and _win()[2].GetForegroundWindow() == h_
-                    if front and not orbit.get('checking') and time.time() - orbit.get('chk', 0) > 1.5:
-                        orbit['chk'] = time.time(); orbit['checking'] = True
-                        threading.Thread(target=orbit_explored, daemon=True).start()
-                    if front and time.time() - orbit.get('snap', 0) > 120:
-                        orbit['snap'] = time.time()
-                        threading.Thread(target=orbit_snap, daemon=True).start()
-                    if front and not w_.winfo_viewable(): w_.deiconify(); w_.lift()
-                    elif not front and w_.winfo_viewable(): w_.withdraw()
-        except Exception:
-            pass
-        root.after(700, orbit_tick)
-    _SETC = {'t': 0, 'c': {}}
-    def load_settings_cached():
-        if time.time() - _SETC['t'] > 3: _SETC['c'], _SETC['t'] = load_settings(), time.time()
-        return _SETC['c']
-    root.after(2000, orbit_tick)
 
     def ping_at(x, y, colour):
         """A ring drawn on the screen over the spot on your minimap where the opponent turned up.
@@ -8890,7 +6835,7 @@ def main():
         """An opponent's colour has turned up on your own minimap for the first time."""
         def go():
             civ = (st.get('opp_civ') or {}).get(idx, '')
-            rec_line.config(text='%s found%s' % (label, ('   \u00b7   ' + civ) if civ else ''),
+            rec_line.config(text='\u25b8 %s found%s' % (label, ('   \u00b7   ' + civ) if civ else ''),
                             fg=name_colour(idx, GOLDC))
             rec_line.grid(); place_found()
             def clear():
@@ -8911,8 +6856,7 @@ def main():
         are never looked for, so your own units can never set it off."""
         st['opp_civ'] = {}
         targets = {}
-        # off unless switched on in Settings (a new name, so an old 'on' does not carry over)
-        if load_settings().get('scout_callout', False) and mine_p is not None:
+        if load_settings().get('scout_alert', True) and mine_p is not None:
             for pp in players:
                 if pp is mine_p: continue
                 if mine_p.get('team', 0) > 1 and pp.get('team') == mine_p.get('team'): continue
@@ -9082,10 +7026,7 @@ def main():
         boxes.append(win)
 
     def show_boxes(rect, phys_w, lines):
-        cfg_b = load_settings()
-        want_map = False                                        # the map tips panel: taken out, Ash did not like it
-        want_civ = cfg_b.get('civ_panel_loading', False)        # your opponent's civ, under it
-        if not (want_map or want_civ):
+        if not load_settings().get('loading_panels', False):
             st['boxes_ok'] = True; return          # the panels are switched off: nothing to draw or read
         st['boxes_ok'] = False                     # set once the panels are up with real players
         def go():
@@ -9126,13 +7067,13 @@ def main():
                     mname, mdesc = map_name_desc(maps, strings, lob['resolved'])
             if not mname and lines:
                 mname, mdesc = map_from_screen(maps, strings, lines)
-            st['boxes_ok'] = (not want_civ or bool(me_p)) and (not want_map or bool(mname))
-            if mname and want_map:
+            st['boxes_ok'] = bool(me_p) and bool(mname)
+            if mname:
                 map_rec = short_record([g for g in load_stats()['games'] if g.get('map') == mname])
                 tips_ = map_tips(mname)
                 make_box(green, GOLDC, mname, map_sections(mname, mdesc), tag='MAP', letter='M',
                          meta=[('Your record here: ' + map_rec) if map_rec else ''])
-            if opps and want_civ:
+            if opps:
                 team_game = len(players) > 2
                 def draw_red(elos):
                     for b_ in list(boxes):
@@ -9254,8 +7195,7 @@ def main():
 
     def hide_card():
         st['card'] = None
-        card.grid_remove(); card_an.grid_remove()
-        for w in card_an.winfo_children(): w.destroy()
+        card.grid_remove()
 
     def show_result_card(gid):
         """How the last game went, on the overlay, as soon as the service confirms it.
@@ -9273,7 +7213,7 @@ def main():
                             fmt_len(game_length(g)) if game_length(g) else '',
                             ' '.join(x for x in (g.get('size') or g.get('mode') or '',
                                                  'ranked' if g.get('ranked') else '') if x).strip()) if b]
-        card_line.config(text='   \u00b7   '.join(bits)); card_line.grid()
+        card_line.config(text='   \u00b7   '.join(bits))
         before, after = g.get('rating'), g.get('rating_after')
         if after and before:
             d = after - before
@@ -9286,8 +7226,7 @@ def main():
         st['card'] = gid
         rec_line.config(text=''); rec_line.grid_remove()
         if not st.get('rolled'): card.grid()
-        if not card_an.winfo_children():                  # just the result: it goes after a few minutes
-            root.after(180000, lambda: st.get('card') == gid and hide_card())
+        root.after(180000, lambda: st.get('card') == gid and hide_card())
     st['actions'][card] = hide_card
     st['actions'][card_word] = hide_card
     st['actions'][card_line] = hide_card
@@ -9310,15 +7249,12 @@ def main():
             st['last'] = None; st['first'] = None; st['herd'] = None
             watcher.active = False
             tcw.active = False
-            bo['voice_at'] = None                          # nothing more to say until the next game starts
             scout.active = False; scout.stop_game(); score_off()
             title.config(text=HEAD_NAME); idle_size(True)
             state.config(text='WAITING', fg=MUT)           # or the tag goes on saying IN GAME at the menu
             rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
             stats_btn.grid()
             show_opponents([]); hide_boxes()
-            try: an_finish()
-            except Exception as e_: log('post game: %r' % (e_,))
         root.after(0, go)
 
     def boxes_pending():
@@ -9347,9 +7283,6 @@ def main():
     loadw.started = game_starting
     loadw.start()
 
-    def _alive(w_):
-        try: return bool(w_.winfo_exists())
-        except Exception: return False
     def toggle(widget):
         if widget.winfo_manager(): widget.grid_remove()
         else: widget.grid()
@@ -9359,8 +7292,7 @@ def main():
         st['shift'] = bool(e.state & 1)
         st['drag'] = (e.x_root - root.winfo_x(), e.y_root - root.winfo_y(), e.x_root, e.y_root)
     def motion(e):
-        if st['drag'] and not st.get('locked'):
-            root.geometry('+%d+%d' % (e.x_root - st['drag'][0], e.y_root - st['drag'][1]))
+        if st['drag']: root.geometry('+%d+%d' % (e.x_root - st['drag'][0], e.y_root - st['drag'][1]))
     def remember_pos():
         try:
             c = load_settings(); c['pos'] = [root.winfo_x(), root.winfo_y()]; save_settings(c)
@@ -9369,8 +7301,8 @@ def main():
         d = st['drag']; st['drag'] = None
         if d and abs(e.x_root - d[2]) < 4 and abs(e.y_root - d[3]) < 4:
             act = st['actions'].get(e.widget)
-            if act: calm(act)()
-        elif d and not st.get('locked'):
+            if act: act()
+        elif d:
             remember_pos()                 # moved: keep this spot for next time
     def bind_all(w):
         w.bind('<ButtonPress-1>', press); w.bind('<B1-Motion>', motion)
@@ -9378,27 +7310,10 @@ def main():
     for w in (root, frame, head, badge, title, state, stats_btn, body, rec_line, opp_area, footsep, sep,
               host_row, btn_plate, host_btn, host_msg, hint,
               card, card_word, card_line, card_elo,
-              bo_box, bo_caprow, bo_cap, bo_goal, bo_at, bo_right, bo_navf, bo_slot, bo_back, bo_fwd, bo_prev, bo_cnt, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
+              bo_box, bo_cap, bo_at, bo_x, bo_snd, bo_now, bo_next, bo_nrow, bo_ntag, bo_prog, bo_live,
               live_btn, bo_open): bind_all(w)
-    def show_lock():
-        if st.get('locked') and crest_locked is not None: badge.config(image=crest_locked)
-        else: badge.config(image=getattr(badge, 'image', '') or '')
-    def toggle_lock():
-        """The crest locks the overlay where it is, so it cannot be dragged by accident; click
-        it again to move it."""
-        st['locked'] = not st.get('locked')
-        try:
-            c_ = load_settings(); c_['locked'] = st['locked']; save_settings(c_)
-        except Exception: pass
-        show_lock()
-        log('overlay %s' % ('locked in place' if st['locked'] else 'unlocked'))
-    st['locked'] = bool(load_settings().get('locked'))
-    show_lock()
-    st['actions'][badge] = toggle_lock
     st['actions'][bo_prog] = bo_menu
     st['actions'][bo_cap] = bo_menu                  # the caption picks the build
-    st['actions'][bo_caprow] = bo_menu
-    st['actions'][bo_goal] = bo_menu
     # a click anywhere on the build strip opens the list; a right click on the step moves it on
     st['actions'][bo_now] = bo_menu
     st['actions'][bo_box] = bo_menu
@@ -9408,15 +7323,6 @@ def main():
     st['actions'][bo_nrow] = lambda: bo_step(1)
     st['actions'][bo_ntag] = lambda: bo_step(1)
     st['actions'][bo_live] = bo_live_again            # and back to where you are
-    st['actions'][bo_prev] = bo_live_again
-    st['actions'][bo_back] = lambda: bo_step(-1)
-    st['actions'][bo_fwd] = lambda: bo_step(1)
-    st['actions'][bo_navf] = lambda: None
-    st['actions'][bo_slot] = lambda: None
-    st['actions'][bo_right] = lambda: None
-    hover(bo_back, MUT, GOLDD); hover(bo_fwd, MUT, GOLDD)
-    bo_prev.bind('<Enter>', lambda e: bo_prev.config(bg=GOLDD), add='+')
-    bo_prev.bind('<Leave>', lambda e: bo_prev.config(bg=GOLDC), add='+')
     for w_ in (bo_next, bo_nrow, bo_ntag): w_.config(cursor='hand2')
     hover(bo_next, FAINT, TXT)
     hover(bo_live, GREEN, '#9fe0a0')
@@ -9437,8 +7343,6 @@ def main():
                 go_admin('live')       # Windows asks; say yes and it starts again and carries on
                 return
         st['live_busy'] = True
-        try: live_btn.busy()                    # the spinner straight away
-        except Exception: pass
         def show(text, col=LIVE_RED, solid=True, ink='white'):
             try: root.after(0, lambda: live_btn.set(text, col, solid, ink))
             except Exception: pass
@@ -9446,7 +7350,7 @@ def main():
             ok, why = False, ''
             try:
                 go_live(load_settings(), in_game=in_game, timer=tcw.timer_stopped,
-                        status=lambda t: root.after(0, live_btn.busy))
+                        status=lambda t: show('\u2026', LIVE_BUSY, True, INK))
                 ok = True
             except LiveFail as e:
                 why = str(e)
@@ -9463,7 +7367,7 @@ def main():
                 show('FAIL', LIVE_OFF)
                 try: root.after(0, lambda: host_msg.config(text='Go Live: ' + why))
                 except Exception: pass
-            try: root.after(8000, lambda: live_btn.set('GO LIVE', LIVE_RED, False))
+            try: root.after(8000, lambda: live_btn.set('LIVE', LIVE_RED, False))
             except Exception: pass
             if report:
                 try: root.after(0, lambda: report(ok, why))
@@ -9471,11 +7375,7 @@ def main():
         threading.Thread(target=work, daemon=True).start()
     st['live_start'] = live_start
     st['actions'][live_btn] = lambda: live_start(not waiting_now[0])   # at the menu: Discord only
-    def cap_hot(on):
-        bo_cap.config(fg=GOLDD if on else GOLDC, highlightbackground=GOLDC if on else RIM,
-                      bg=PANEL if on else INK)
-    for w_ in (bo_cap, bo_goal, bo_caprow):
-        w_.bind('<Enter>', lambda e: cap_hot(True), add='+'); w_.bind('<Leave>', lambda e: cap_hot(False), add='+')
+    hover(bo_cap, BRONZE, GOLDD)
     hover(bo_now, GOLDD, 'white')
 
     for cx, cy, ax, ay in ((0, 0, 1, 1), (1, 0, -1, 1), (0, 1, 1, -1), (1, 1, -1, -1)):
@@ -9494,8 +7394,6 @@ def main():
             else: host_row.grid_remove()
 
     def show_footer(on):
-        calm(_show_footer, True)(on)
-    def _show_footer(on):
         """The party invite button only makes sense at the menu. Out of a game it is there, in the
         header; in a game the state tag takes its place, so there is nothing to fat finger while you play."""
         st['footer'] = on
@@ -9515,8 +7413,6 @@ def main():
                 if bo['name']: w.grid()
             elif w is score_line:
                 if score_line.cget('text'): w.grid()
-            elif w is opp_area:
-                if opp_area.winfo_children(): w.grid()
             elif w is footsep and not st.get('footer', True): continue
             elif w in (footsep, sep) and waiting_now[0]: continue    # no dividers while idle
             elif w is body and not body.cget('text'): continue      # nothing to show while waiting
@@ -9537,7 +7433,6 @@ def main():
     def hover_fade():
         """Solid while the mouse is over it, faded while you are playing. Polled, because
         Tk fires a Leave on the window every time the pointer crosses into one of its labels."""
-        if st.get('fading'): return                         # mid fade-in: it lands on the right value
         try:
             px_, py_ = root.winfo_pointerxy()
             inside = (root.winfo_rootx() <= px_ < root.winfo_rootx() + root.winfo_width() and
@@ -9554,10 +7449,9 @@ def main():
     def open_cheats():
         """The Godmode panel: buttons for the game's own cheat codes."""
         if st.get('cheat_win') is not None:
-            try: bring_up(st['cheat_win']); return
+            try: st['cheat_win'].lift(); return
             except tk.TclError: st['cheat_win'] = None
         win = tk.Toplevel(root); st['cheat_win'] = win
-        win.withdraw()
         win.title('Godmode'); win.configure(bg=BORDER); win.attributes('-topmost', True)
         win.resizable(False, False)
         win.protocol('WM_DELETE_WINDOW', lambda: (st.update(cheat_win=None), win.destroy()))
@@ -9583,191 +7477,13 @@ def main():
                 b.grid(row=i // 2, column=i % 2, sticky='we', padx=(0, 6), pady=2)
             row.columnconfigure(0, weight=1); row.columnconfigure(1, weight=1)
         out.pack(fill='x', pady=(10, 0))
-        fade_in(win)
 
-    def fade_in(w_, to=1.0, then=None, **_):
-        """Show a window that is already built, at once and in one piece: it goes on screen fully
-        see-through, every part of it is drawn while nobody can see it (a few hundredths of a
-        second), then it is made solid in one step. `then` runs once it is showing."""
-        try: w_.attributes('-alpha', 0.0)
-        except tk.TclError: pass
-        try:
-            w_.deiconify(); w_.update()
-        except tk.TclError:
-            return
-        def up():
-            try:
-                w_.update_idletasks(); w_.attributes('-alpha', to)
-            except tk.TclError: pass
-            if then:
-                try: then()
-                except Exception: pass
-        w_.after(10, up)
-
-    _SPIN = {}
-    def spinner_frames(S, bg_):
-        """A smooth loading ring: a faint track and a gold arc with a fading tail, drawn large and
-        shrunk so it is clean at any size. 24 frames, made once."""
-        key = (S, bg_)
-        if key in _SPIN: return _SPIN[key]
-        out = []
-        try:
-            from PIL import Image, ImageDraw, ImageTk
-            k = 6; N = S * k; w = max(2, int(S * 0.13)) * k; pad = w / 2 + k
-            box = (pad, pad, N - pad, N - pad)
-            def mix(a, b, t):
-                a = [int(a[i:i + 2], 16) for i in (1, 3, 5)]; b = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
-                return '#%02x%02x%02x' % tuple(int(a[j] + (b[j] - a[j]) * t) for j in range(3))
-            track = mix(bg_, BRONZE, 0.22)
-            for f in range(24):
-                im = Image.new('RGB', (N, N), bg_)
-                d = ImageDraw.Draw(im)
-                d.ellipse(box, outline=track, width=w)
-                head = f * 15
-                for n_ in range(40):                       # the tail fades out behind the head
-                    t = n_ / 39.0
-                    a0 = head - 200 + n_ * 5
-                    d.arc(box, a0, a0 + 6, fill=mix(track, GOLDC, t ** 1.6), width=w)
-                r_ = w / 2.0                               # a round cap on the leading end
-                import math
-                cx, cy, R = N / 2.0, N / 2.0, (N - 2 * pad) / 2.0 - w / 2.0   # PIL draws the stroke inside the box
-                ang = math.radians(head)
-                hx, hy = cx + R * math.cos(ang), cy + R * math.sin(ang)
-                d.ellipse((hx - r_, hy - r_, hx + r_, hy + r_), fill=GOLDC)
-                out.append(ImageTk.PhotoImage(im.resize((S, S), Image.LANCZOS)))
-        except Exception:
-            out = []
-        _SPIN[key] = out
-        return out
-    def spinner(parent, S, bg_):
-        """A label that turns through the ring's frames until it is destroyed."""
-        fr = spinner_frames(S, bg_)
-        if not fr:
-            c_ = tk.Canvas(parent, width=S, height=S, bg=bg_, highlightthickness=0)
-            arc = c_.create_arc(2, 2, S - 2, S - 2, start=0, extent=270, style='arc', outline=GOLDC, width=2)
-            st_ = {'a': 0}
-            def turn():
-                try:
-                    st_['a'] = (st_['a'] - 30) % 360; c_.itemconfigure(arc, start=st_['a']); c_.after(50, turn)
-                except tk.TclError: pass
-            turn(); return c_
-        l_ = tk.Label(parent, image=fr[0], bg=bg_, bd=0)
-        st_ = {'i': 0}
-        def turn():
-            try:
-                st_['i'] = (st_['i'] + 1) % len(fr); l_.config(image=fr[st_['i']]); l_.after(40, turn)
-            except tk.TclError: pass
-        l_.after(40, turn)
-        return l_
-
-    def settings_shell(geo=None):
-        """The Settings window's frame, on screen the moment the gear is pressed: its own title,
-        border and heading, with a spinner where the cards will be. Settings itself replaces it
-        as soon as it is drawn, in the same place and at the same size."""
-        w_ = tk.Toplevel(root)
-        w_.title(APP_NAME + ' settings'); w_.configure(bg=BORDER); w_.attributes('-topmost', True)
-        w_.resizable(False, False)
-        geo = geo or st.get('settings_geo')
-        if not geo:
-            gw, gh = min(1500, w_.winfo_screenwidth() - 80), min(900, w_.winfo_screenheight() - 120)
-            geo = (gw, gh, (w_.winfo_screenwidth() - gw) // 2, max(0, (w_.winfo_screenheight() - gh) // 2 - 24))
-        w_.geometry('%dx%d+%d+%d' % geo)
-        DEEP_ = '#0f0c07'
-        sh_ = tk.Frame(w_, bg=DEEP_); sh_.pack(fill='both', expand=True, padx=1, pady=1)
-        hd_ = tk.Frame(sh_, bg=DEEP_, padx=16); hd_.pack(fill='x', pady=(12, 0))
-        try:
-            im_ = tk.PhotoImage(data=APP_ICON_PNG[1]); l_ = tk.Label(hd_, image=im_, bg=DEEP_); l_.image = im_
-            l_.pack(side='left', padx=(0, 10))
-        except Exception: pass
-        tk.Label(hd_, text='Settings', fg=GOLD, bg=DEEP_, font=F_HEADLINE).pack(side='left')
-        mid_ = tk.Frame(sh_, bg=DEEP_); mid_.place(relx=0.5, rely=0.45, anchor='center')
-        spinner(mid_, 40, DEEP_).pack()
-        tk.Label(mid_, text='Loading settings', fg=MUT, bg=DEEP_, font=F_SMALL).pack(pady=(10, 0))
-        try: w_.update()
-        except tk.TclError: pass
-        return w_
-
-    def bring_up(w_):
-        """Put one of our windows in front and give it the keyboard. The overlay never takes focus
-        (so the game keeps its sound), which means Windows will not let a new window jump in front
-        unless we ask the way the game switch does."""
-        try:
-            if not w_.winfo_ismapped(): w_.deiconify()
-            w_.lift()
-            import ctypes
-            h_ = ctypes.windll.user32.GetAncestor(w_.winfo_id(), 2)
-            threading.Thread(target=lambda: focus_window(h_), daemon=True).start()
-        except Exception as e:
-            log('bring window up: %r' % (e,))
-
-    def settings_y(w_):
-        """Top of the Settings window: centred, but never so low that Save and Close sit behind
-        the taskbar (about 48 pixels) once the title bar (about 31) is added on top."""
-        sh_, h_ = w_.winfo_screenheight(), w_.winfo_reqheight()
-        return max(0, min((sh_ - h_) // 2 - 24, sh_ - 48 - 31 - h_))
-
-    def reveal_settings(w_):
-        """Put a built Settings window on screen, in the middle, ready to use."""
-        w_.update_idletasks()
-        geo = (w_.winfo_reqwidth(), w_.winfo_reqheight(),
-               max(0, (w_.winfo_screenwidth() - w_.winfo_reqwidth()) // 2),
-               settings_y(w_))
-        st['settings_geo'] = geo                       # the loading frame opens at this size next time
-        w_.geometry('+%d+%d' % geo[2:])
-        shell_ = st.pop('settings_shell', None)
-        def swap():
-            try: w_.lift()
-            except tk.TclError: pass
-            if shell_ is not None and hasattr(shell_, 'destroy'):
-                try: shell_.destroy()
-                except tk.TclError: pass
-            try: w_.focus_force()
-            except tk.TclError: pass
-            w_.after(40, lambda: bring_up(w_))
-        fade_in(w_, then=swap)                         # drawn unseen, then solid over the loading frame
-
-    def drop_settings(key):
-        w_ = st.pop(key, None)
-        if w_ is not None and hasattr(w_, 'destroy'):
-            try: w_.destroy()
-            except tk.TclError: pass
-
-    def prebuild_settings():
-        """Build Settings ahead of time, out of sight, so the gear opens it straight away. Only at
-        the menu (building it is a lot of work for a moment, and a game should not stutter for it),
-        and again when the hidden one is ten minutes old, so what it shows is never stale."""
-        if st.get('settings_win') is not None: return
-        if not waiting_now[0]:
-            root.after(20000, prebuild_settings); return
-        pre = st.get('settings_pre')
-        try:
-            if pre is not None and pre.winfo_exists():
-                if time.time() - st.get('settings_pre_t', 0) < 600: return
-                drop_settings('settings_pre')                 # old: build a fresh one
-        except tk.TclError: pass
-        try:
-            open_settings(show=False); st['settings_pre_t'] = time.time()
-        except Exception as e:
-            log('settings prebuild: %r' % (e,)); drop_settings('settings_pre')
-
-    def open_settings(show=True):
-        if show:
-            pre = st.pop('settings_pre', None)                 # built earlier, out of sight: just show it
-            try:
-                if pre is not None and pre.winfo_exists() and getattr(pre, 'built_ok', False):
-                    st['settings_win'] = pre; reveal_settings(pre); return
-            except tk.TclError: pass
+    def open_settings():
         if st.get('settings_win') is not None:
-            try:
-                if st['settings_win'].winfo_exists(): bring_up(st['settings_win']); return
-            except tk.TclError: pass
-            st['settings_win'] = None
+            try: st['settings_win'].lift(); return
+            except tk.TclError: st['settings_win'] = None
         cfg = load_settings()
-        st_set = {}
-        win = tk.Toplevel(root)
-        if show: st['settings_win'] = win
-        else: st['settings_pre'] = win
-        win.withdraw()                         # built out of sight, then shown once in one piece
+        win = tk.Toplevel(root); st['settings_win'] = win
         win.title(APP_NAME + ' settings'); win.configure(bg=BORDER); win.attributes('-topmost', True)
         win.resizable(False, False)
 
@@ -9778,51 +7494,26 @@ def main():
         DEEP = '#0f0c07'
         shell_ = tk.Frame(win, bg=DEEP); shell_.pack(fill='both', expand=True, padx=1, pady=1)
         foot = tk.Frame(shell_, bg=DEEP, padx=18); foot.pack(side='bottom', fill='x', pady=(10, 14))
-        topf = tk.Frame(shell_, bg=DEEP, padx=16); topf.pack(side='top', fill='x', pady=(12, 0))   # title and jump bar stay put
-        nav = tk.Frame(topf, bg=DEEP)
-        cards_ = {}
         bar_ = slim_scrollbar(shell_, bg=DEEP)
         board_ = tk.Canvas(shell_, bg=DEEP, highlightthickness=0, bd=0, yscrollcommand=bar_.set)
         bar_.config(command=board_.yview)
         board_.pack(side='left', fill='both', expand=True)
-        page = tk.Frame(board_, bg=DEEP, padx=16, pady=8)
+        page = tk.Frame(board_, bg=DEEP, padx=16, pady=14)
         board_.create_window((0, 0), window=page, anchor='nw')
         outer = page
         def fit_(_=None):
-            room = win.winfo_screenheight() - 186               # leave space for the title, the Save row and the taskbar
+            room = win.winfo_screenheight() - 230               # leave space for the Save row and the taskbar
             board_.configure(scrollregion=board_.bbox('all'), width=page.winfo_reqwidth(),
                              height=min(page.winfo_reqheight(), room))
             if page.winfo_reqheight() > room: bar_.pack(side='right', fill='y')
             else: bar_.pack_forget()
-        # once it is on screen the window keeps its size; only what there is to scroll changes
-        def page_moved(_e=None):
-            if not win.winfo_ismapped(): fit_(); return
-            # on screen the window keeps its size; if something grew past the bottom (more friends,
-            # a long mods report), the scroll bar comes so it can still be reached
-            board_.configure(scrollregion=board_.bbox('all'))
-            if page.winfo_reqheight() > board_.winfo_height() + 2:
-                if not bar_.winfo_manager(): bar_.pack(side='right', fill='y')
-        page.bind('<Configure>', page_moved)
-        # smooth scrolling: the wheel sets how far to go, and the page glides there a few pixels a
-        # frame instead of jumping a tenth of the page at a time
-        board_.configure(yscrollincrement=1)
-        glide = {'left': 0.0, 'job': None}
-        def glide_step():
-            left = glide['left']
-            if abs(left) < 1:
-                glide['left'], glide['job'] = 0.0, None; return
-            d = int(left * 0.45) or (1 if left > 0 else -1)
-            board_.yview_scroll(d, 'units'); glide['left'] -= d
-            glide['job'] = win.after(16, glide_step)
+        page.bind('<Configure>', fit_)
         def wheel_(e):
-            # only on a screen too small for the columns: one clean jump per notch, drawn in full
-            # straight away (a glide leaves smeared copies of the lines behind on Windows)
-            if page.winfo_reqheight() <= board_.winfo_height(): return
-            board_.yview_scroll(int(-(e.delta / 120.0) * 90), 'units')
-            board_.update_idletasks()
+            if page.winfo_reqheight() > board_.winfo_height():
+                board_.yview_scroll(-1 if e.delta > 0 else 1, 'units')
         win.bind('<MouseWheel>', wheel_)
 
-        hd = tk.Frame(topf, bg=DEEP); hd.pack(fill='x')
+        hd = tk.Frame(page, bg=DEEP); hd.pack(fill='x', pady=(0, 4))
         try:
             hd_img = tk.PhotoImage(data=APP_ICON_PNG[1])
             hl = tk.Label(hd, image=hd_img, bg=DEEP); hl.image = hd_img; hl.pack(side='left', padx=(0, 10))
@@ -9835,15 +7526,14 @@ def main():
             """A card with a gold heading; what follows goes in it. The notes stay in the code as a
             record of how each part works, but are not shown: Settings reads cleaner without them."""
             nonlocal outer
-            card = tk.Frame(page, bg=INK, highlightthickness=1, highlightbackground=EDGE, padx=14, pady=7)
-            card.pack(fill='x', pady=(7, 0))
+            card = tk.Frame(page, bg=INK, highlightthickness=1, highlightbackground=EDGE, padx=14, pady=11)
+            card.pack(fill='x', pady=(10, 0))
             tk.Label(card, text=label, fg=GOLD, bg=INK, font=F_HEAD, anchor='w').pack(fill='x', pady=(0, 7))
             outer = card
-            cards_[label] = card
 
         def field(label):
             """A small label for one part of a card."""
-            tk.Label(outer, text=label, fg=MUT, bg=INK, font=F_SMALL, anchor='w').pack(fill='x', pady=(6, 2))
+            tk.Label(outer, text=label, fg=MUT, bg=INK, font=F_SMALL, anchor='w').pack(fill='x', pady=(8, 3))
 
         section('Update', 'Wingman.exe updates itself from the public Releases page. The .bat '
                           'updates from GitHub: Prod is the settled version, dev gets changes first.', gap=10)
@@ -9853,12 +7543,11 @@ def main():
         tk.Label(row1, text='YOU HAVE', fg=BRONZE, bg=PANEL, font=F_TINY).pack(side='left')
         tk.Label(row1, text='%s  \u00b7  %s' % (VERSION, 'Wingman.exe' if FROZEN else 'AoE2 Wingman.bat'),
                  fg=TXT, bg=PANEL, font=(DISPLAY, 10, 'bold')).pack(side='left', padx=(8, 0))
-        newest = tk.Label(row1, text='', fg=MUT, bg=PANEL, font=F_SMALL)    # only says something when there is news
+        newest = tk.Label(row1, text='checking...', fg=MUT, bg=PANEL, font=F_SMALL)
         newest.pack(side='right')
         up_row = tk.Frame(card_, bg=PANEL); up_row.pack(fill='x', pady=(8, 0))
-        # how the update went, beside the buttons; empty until you press one
-        up_msg = tk.Label(up_row, text='', fg='#b8b19f', bg=PANEL, font=F_SMALL,
-                          anchor='e', justify='right', wraplength=190)
+        up_msg = tk.Label(card_, text='', fg='#b8b19f', bg=PANEL, font=F_SMALL,
+                          anchor='w', justify='left', wraplength=380)
         def restart_into(path_):
             def swap():
                 try:
@@ -9877,18 +7566,16 @@ def main():
         def run_update(branch):
             if st.get('updating'): return
             st['updating'] = True
-            up_msg.config(text='Checking...', fg=MUT)
+            up_msg.config(text='Checking for the newest %s...' % (branch if branch != 'exe' else 'Wingman.exe'), fg=MUT)
             def work():
                 path_ = None
                 try:
                     if branch == 'exe':
                         rel = latest_release(fresh=True)
-                        if not rel and _REL.get('err'):
-                            ok_, text_ = False, "Couldn't reach GitHub. Try again in a bit."
-                        elif not rel or not rel.get('exe'):
-                            ok_, text_ = False, 'Still building. Try again soon.'
+                        if not rel or not rel.get('exe'):
+                            ok_, text_ = False, "The new version is still being built. Try again in a couple of minutes."
                         elif ver_num(rel['ver']) <= ver_num(VERSION):
-                            ok_, text_ = True, 'Up to date'
+                            ok_, text_ = True, 'You have the newest one (%s).' % VERSION
                         else:
                             path_ = update_exe(rel, lambda t: root.after(0, lambda: up_msg.config(text=t, fg=MUT)))
                             ok_, text_ = True, 'Updated to %s.' % rel['ver']
@@ -9896,13 +7583,11 @@ def main():
                         ok_, text_, path_ = update_from_github(branch)
                 except Exception as e:
                     log('update failed: %r' % (e,))
-                    ok_, text_, path_ = False, 'Update failed. Try again in a bit.', None
+                    ok_, text_, path_ = False, 'Update failed: %s' % e, None
                 log('update from %s: %s' % (branch, text_))
                 def done():
                     st['updating'] = False
-                    try:
-                        up_msg.config(text=text_ + (' Restarting...' if path_ else ''), fg=GREEN if ok_ else REDC)
-                        if ok_ and not path_: newest.config(text='')
+                    try: up_msg.config(text=text_ + ('  Restarting...' if path_ else ''), fg=GREEN if ok_ else REDC)
                     except tk.TclError: pass
                     if path_: restart_into(path_)
                 root.after(0, done)
@@ -9910,17 +7595,18 @@ def main():
         st['run_update'] = run_update
         # Same two buttons whichever way you run it. Every published version gets an exe build
         # too, so for the exe both come from the newest release; the .bat takes the branch.
-        flat_button(up_row, 'Update', lambda: run_update('exe' if FROZEN else 'Prod'),
+        flat_button(up_row, 'Update from Prod', lambda: run_update('exe' if FROZEN else 'Prod'),
                     fill=True).pack(side='left')
-        flat_button(up_row, 'Update to Beta', lambda: run_update('exe' if FROZEN else 'dev')
+        flat_button(up_row, 'Update from dev', lambda: run_update('exe' if FROZEN else 'dev')
                     ).pack(side='left', padx=(8, 0))
-        up_msg.pack(side='right', padx=(10, 0))
+        up_msg.pack(fill='x', pady=(6, 0))
         def look_newest():
             rel = latest_release()
             def put():
                 try:
-                    if rel and ver_num(rel['ver']) > ver_num(VERSION):
-                        newest.config(text='%s is out' % rel['ver'], fg=GOLDD)
+                    if not rel: newest.config(text='no public release yet', fg=FAINT)
+                    elif ver_num(rel['ver']) > ver_num(VERSION): newest.config(text='%s is out' % rel['ver'], fg=GOLDD)
+                    else: newest.config(text='up to date', fg=GREEN)
                 except tk.TclError: pass
             try: root.after(0, put)
             except Exception: pass
@@ -9953,12 +7639,13 @@ def main():
                 except tk.TclError: pass                       # the window was closed in the meantime
             try: root.after(0, say)
             except Exception: pass
+        threading.Thread(target=where_am_i, daemon=True).start()
 
         # Ash's position on the one question everyone asks. Near the top of Settings on purpose.
         outer = page
         fair = tk.Frame(outer, bg=PANEL, highlightthickness=1, highlightbackground=RIM,
                         padx=12, pady=10)
-        fair.pack(fill='x', pady=(8, 0))
+        fair.pack(fill='x', pady=(14, 0))
         fh = tk.Frame(fair, bg=PANEL); fh.pack(fill='x')
         fc = tk.Canvas(fh, width=15, height=15, bg=PANEL, highlightthickness=0)
         draw_icon(fc, 'shield', 15, GOLD); fc.pack(side='left', padx=(0, 7))
@@ -10080,31 +7767,17 @@ def main():
             if key_ == 'live_pause_key' and not combo_ok(v_): v_ = LIVE_DEFAULTS[key_]
             e_.insert(0, v_); e_.pack(side='left', fill='x', expand=True, ipady=2)
             lv[key_] = e_
-        field("Voice channel link (joined if you're not in a call)")
-        lv_chan = tk.Entry(outer, width=46); style_entry(lv_chan)
-        lv_chan.insert(0, cfg.get('live_channel', '')); lv_chan.pack(fill='x', ipady=3)
-        lv_hint = tk.Label(outer, text='', fg=FAINT, bg=INK, font=F_TINY, anchor='w',
-                           justify='left', wraplength=400)
-        lv_hint.pack(fill='x', pady=(3, 0))
-        LV_HOW = ('Paste the channel link, like https://discord.com/channels/713962454140321834/713962454589112323\n'
-                  'In Discord: right-click the voice channel, then Copy Link. Leave it empty to skip.')
-        def lv_check(_e=None):
-            t_ = lv_chan.get().strip()
-            if not t_: lv_hint.config(text=LV_HOW, fg=FAINT)
-            elif discord_channel_link(t_): lv_hint.config(text='\u2713 Channel link set. Wingman opens it when you Go Live.', fg=GREEN)
-            else: lv_hint.config(text="That isn't a channel link yet. " + LV_HOW, fg=REDC)
-        lv_chan.bind('<KeyRelease>', lv_check, add='+'); lv_chan.bind('<FocusOut>', lv_check, add='+')
-        lv_chan.bind('<<Paste>>', lambda e: lv_chan.after(10, lv_check), add='+')
-        lv_check()
+        r_ = tk.Frame(lv_row, bg=INK); r_.pack(fill='x', pady=(2, 0))
+        tk.Label(r_, text='Join channel', fg=TXT, bg=INK, font=F_SMALL, width=10, anchor='w').pack(side='left')
+        lv_chan = tk.Entry(r_, width=30); style_entry(lv_chan)
+        lv_chan.insert(0, cfg.get('live_channel', '')); lv_chan.pack(side='left', fill='x', expand=True, ipady=2)
+        tk.Label(lv_row, text="Only used when you're not in a call. In Discord, right-click the voice channel, "
+                              "Copy Link, and paste it here.", fg=FAINT, bg=INK, font=F_TINY, anchor='w',
+                 justify="left", wraplength=430).pack(fill="x", pady=(2, 0))
         lv_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
                           justify='left', wraplength=400)
         def lv_test():
-            c_ = collect()
-            if c_.get('live_channel') and not discord_channel_link(c_['live_channel']):
-                lv_check(); lv_msg.config(text="The voice channel needs to be the channel's link first.", fg=REDC); return
-            if st.get('live_busy'):
-                lv_msg.config(text='Go Live is already running. Give it a moment.', fg=GOLDC); return
-            merged = load_settings(); merged.update(c_); save_settings(merged)
+            merged = load_settings(); merged.update(collect()); save_settings(merged)
             lv_msg.config(text='Trying the Discord part only, no pause or chat...', fg=MUT)
             st['live_start'](False, lambda ok, why: lv_msg.config(
                 text=('Worked. You are live on Discord.' if ok else 'Did not work: ' + why),
@@ -10112,152 +7785,6 @@ def main():
         lv_b = tk.Frame(outer, bg=INK); lv_b.pack(fill='x', pady=(6, 0))
         flat_button(lv_b, 'Test the Discord part', lv_test).pack(side='left')
         lv_msg.pack(fill='x', pady=(4, 0))
-
-        section('Your build orders')
-        cb_list = tk.Frame(outer, bg=INK); cb_list.pack(fill='x')
-        cb_msg = tk.Label(outer, text='', fg=GREEN, bg=INK, font=F_TINY, anchor='w')
-
-        def cb_saved_list():
-            return [b for b in (load_settings().get('custom_builds') or []) if b.get('name')]
-
-        def cb_store(lst, note):
-            merged = load_settings(); merged['custom_builds'] = lst; save_settings(merged)
-            custom_builds(fresh=True)
-            cb_draw()
-            cb_msg.config(text=note, fg=GREEN)
-            win.after(2500, lambda: cb_msg.cget('text') == note and cb_msg.config(text=''))
-            try: bo_draw()
-            except Exception: pass
-
-        def cb_draw():
-            for w in cb_list.winfo_children(): w.destroy()
-            mine_ = cb_saved_list()
-            if not mine_:
-                tk.Label(cb_list, text='None yet. Make one, or start from one of Hera\'s and change it.',
-                         fg=FAINT, bg=INK, font=F_SMALL, anchor='w', justify='left', wraplength=420
-                         ).pack(fill='x', pady=(0, 2))
-            for b in mine_:
-                row = tk.Frame(cb_list, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, cursor='hand2')
-                row.pack(fill='x', pady=2)
-                lab = tk.Label(row, text=b['name'], fg=TXT, bg=PANEL, font=F_BODY, anchor='w', padx=9, pady=4,
-                               cursor='hand2')
-                lab.pack(side='left')
-                x = tk.Label(row, text='✕', fg=MUT, bg=PANEL, font=F_SMALL, padx=10, pady=4, cursor='hand2')
-                x.pack(side='right')
-                hover(x, MUT, REDC)
-                info = '%s  ·  %d steps' % ((b.get('goal') or '').strip() or 'your build', len(b.get('steps') or []))
-                il = tk.Label(row, text=info, fg=MUT, bg=PANEL, font=F_TINY, padx=4, cursor='hand2')
-                il.pack(side='right')
-                def drop(_e=None, nm=b['name']):
-                    cb_store([c for c in cb_saved_list() if c['name'] != nm], 'Deleted %s.' % nm)
-                    if bo['name'] == nm: bo_pick(None)
-                x.bind('<Button-1>', drop)
-                for w_ in (row, lab, il): w_.bind('<Button-1>', lambda e, b_=b: cb_edit(b_))
-
-        def cb_edit(b=None, start=None):
-            """The build order editor: a name, what it aims for, and the steps by pop."""
-            ed = tk.Toplevel(win); ed.title('Build order'); ed.configure(bg=BORDER)
-            ed.attributes('-topmost', True); ed.resizable(False, False)
-            body_ = tk.Frame(ed, bg=INK, padx=18, pady=14); body_.pack(fill='both', expand=True, padx=1, pady=1)
-            old_name = b['name'] if b else None
-            src = b or start
-            tk.Label(body_, text='Edit build order' if b else 'New build order', fg=GOLDC, bg=INK,
-                     font=F_HEAD, anchor='w').pack(fill='x')
-            top_ = tk.Frame(body_, bg=INK); top_.pack(fill='x', pady=(10, 0))
-            top_.columnconfigure(0, weight=3); top_.columnconfigure(1, weight=2)
-            tk.Label(top_, text='Name', fg=FAINT, bg=INK, font=F_TINY, anchor='w').grid(row=0, column=0, sticky='w')
-            tk.Label(top_, text='Aim (optional)', fg=FAINT, bg=INK, font=F_TINY, anchor='w'
-                     ).grid(row=0, column=1, sticky='w', padx=(8, 0))
-            nm_e = tk.Entry(top_, width=26); style_entry(nm_e); nm_e.grid(row=1, column=0, sticky='we', ipady=3)
-            gl_e = tk.Entry(top_, width=16); style_entry(gl_e); gl_e.grid(row=1, column=1, sticky='we', ipady=3, padx=(8, 0))
-            if src:
-                nm_e.insert(0, src.get('name', '') if b else '%s (mine)' % src.get('name', ''))
-                gl_e.insert(0, src.get('goal', ''))
-            hd_ = tk.Frame(body_, bg=INK); hd_.pack(fill='x', pady=(12, 2))
-            tk.Label(hd_, text='At pop', fg=FAINT, bg=INK, font=F_TINY, width=7, anchor='w').pack(side='left')
-            tk.Label(hd_, text='What to do', fg=FAINT, bg=INK, font=F_TINY, anchor='w').pack(side='left', padx=(6, 0))
-            rows_box = tk.Frame(body_, bg=INK); rows_box.pack(fill='x')
-            rows_ = []
-            def add_row(pop_='', text_=''):
-                r = tk.Frame(rows_box, bg=INK); r.pack(fill='x', pady=2)
-                pe = tk.Entry(r, width=5, justify='center'); style_entry(pe); pe.pack(side='left', ipady=2)
-                te = tk.Entry(r, width=44); style_entry(te); te.pack(side='left', fill='x', expand=True, padx=(8, 0), ipady=2)
-                xx = tk.Label(r, text='✕', fg=MUT, bg=INK, font=F_SMALL, padx=8, cursor='hand2'); xx.pack(side='left')
-                hover(xx, MUT, REDC)
-                pe.insert(0, str(pop_)); te.insert(0, text_)
-                item = (r, pe, te)
-                def rm(_e=None):
-                    if item in rows_: rows_.remove(item)
-                    r.destroy()
-                xx.bind('<Button-1>', rm)
-                rows_.append(item)
-                return pe
-            if src and src.get('steps'):
-                for p_, t_ in src['steps']: add_row(p_, t_)
-            else:
-                add_row(2, '6 to sheep'); add_row(8, '')
-            add_ = tk.Label(body_, text='+ Add a step', fg=GOLDC, bg=INK, font=F_SMALL, anchor='w', cursor='hand2')
-            add_.pack(fill='x', pady=(6, 0)); hover(add_, GOLDC, GOLDD)
-            def more(_e=None):
-                last = 0
-                for _r, pe, _t in rows_:
-                    try: last = max(last, int(pe.get()))
-                    except ValueError: pass
-                add_row(last + 1 if last else '').focus_set()
-            add_.bind('<Button-1>', more)
-            tk.Label(body_, text='A step shows from its pop until the next step\'s pop. Pop counts your villagers '
-                                 'and scout, like the counter in the game.', fg=FAINT, bg=INK, font=F_TINY,
-                     anchor='w', justify='left', wraplength=460).pack(fill='x', pady=(8, 0))
-            em = tk.Label(body_, text='', fg=REDC, bg=INK, font=F_SMALL, anchor='w', justify='left', wraplength=460)
-            em.pack(fill='x', pady=(6, 0))
-            bt = tk.Frame(body_, bg=INK); bt.pack(fill='x', pady=(10, 0))
-            def save_ed():
-                nm = nm_e.get().strip()
-                if not nm: em.config(text='Give it a name.'); return
-                if any(n_ == nm for _g, n_, _p, _s in BUILDS):
-                    em.config(text="That's the name of one of Hera's builds. Pick another."); return
-                others = [c for c in cb_saved_list() if c['name'] != old_name]
-                if any(c['name'].lower() == nm.lower() for c in others):
-                    em.config(text='You already have a build with that name.'); return
-                steps_ = []
-                for _r, pe, te in rows_:
-                    pv, tv = pe.get().strip(), te.get().strip()
-                    if not pv and not tv: continue
-                    if not tv: em.config(text='A step at pop %s has nothing to do.' % pv); return
-                    try: pi = int(pv)
-                    except ValueError: em.config(text='"%s" needs a pop number.' % tv[:40]); return
-                    if not 1 <= pi <= 200: em.config(text='Pop has to be between 1 and 200.'); return
-                    steps_.append([pi, tv])
-                if not steps_: em.config(text='Add at least one step.'); return
-                steps_.sort(key=lambda x: x[0])
-                entry = {'name': nm, 'goal': gl_e.get().strip(), 'steps': steps_}
-                lst = cb_saved_list(); placed = False
-                for k_, c in enumerate(lst):
-                    if c['name'] == old_name: lst[k_] = entry; placed = True
-                if not placed: lst.append(entry)
-                cb_store(lst, 'Saved %s.' % nm)
-                if old_name and bo['name'] == old_name: bo_pick(nm)
-                ed.destroy()
-            flat_button(bt, 'Save build order', save_ed, fill=True).pack(side='left')
-            flat_button(bt, 'Cancel', ed.destroy, accent=MUT, hot='#cfc8b6').pack(side='right')
-            ed.bind('<Escape>', lambda e: ed.destroy())
-            ed.update_idletasks()
-            ed.geometry('+%d+%d' % (win.winfo_rootx() + 30, max(0, win.winfo_rooty() + 60)))
-            bring_up(ed)
-            nm_e.focus_set()
-
-        cb_btns = tk.Frame(outer, bg=INK); cb_btns.pack(fill='x', pady=(8, 0))
-        flat_button(cb_btns, 'New build order', lambda: cb_edit()).pack(side='left')
-        def from_hera():
-            m_ = tk.Menu(win, tearoff=0, bg=INK, fg=TXT, activebackground=PANEL, activeforeground=GOLDD, bd=0)
-            for _g, n_, pop_, steps_ in BUILDS:
-                m_.add_command(label='%s  (%s)' % (n_, pop_), command=lambda n_=n_, p_=pop_, s_=steps_: cb_edit(
-                    start={'name': n_, 'goal': p_, 'steps': [[lo, t_] for lo, _hi, t_ in s_]}))
-            try: m_.tk_popup(win.winfo_pointerx(), win.winfo_pointery())
-            finally: m_.grab_release()
-        flat_button(cb_btns, "Start from one of Hera's", from_hera).pack(side='left', padx=(8, 0))
-        cb_msg.pack(fill='x', pady=(4, 0))
-        cb_draw()
 
         section('Alerts')
         tc_on = tk.BooleanVar(value=cfg.get('tc_alert', True))
@@ -10298,7 +7825,7 @@ def main():
             except ValueError: cap20 = cfg.get('house_cap20', HOUSE_CAP20)
             return out, grace, cap20
 
-        cp_on = tk.BooleanVar(value=cfg.get('civ_panel_loading', False))
+        lp_on = tk.BooleanVar(value=cfg.get('loading_panels', False))
         field('Reminders')
         cn_on = tk.BooleanVar(value=cfg.get('castle_note', True))
         fn_on = tk.BooleanVar(value=cfg.get('feudal_note', True))
@@ -10329,10 +7856,9 @@ def main():
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
         field('Opponent spotted')
-        sc_on = tk.BooleanVar(value=cfg.get('scout_callout', False))
-        orb_on = tk.BooleanVar(value=cfg.get('tc_orbit', False))
+        sc_on = tk.BooleanVar(value=cfg.get('scout_alert', True))
         sp_on = tk.BooleanVar(value=cfg.get('scout_ping', True))
-        for var, txt in ((sc_on, "Call out opponents ('Red found')"),
+        for var, txt in ((sc_on, 'Call out opponents'),
                          (sp_on, 'Ring the spot on the minimap as well')):
             Check(outer, text=txt, variable=var, fg=TXT, bg=INK,
                            selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
@@ -10369,7 +7895,9 @@ def main():
         ss_on.trace_add('write', ss_apply)
         Check(outer, text='Show Wingman in screenshots and streams', variable=ss_on).pack(fill='x')
 
-        Check(outer, text="Show your opponent's civ while the game loads", variable=cp_on).pack(fill='x')
+        Check(outer, text='Show map tips and your opponent while the game loads', variable=lp_on, fg=TXT, bg=INK,
+                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
         fg_on = tk.BooleanVar(value=cfg.get('focus_game', True))
         Check(outer, text='Bring the game to the front when it starts', variable=fg_on, fg=TXT, bg=INK,
@@ -10380,202 +7908,7 @@ def main():
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
-        # the build order's voice: pick any voice Windows has, and hear it straight away
-        vo_row = tk.Frame(outer, bg=INK); vo_row.pack(fill='x', pady=(10, 0))
-        vo_lab = tk.Label(vo_row, text='Build order voice: %s' % (cfg.get('voice_name') or 'automatic'),
-                          fg=MUT, bg=INK, font=F_SMALL, anchor='w')
-        vo_lab.pack(side='left')
-        def vo_pick():
-            vo_lab.config(text='Build order voice: looking...')
-            def work():
-                got = VOICE.voices()
-                def show():
-                    try:
-                        vo_lab.config(text='Build order voice: %s' % (load_settings().get('voice_name') or 'automatic'))
-                        if not got:
-                            vo_lab.config(text="Build order voice: couldn't list the voices on this PC"); return
-                        eng = sorted([g for g in got if g[1].lower().startswith('en')], key=lambda g: (g[1] != 'en-AU', g[0]))
-                        rest = sorted([g for g in got if g not in eng])
-                        m_ = tk.Menu(win, tearoff=0, bg=INK, fg=TXT, activebackground=PANEL, activeforeground=GOLDD, bd=0)
-                        def choose(nm):
-                            c_ = load_settings(); c_['voice_name'] = nm; save_settings(c_)
-                            VOICE.set_voice(nm); VOICE.say('This is your build order voice')
-                            vo_lab.config(text='Build order voice: %s' % (nm or 'automatic'))
-                        m_.add_command(label='Automatic (an Australian voice if there is one)', command=lambda: choose(''))
-                        for nm, lang in eng + rest:
-                            m_.add_command(label='%s  (%s)' % (nm, lang), command=lambda n_=nm: choose(n_))
-                        m_.tk_popup(win.winfo_pointerx(), win.winfo_pointery())
-                        m_.grab_release()
-                    except tk.TclError: pass
-                try: win.after(0, show)
-                except Exception: pass
-            threading.Thread(target=work, daemon=True).start()
-        flat_button(vo_row, 'Change voice', vo_pick).pack(side='right')
-
-        # the recorded games pile up; moving the old ones aside keeps the game's list and Wingman quick
-        rc_row = tk.Frame(outer, bg=INK); rc_row.pack(fill='x', pady=(10, 0))
-        rc_lab = tk.Label(rc_row, text='Recorded games: counting...', fg=MUT, bg=INK, font=F_SMALL, anchor='w')
-        rc_lab.pack(side='left')
-        def rc_count():
-            n_all, n_old = recordings_count(TIDY_DAYS)
-            def put():
-                try:
-                    rc_lab.config(text='Recorded games: %d, %d older than 3 months' % (n_all, n_old))
-                    if n_old and not rc_btn.winfo_manager(): rc_btn.pack(side='right')
-                    elif not n_old: rc_btn.pack_forget()
-                except tk.TclError: pass
-            try: root.after(0, put)
-            except Exception: pass
-        def rc_tidy():
-            rc_lab.config(text='Moving...', fg=MUT)
-            def work():
-                n_ = tidy_recordings(TIDY_DAYS)
-                def put():
-                    try:
-                        rc_btn.pack_forget()
-                        rc_lab.config(text='Moved %d into "Older recordings" in your savegame folder.' % n_, fg=GREEN)
-                    except tk.TclError: pass
-                root.after(0, put)
-            threading.Thread(target=work, daemon=True).start()
-        rc_btn = flat_button(rc_row, 'Move the old ones', rc_tidy)
-        threading.Thread(target=rc_count, daemon=True).start()
-
-        field('Beta')
-        Check(outer, text="Ring on the minimap where their TC could be", variable=orb_on, fg=TXT, bg=INK,
-              selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
-              font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
-        tk.Label(outer, text='Where their TC is likely to be, worked out from yours and the map\'s own rules. '
-                             'In team games, only the enemy side. Being tested.',
-                 fg=FAINT, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=380).pack(fill='x', pady=(3, 0))
-        apm_on = tk.BooleanVar(value=cfg.get('apm_live', False))
-        Check(outer, text='Live APM, with a red arrow if it drops', variable=apm_on, fg=TXT, bg=INK,
-              selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
-              font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x', pady=(6, 0))
-
-        section('Running as administrator',
-                'Only matters for the party invite. If the game runs as admin, Windows ignores clicks from '
-                'programs that don\'t, so Wingman has to restart as admin to click it. Better still, stop the '
-                'game needing admin and neither of them will.')
-        ad_on = tk.BooleanVar(value=cfg.get('admin_auto', False))
-        Check(outer, text='When the game needs it, restart Wingman as admin without asking first',
-                       variable=ad_on, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
-                       activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
-        ad_row = tk.Frame(outer, bg=INK); ad_row.pack(fill='x', pady=(6, 0))
-        ad_msg = tk.Label(ad_row, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
-                          justify='left', wraplength=210)        # beside the button, not a row of its own
-        def admin_state():
-            me_ = 'Wingman is running as admin.' if overlay_is_admin() else 'Wingman is running normally.'
-            try: flags = admin_flags()
-            except Exception: flags = []
-            if not flags: return ('All good: nothing runs as admin.' if not overlay_is_admin()
-                                  else me_ + ' Nothing else is set to.'), GREEN
-            names = sorted({os.path.basename(n) for _, n, _ in flags})
-            return me_ + ' Set to always run as admin: %s.' % ', '.join(names), GOLDC
-        def ad_refresh():
-            t_, c_ = admin_state(); ad_msg.config(text=t_, fg=c_)
-        def ad_fix():
-            try: cleared, left = clear_admin_flags()
-            except Exception as e: cleared, left = [], ['?']; log('fix admin: %r' % (e,))
-            ad_refresh()
-            if left:
-                ad_msg.config(text=ad_msg.cget('text') + ' Some are set for every user on this PC: untick '
-                              '"Run this program as an administrator" under Properties > Compatibility > '
-                              'Change settings for all users.', fg=GOLDC)
-            elif cleared:
-                ad_msg.config(text='Done. Close Steam fully and open it again, then start the game.', fg=GREEN)
-        flat_button(ad_row, 'Stop the game needing admin', ad_fix).pack(side='left')
-        ad_msg.pack(side='left', padx=(10, 0), fill='x', expand=True)
-        win.after(50, ad_refresh)                        # after the window is up, so it opens straight away
-
-        # God Mode: the UI mod this app is built around (it pins the resource bar and the Global
-        # Queue, which the idle Town Center alert reads). The button opens its official mod page.
-        section('AI coach')
-        ai_row = tk.Frame(outer, bg=INK); ai_row.pack(fill='x')
-        tk.Label(ai_row, text='Claude API key', fg=MUT, bg=INK, font=F_SMALL).pack(side='left', padx=(0, 10))
-        ai_e = tk.Entry(ai_row, width=30, show='\u2022'); style_entry(ai_e)
-        ai_e.insert(0, cfg.get('ai_key', '')); ai_e.pack(side='left', fill='x', expand=True, ipady=3)
-        ai_msg = tk.Label(outer, text='Stays on this PC. Under a cent a plan.',
-                          fg=FAINT, bg=INK, font=F_TINY, anchor='w', justify='left', wraplength=400)
-        def ai_test():
-            k_ = ai_e.get().strip()
-            if not k_: ai_msg.config(text='Paste your Claude key in the box first.', fg=REDC); return
-            if not k_.startswith('sk-ant-'):
-                ai_msg.config(text="That doesn't look like a Claude key: they start with sk-ant-.", fg=REDC); return
-            ai_msg.config(text='Checking the key\u2026', fg=MUT)
-            def work():
-                import urllib.error
-                try:
-                    _AI.pop('model', None)
-                    m_ = ai_model(k_)
-                    _ai_req(AI_API + '/messages', k_, {'model': m_, 'max_tokens': 5,
-                                                       'messages': [{'role': 'user', 'content': 'Say ok'}]}, timeout=20)
-                    t_, c_ = 'The key works (%s). Press Save.' % m_, GREEN
-                except urllib.error.HTTPError as e:
-                    body = ''
-                    try: body = e.read().decode('utf-8', 'ignore')[:200]
-                    except Exception: pass
-                    t_ = {401: "Claude didn't accept that key. Copy it again from console.anthropic.com.",
-                          403: "That key isn't allowed to use Claude. Check it in console.anthropic.com.",
-                          429: 'Claude is busy, or the account has no credit left. Add credit in console.anthropic.com.'
-                          }.get(e.code, 'Claude said no (error %d). %s' % (e.code, body))
-                    if e.code == 400 and 'credit' in body.lower():
-                        t_ = 'The key is fine, but the account has no credit. Add some in console.anthropic.com > Billing.'
-                    c_ = REDC
-                    log('ai: key test failed: %d %s' % (e.code, body))
-                except Exception as e:
-                    t_, c_ = "Couldn't reach Claude: %s" % e, REDC
-                    log('ai: key test: %r' % (e,))
-                try: root.after(0, lambda: ai_msg.winfo_exists() and ai_msg.config(text=t_, fg=c_))
-                except Exception: pass
-            threading.Thread(target=work, daemon=True).start()
-        flat_button(ai_row, 'Test key', ai_test).pack(side='left', padx=(8, 0))
-        ai_msg.pack(fill='x', pady=(4, 0))
-
-        section('Mods'); field('God Mode mod')
-        mods_row = tk.Frame(outer, bg=INK); mods_row.pack(fill='x', pady=(2, 0))
-        gm_state, gm_text = god_mode_status()
-        flat_button(mods_row, 'Install God Mode' if gm_state == 'missing' else 'Open its mod page',
-                    open_god_mode_page, fill=gm_state == 'missing').pack(side='left')
-        tk.Label(mods_row, text=gm_text, fg=GREEN if gm_state == 'on' else GOLDC if gm_state == 'off' else REDC,
-                 bg=INK, font=F_SMALL, anchor='w').pack(side='left', padx=(10, 0))
-
-        # Mod clashes: two enabled mods shipping the same file means only one does anything; this
-        # says which one wins. GodMode merges others in on purpose, so it is expected to win.
-        field('Do your mods clash?')
-        clash_row = tk.Frame(outer, bg=INK); clash_row.pack(fill='x', pady=(2, 0))
-        clash_out = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
-                             justify='left', wraplength=430)
-        clash_out.pack(fill='x', pady=(6, 0))
-
-        def run_clash_check():
-            clash_out.config(text='Checking...', fg=MUT)
-            def work():
-                try:
-                    rows = mod_clashes()
-                except Exception as e:
-                    log('mod check: %r' % (e,))
-                    txt, col = "Couldn't read your mods folder. Try again with the game closed.", REDC
-                else:
-                    if not rows:
-                        txt, col = "All good. None of your mods get in each other's way.", GREEN
-                    else:
-                        nice = lambda m_: re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', str(m_)).replace('_', ' ').strip()
-                        lines = ['%d of your mods overlap, so only one version of some files shows:'
-                                 % len({x for r_ in rows for x in r_[:2]})]
-                        for w, l, n, _ex in rows[:6]:
-                            ok_ = 'godmode' in _norm(w)
-                            lines.append('\u2022  %s wins over %s (%d file%s).%s'
-                                         % (nice(w), nice(l), n, '' if n == 1 else 's',
-                                            " That's expected: God Mode includes it." if ok_ else ''))
-                        if len(rows) > 6: lines.append('\u2022  and %d more.' % (len(rows) - 6))
-                        if not all('godmode' in _norm(r_[0]) for r_ in rows):
-                            lines.append("To pick which one shows, change the order in the game's Mods screen.")
-                        txt, col = '\n'.join(lines), GOLDC
-                try: win.after(0, lambda: clash_out.config(text=txt, fg=col))
-                except Exception: pass
-            threading.Thread(target=work, daemon=True).start()
-        flat_button(clash_row, 'Check my mods', run_clash_check).pack(side='left')
-        field('Godmode panel')
+        section('Godmode')
         gm_row = tk.Frame(outer, bg=INK); gm_row.pack(fill='x', pady=(2, 0))
         gm_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w')
         def gm_open_btn():
@@ -10583,10 +7916,6 @@ def main():
             flat_button(gm_row, 'Open Godmode', open_cheats, fill=True).pack(side='left')
             def lock():
                 c_ = load_settings(); c_['godmode'] = False; save_settings(c_); gm_lock_box()
-                cw_ = st.pop('cheat_win', None)              # and the open panel goes too
-                if cw_ is not None:
-                    try: cw_.destroy()
-                    except tk.TclError: pass
             flat_button(gm_row, 'Lock it again', lock).pack(side='left', padx=(8, 0))
         def gm_lock_box():
             for w_ in gm_row.winfo_children(): w_.destroy()
@@ -10603,19 +7932,92 @@ def main():
         else: gm_lock_box()
         gm_msg.pack(fill='x', pady=(4, 0))
 
+        section('Running as administrator',
+                'Only matters for the party invite. If the game runs as admin, Windows ignores clicks from '
+                'programs that don\'t, so Wingman has to restart as admin to click it. Better still, stop the '
+                'game needing admin and neither of them will.')
+        ad_on = tk.BooleanVar(value=cfg.get('admin_auto', False))
+        Check(outer, text='When the game needs it, restart Wingman as admin without asking first',
+                       variable=ad_on, fg=TXT, bg=INK, selectcolor=PANEL, activebackground=INK,
+                       activeforeground=GOLDD, font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+        ad_row = tk.Frame(outer, bg=INK); ad_row.pack(fill='x', pady=(6, 0))
+        ad_msg = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_SMALL, anchor='w',
+                          justify='left', wraplength=400)
+        ad_msg.pack(fill='x', pady=(6, 0))
+        def admin_state():
+            me_ = 'Wingman is running as admin.' if overlay_is_admin() else 'Wingman is running normally.'
+            try: flags = admin_flags()
+            except Exception: flags = []
+            if not flags: return me_ + ' Nothing is set to make the game or Steam run as admin.', GREEN
+            names = sorted({os.path.basename(n) for _, n, _ in flags})
+            return me_ + ' Set to always run as admin: %s.' % ', '.join(names), GOLDC
+        def ad_refresh():
+            t_, c_ = admin_state(); ad_msg.config(text=t_, fg=c_)
+        def ad_fix():
+            try: cleared, left = clear_admin_flags()
+            except Exception as e: cleared, left = [], ['?']; log('fix admin: %r' % (e,))
+            ad_refresh()
+            if left:
+                ad_msg.config(text=ad_msg.cget('text') + ' Some are set for every user on this PC: untick '
+                              '"Run this program as an administrator" under Properties > Compatibility > '
+                              'Change settings for all users.', fg=GOLDC)
+            elif cleared:
+                ad_msg.config(text='Done. Close Steam fully and open it again, then start the game.', fg=GREEN)
+        flat_button(ad_row, 'Stop the game needing admin', ad_fix).pack(side='left')
+        ad_refresh()
+
+        # God Mode: the UI mod this app is built around (it pins the resource bar and the Global
+        # Queue, which the idle Town Center alert reads). The button opens its official mod page.
+        section('Mods'); field('God Mode mod')
+        gm_row = tk.Frame(outer, bg=INK); gm_row.pack(fill='x', pady=(2, 0))
+        gm_state, gm_text = god_mode_status()
+        flat_button(gm_row, 'Install God Mode' if gm_state == 'missing' else 'Open its mod page',
+                    open_god_mode_page, fill=gm_state == 'missing').pack(side='left')
+        tk.Label(gm_row, text=gm_text, fg=GREEN if gm_state == 'on' else GOLDC if gm_state == 'off' else REDC,
+                 bg=INK, font=F_SMALL, anchor='w').pack(side='left', padx=(10, 0))
+
+        # Mod clashes: two enabled mods shipping the same file means only one does anything; this
+        # says which one wins. GodMode merges others in on purpose, so it is expected to win.
+        field('Mod clashes')
+        clash_row = tk.Frame(outer, bg=INK); clash_row.pack(fill='x', pady=(2, 0))
+        clash_out = tk.Label(outer, text='', fg='#b8b19f', bg=INK, font=F_TINY, anchor='w',
+                             justify='left', wraplength=400)
+        clash_out.pack(fill='x', pady=(6, 0))
+
+        def run_clash_check():
+            clash_out.config(text='Reading your mods...', fg=MUT)
+            def work():
+                try:
+                    rows = mod_clashes()
+                except Exception as e:
+                    txt, col = 'Could not read the mod folders: %r' % (e,), REDC
+                else:
+                    if not rows:
+                        txt, col = 'No clashes. Every enabled mod ships files no other one touches.', GREEN
+                    else:
+                        lines = ['%s beats %s on %d file%s  (%s%s)'
+                                 % (w, l, n, '' if n == 1 else 's', ', '.join(ex),
+                                    ', ...' if n > len(ex) else '')
+                                 for w, l, n, ex in rows[:8]]
+                        if len(rows) > 8: lines.append('and %d more pairs' % (len(rows) - 8))
+                        txt, col = '\n'.join(lines), GOLDC
+                try: win.after(0, lambda: clash_out.config(text=txt, fg=col))
+                except Exception: pass
+            threading.Thread(target=work, daemon=True).start()
+        flat_button(clash_row, 'Check my mods', run_clash_check).pack(side='left')
+
         def collect():
             hb, hg, h20 = house_cfg()
             return {'house_bands': hb, 'house_grace': hg, 'house_cap20': h20,
-                    'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(), 'ai_key': ai_e.get().strip(),
-                    'tc_alert': bool(tc_on.get()), 'scout_callout': bool(sc_on.get()), 'tc_orbit': bool(orb_on.get()), 'apm_live': bool(apm_on.get()),
+                    'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(),
+                    'tc_alert': bool(tc_on.get()), 'scout_alert': bool(sc_on.get()),
                     'scout_ping': bool(sp_on.get()),
                     'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
                     'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
                     'feudal_note': bool(fn_on.get()), 'companion_results': bool(cr_on.get()),
                     'castle_food': int(typed_number(cm_e.get(), cfg.get('castle_food', CASTLE_NOTE_FOOD), 100, 5000)),
                     'feudal_pop': int(typed_number(fp_e.get(), cfg.get('feudal_pop', FEUDAL_NOTE_POP), 5, 60)),
-                    'civ_panel_loading': bool(cp_on.get()),
-                    'admin_auto': bool(ad_on.get()),
+                    'loading_panels': bool(lp_on.get()), 'admin_auto': bool(ad_on.get()),
                     'friends': list(friends), 'friend_discord': dict(fdisc),
                     'live_pause_key': (lv['live_pause_key'].get().strip().upper()
                                        if combo_ok(lv['live_pause_key'].get()) else 'CTRL+F3'),
@@ -10625,182 +8027,52 @@ def main():
             c = collect()
             if c['webhook'] and not re.match(r'https://(\w+\.)?discord(app)?\.com/api/webhooks/', c['webhook']):
                 msg.config(text="That doesn't look like a Discord webhook link.", fg=REDC); return
-            if c.get('live_channel') and not discord_channel_link(c['live_channel']):
-                lv_check(); msg.config(text="The Go Live voice channel needs to be the channel's link. "
-                                            "See the note under it.", fg=REDC); return
-            # Only what you changed here is written. Settings can sit built and hidden for a while,
-            # and anything set elsewhere in the meantime (admin, lock, build order) is kept.
-            merged = load_settings()
-            first_ = st_set.get('initial') or {}
-            for k_, v_ in c.items():
-                if k_ not in first_ or first_[k_] != v_ or k_ not in merged: merged[k_] = v_
-            save_settings(merged)
+            merged = load_settings(); merged.update(c); save_settings(merged)
             tc_settings(); tc_draw()
             scorew.enabled = merged.get('concede_flag', True)
-            _SETC['t'] = 0                                   # the AI coach picks up a new key straight away
-            if merged.get('ai_key') != first_.get('ai_key'):
-                log('ai: key %s' % ('saved (ends ...%s)' % merged['ai_key'][-4:] if merged.get('ai_key') else 'removed'))
-            b_ = st.get('ai_box')
-            if b_ is not None:
-                try: calm(lambda: ai_draw(b_))()
-                except Exception: pass
             close_win()
         def test():
             c = collect()
             if not c['webhook']: msg.config(text='Paste the webhook link first.', fg=REDC); return
-            msg.config(text='Sending a test message\u2026', fg=MUT)
-            body_ = ('Test from %s. Invites will look like this:\n' % APP_NAME +
-                     invite_message('aoe2de://0/123456789', '123456789', discord_tags(dict(load_settings(), **c))))
-            def work():                                  # off the main thread: Discord can be slow
-                try:
-                    post_discord(c['webhook'], body_)
-                    t_, col_ = 'Sent a test message to #%s.' % (c['channel'] or 'discord'), GREEN
-                except Exception as e:
-                    t_, col_ = 'Discord said no: %s' % e, REDC
-                try: root.after(0, lambda: msg.winfo_exists() and msg.config(text=t_, fg=col_))
-                except Exception: pass
-            threading.Thread(target=work, daemon=True).start()
+            try:
+                post_discord(c['webhook'], 'Test from %s. Invites will look like this:\n' % APP_NAME +
+                             invite_message('aoe2de://0/123456789', '123456789', discord_tags(dict(load_settings(), **c))))
+                msg.config(text='Sent a test message to #%s.' % (c['channel'] or 'discord'), fg=GREEN)
+            except Exception as e:
+                msg.config(text='Discord said no: %s' % e, fg=REDC)
         def close_win():
             st['settings_win'] = None; win.destroy()
-            root.after(1500, prebuild_settings)          # the next one ready and waiting, with what was saved
 
         flat_button(wh_btns, 'Send a test message', test).pack(side='left')
         btns = tk.Frame(foot, bg=DEEP); btns.pack(fill='x', pady=(0, 0))
         flat_button(btns, 'Save', save, fill=True).pack(side='left')
         flat_button(btns, 'Close', close_win, accent=MUT, hot='#cfc8b6').pack(side='right')
-        # what Save has to say sits between Save and Close: no extra row taking up the screen
-        msg = tk.Label(btns, text='', fg='#b8b19f', bg=DEEP, font=F_SMALL, anchor='w',
-                       justify='left', wraplength=520)
-        msg.pack(side='left', fill='x', expand=True, padx=(14, 14))
-        try: st_set['initial'] = collect()                # what the window showed when it was built
-        except Exception: pass
-        win.built_ok = True                               # all of it is there
-        win.update_idletasks()
-        # Side by side columns, as many as it takes for everything to fit on the screen, so there
-        # is nothing to scroll (scrolling a page of controls smears on Windows). Only a screen too
-        # small for that still scrolls. The cards keep their order, top to bottom, left to right.
-        try:
-            kids = list(page.pack_slaves())
-            hs = [c_.winfo_reqheight() + 7 for c_ in kids]
-            cw = max(c_.winfo_reqwidth() for c_ in kids)
-            room = win.winfo_screenheight() - 186 - 16          # what fit_ allows, less the page's own padding
-            most = max(1, min(4, (win.winfo_screenwidth() - 70) // (cw + 16)))
-            def groups(limit):
-                out_, cur, tot = [], [], 0
-                for c_, h_ in zip(kids, hs):
-                    if cur and tot + h_ > limit: out_.append(cur); cur, tot = [], 0
-                    cur.append(c_); tot += h_
-                if cur: out_.append(cur)
-                return out_
-            def best(n_):
-                lo_, hi_ = max(hs), sum(hs)
-                while lo_ < hi_:
-                    mid = (lo_ + hi_) // 2
-                    if len(groups(mid)) <= n_: hi_ = mid
-                    else: lo_ = mid + 1
-                return lo_
-            def shortest(n_):
-                # each card, in turn, goes under whichever column is shortest so far
-                cols, tot = [[] for _ in range(n_)], [0] * n_
-                for c_, h_ in zip(kids, hs):
-                    j = tot.index(min(tot)); cols[j].append(c_); tot[j] += h_
-                return [c for c in cols if c], max(tot)
-            def biggest_first(n_):
-                # the tallest cards placed first, each under the shortest column; then each column
-                # keeps the cards in their usual order, top to bottom
-                cols, tot = [[] for _ in range(n_)], [0] * n_
-                for i_ in sorted(range(len(kids)), key=lambda i_: -hs[i_]):
-                    j = tot.index(min(tot)); cols[j].append(i_); tot[j] += hs[i_]
-                cols = sorted([sorted(c) for c in cols if c], key=lambda c: c[0])
-                return [[kids[i_] for i_ in c] for c in cols], max(tot)
-            def plan(n_):
-                opts = [(groups(best(n_)), best(n_)), shortest(n_), biggest_first(n_)]
-                return min(opts, key=lambda o: o[1])
-            n_ = next((k for k in range(1, most + 1) if plan(k)[1] <= room), most)
-            grps, tall = plan(n_)
-            log('settings: %d columns, tallest %d of %d (screen %dx%d)' % (n_, tall, room,
-                win.winfo_screenwidth(), win.winfo_screenheight()))
-            if n_ > 1 and len(kids) > 1:
-                cols_ = tk.Frame(page, bg=DEEP); cols_.pack(fill='x')
-                for j, grp in enumerate(grps):
-                    col = tk.Frame(cols_, bg=DEEP)
-                    col.grid(row=0, column=j, sticky='nwe', padx=(0 if j == 0 else 14, 0))
-                    cols_.grid_columnconfigure(j, minsize=cw, uniform='col')
-                    for c_ in grp:
-                        info = c_.pack_info(); info.pop('in', None)
-                        c_.pack_forget(); c_.pack(in_=col, **info); c_.lift()
-                win.update_idletasks()
-        except Exception as e:
-            log('settings columns: %r' % (e,))
-        fit_()
+        msg = tk.Label(foot, text='', fg='#b8b19f', bg=DEEP, font=F_SMALL, anchor='w',
+                       justify='left', wraplength=400)
+        msg.pack(fill='x', pady=(10, 0))
+        win.update_idletasks(); fit_()
+        win.update_idletasks()                             # keep the whole window on the screen
+        win.geometry('+%d+%d' % (max(0, (win.winfo_screenwidth() - win.winfo_reqwidth()) // 2),
+                                 max(0, (win.winfo_screenheight() - win.winfo_reqheight()) // 2 - 24)))
+
         win.bind('<Escape>', lambda e: close_win())        # Esc does the same as Cancel
         win.protocol('WM_DELETE_WINDOW', close_win)
-        if show: reveal_settings(win)
-        else:
-            try:                                           # so the loading frame opens at the right size
-                st['settings_geo'] = (win.winfo_reqwidth(), win.winfo_reqheight(),
-                                      max(0, (win.winfo_screenwidth() - win.winfo_reqwidth()) // 2),
-                                      settings_y(win))
-            except tk.TclError: pass
-    def busy_spinner(text):
-        """A small gold spinner by the overlay while something takes a moment to build.
-        Returns a function that takes it away."""
-        w_ = tk.Toplevel(root); w_.overrideredirect(True); w_.attributes('-topmost', True)
-        w_.configure(bg=RIM)
-        f_ = tk.Frame(w_, bg=INK, padx=10, pady=7); f_.pack(padx=1, pady=1)
-        c_ = tk.Canvas(f_, width=16, height=16, bg=INK, highlightthickness=0); c_.pack(side='left')
-        tk.Label(f_, text=text, fg=MUT, bg=INK, font=F_SMALL).pack(side='left', padx=(8, 0))
-        arc = c_.create_arc(2, 2, 14, 14, start=0, extent=270, style='arc', outline=GOLDC, width=2)
-        live_ = {'on': True, 'a': 0}
-        def spin():
-            if not live_['on']: return
-            live_['a'] = (live_['a'] - 30) % 360
-            try: c_.itemconfigure(arc, start=live_['a']); w_.after(50, spin)
-            except tk.TclError: pass
-        w_.update_idletasks()
-        x_ = root.winfo_rootx() + max(0, (root.winfo_width() - w_.winfo_reqwidth()) // 2)
-        y_ = root.winfo_rooty() + root.winfo_height() + 6
-        w_.geometry('+%d+%d' % (x_, y_)); w_.update(); spin()
-        def gone():
-            live_['on'] = False
-            try: w_.destroy()
-            except tk.TclError: pass
-        return gone
-
-    def open_settings_soon():
-        """The gear: a spinner straight away, then Settings, which takes a moment to build."""
-        if st.get('settings_win') is not None:
-            open_settings(); return                        # already open: bring it to the front
-        if st.get('settings_shell') is not None: return    # on its way
-        # the frame with a spinner straight away, then Settings drops into it
-        st['settings_shell'] = 'coming'                    # a second click meanwhile does nothing
-        st['settings_shell'] = settings_shell()
-        def go():
-            try: open_settings()
-            except Exception as e:
-                log('settings open: %r' % (e,))
-                w_ = st.get('settings_win')                 # half built: take it away, so the gear works again
-                if w_ is not None and not getattr(w_, 'built_ok', False): drop_settings('settings_win')
-            drop_settings('settings_shell')                 # if Settings never took its place
-        root.after(15, go)
-    st['actions'][gear] = open_settings_soon
-    root.after(4000, prebuild_settings)
+        try: win.focus_force()
+        except tk.TclError: pass
+    st['actions'][gear] = open_settings
 
     def open_stats():
         """The record: filters for 1v1 / team games, time window and ranked, then your form, rating,
         best and worst civs, maps and match-ups, and the last games with their result."""
         if st.get('stats_win') is not None:
-            try:
-                if st['stats_win'].winfo_exists(): bring_up(st['stats_win']); return
-            except tk.TclError: pass
-            st['stats_win'] = None
+            try: st['stats_win'].lift(); return
+            except tk.TclError: st['stats_win'] = None
         cfg_ = load_settings()
         st.setdefault('scope', cfg_.get('stats_mode', '1v1'))
         if st['scope'] not in ('1v1', 'TG'): st['scope'] = '1v1'
         st.setdefault('days', cfg_.get('stats_days', 0))
         st.setdefault('ranked', cfg_.get('stats_ranked', False))
         win = tk.Toplevel(root); st['stats_win'] = win
-        win.withdraw()                                  # built out of sight, then faded up
         win.title(APP_NAME + ' record'); win.configure(bg=RIM); win.attributes('-topmost', True)
         win.geometry('600x760'); win.minsize(560, 460)
         outer = tk.Frame(win, bg=INK, padx=18, pady=14)
@@ -11010,14 +8282,6 @@ def main():
                     tk.Label(cell, text=val, fg=col, bg=PANEL, font=('Segoe UI', 9), anchor='w').pack(fill='x')
                 for col in range(3): grid_.columnconfigure(col, weight=1, uniform='note')
 
-            # how you like to open, and how each one goes for you
-            strat = tally_by([g for g in games if g.get('opening')], 'opening')
-            if strat:
-                caption(inner, 'YOUR FAVOURITE STRATEGIES', 'how you opened, read from your recordings')
-                table(inner, strat, limit=6)
-            elif any('opening' not in g for g in games):
-                caption(inner, 'YOUR FAVOURITE STRATEGIES', 'reading your recordings\u2026')
-
             bans = map_bans([g for g in games if g.get('ranked')] or games)
             if bans:
                 caption(inner, 'BAN THESE MAPS', 'your worst, 4+ decided ranked games')
@@ -11056,18 +8320,8 @@ def main():
         r1 = Rule(outer); r1.configure(bg=INK); r1.pack(fill='x', pady=(10, 0))
         btns = tk.Frame(outer, bg=INK); btns.pack(fill='x', pady=(10, 0))
         flat_button(btns, 'Close', close_win, accent=MUT, hot=TXT).pack(side='right')
-        def check_now():
-            if st.get('checking'): return
-            st['checking'] = True
-            def work():
-                try: fill_results(me, force=True)
-                except Exception as e: log('check results: %r' % (e,))
-                finally:
-                    st['checking'] = False
-                    try: root.after(0, refresh_stats_window)
-                    except Exception: pass
-            threading.Thread(target=work, daemon=True).start()
-        flat_button(btns, 'Check results now', check_now).pack(side='left')
+        flat_button(btns, 'Check results now', lambda: (threading.Thread(
+            target=lambda: (fill_results(me, force=True), root.after(0, build)), daemon=True).start())).pack(side='left')
         tk.Label(outer, text='Results come from your own online match history, so nothing is guessed: the game\'s '
                  'service first, then aoe2companion.com for older games. Games against the computer are '
                  'left out. R marks a ranked game, and the number beside it is what the game did to your rating.',
@@ -11075,20 +8329,8 @@ def main():
                  anchor='w', justify='left', wraplength=540).pack(fill='x', pady=(8, 0))
         st['stats_build'] = build
         build()
-        def read_openings():                            # your own openings, then show them
-            try:
-                for _r in range(30):
-                    if not fill_openings(me): break
-                    try: root.after(0, refresh_stats_window)
-                    except Exception: break
-            except Exception as e: log('your openings: %r' % (e,))
-        threading.Thread(target=read_openings, daemon=True).start()
         win.bind('<Escape>', lambda e: close_win())
         win.protocol('WM_DELETE_WINDOW', close_win)
-        win.update_idletasks()
-        win.geometry('+%d+%d' % (max(0, (win.winfo_screenwidth() - 600) // 2),
-                                 max(0, (win.winfo_screenheight() - 760) // 2 - 24)))
-        fade_in(win)
         try: win.focus_force()
         except tk.TclError: pass
     st['actions'][stats_btn] = open_stats
@@ -11149,10 +8391,6 @@ def main():
     def host(send_only=False):
         if st.get('hosting'):                              # the button reads Stop while running
             STOP.set(); host_msg.config(text='Stopping...'); return
-        if not waiting_now[0]:
-            # it clicks through the game's menus: never while a match is on screen
-            host_msg.config(text='The ranked invite works from the main menu, not during a game.', fg=MUT)
-            foot_fit(); return
         hide_admin()
         resume = 'send' if send_only else 'party'
         try: blocked = game_needs_admin()
@@ -11311,7 +8549,6 @@ def main():
     # A newer public release: say so on the bar at the menu, one click to take it. The exe swaps
     # itself; a .bat takes Prod. Ash's own setup publishes and restarts by itself, so not there.
     clear_old_exe()
-    threading.Thread(target=startup_check, daemon=True).start()
     # The exe: put it in the Start menu and on the Desktop the first time it runs, then keep those
     # pointing at it if it moves. Done quietly; pinning to the taskbar is the player's call.
     def shortcuts_once():
@@ -11327,12 +8564,6 @@ def main():
         rel = newer_release()
         if not rel or (not FROZEN and find_publish()): return
         def take():
-            st['actions'].pop(host_msg, None)                     # one click only, and the line stops being a link
-            if st.get('updating'): return
-            if not waiting_now[0]:
-                host_msg.config(text='Update after this game: click here at the menu.', fg=MUT)
-                st['actions'][host_msg] = take; return
-            st['updating'] = True
             host_msg.config(text='Getting %s...' % rel['ver'], fg=MUT)
             def work():
                 try:
@@ -11342,14 +8573,12 @@ def main():
                     else:
                         ok_, text_, path_ = update_from_github('Prod')
                         if not path_:
-                            st['updating'] = False
                             root.after(0, lambda t=text_, c=(MUT if ok_ else REDC): host_msg.config(text=t, fg=c))
                             return
                         restart_app(path_)
                     root.after(0, lambda: (root.destroy(), os._exit(0)))
                 except Exception as e:
                     log('update from the bar: %r' % (e,))
-                    st['updating'] = False
                     root.after(0, lambda t='Could not update: %s' % e: host_msg.config(text=t, fg=REDC))
             threading.Thread(target=work, daemon=True).start()
         def show():
@@ -11364,43 +8593,28 @@ def main():
 
     def show_opponents(players):
         for w in opp_area.winfo_children(): w.destroy()
-        for w in [w for w in st['actions'] if not _alive(w)]:
-            st['actions'].pop(w, None)                 # clicks for widgets that no longer exist
         opp_area.grid_configure(pady=(0, 0))
         opp_area.config(width=1, height=1)         # an emptied frame keeps its old size unless told otherwise,
                                                    # which left the panel tall after a game
         mine = next((p for p in players if p['human'] and p['profile'] == me), None)
         opps = [p for p in players if p is not mine and (mine is None or p['team'] <= 1 or p['team'] != mine['team'])]
         team_game = len(players) > 2
-        if not opps:
-            opp_area.grid_remove(); return
-        opp_area.grid(); opp_area.grid_configure(pady=(6, 0))
-        try: my_civ = civ_text(mine['civ'], strings, icons)[0] if mine else None
-        except Exception: my_civ = None
-        # one plan per game: the lobby list and the in-game list can differ (a random civ gets
-        # named), so it's tied to the game, not to who's in it
-        sig_ = st.get('last') or '|'.join(sorted(p['name'] for p in opps))
-        if (st.get('ai') or {}).get('sig') != sig_:
-            old_ = st.get('ai') or {}
-            st['ai'] = {'sig': sig_, 'text': None, 'shown': False, 'busy': False}
-            if old_.get('text') and not old_.get('sig', '').endswith('.aoe2record') and str(sig_).endswith('.aoe2record'):
-                st['ai'].update(text=old_['text'], shown=old_.get('shown'))       # asked on the loading screen: keep it
-        st['ai_ctx'] = {'me': my_civ, 'map': title.cget('text'), 'team': team_game,
-                        'opps': [{'name': p['name'], 'civ': civ_text(p['civ'], strings, icons)[0], 'open': []}
-                                 for p in opps]}
-        cap = tk.Label(opp_area, text='OPPONENTS' if len(opps) > 1 else 'OPPONENT', fg=BRONZE, bg=PANEL,
-                       font=F_TINY, anchor='w')
-        cap.grid(row=0, column=0, sticky='w', pady=(0, 3)); bind_all(cap)
+        if opps:
+            opp_area.grid_configure(pady=(5, 0))
+        if len(opps) > 1:                          # one opponent needs no heading
+            cap = tk.Label(opp_area, text='OPPONENTS', fg=BRONZE, bg=BG,
+                           font=(DISPLAY, 8, 'bold'), anchor='w')
+            cap.grid(row=0, column=0, sticky='w'); bind_all(cap)
         def scouting_report(box, pr, col):
             """One line: a bar split by how often they open each way, the usual one named with
             its count, then their usual Feudal and Castle times. As your own game clock comes up
             to one of those times it turns amber with a countdown, then red while it is due."""
             for w in box.winfo_children(): w.destroy()
-            line1 = tk.Frame(box, bg=PANEL); line1.pack(fill='x', anchor='w')
-            ic = tk.Canvas(line1, width=13, height=13, bg=PANEL, highlightthickness=0)
+            line1 = tk.Frame(box, bg=BG); line1.pack(fill='x', anchor='w')
+            ic = tk.Canvas(line1, width=13, height=13, bg=BG, highlightthickness=0)
             draw_icon(ic, 'clock', 13, BRONZE); ic.pack(side='left', padx=(0, 5))
             W, H = 54, 7
-            bar = tk.Canvas(line1, width=W, height=H, bg=INK, highlightthickness=1, highlightbackground=RIM)
+            bar = tk.Canvas(line1, width=W, height=H, bg=PANEL, highlightthickness=1, highlightbackground=RIM)
             x, total = 0.0, float(sum(n for _, n in pr['dist'])) or 1.0
             for k, (lab, n) in enumerate(pr['dist']):
                 w_ = W * n / total
@@ -11409,21 +8623,18 @@ def main():
                 x += w_
             bar.pack(side='left', padx=(0, 6))
             lead = tk.Label(line1, text='%s %d/%d' % (pr['opening'], pr['observed'], pr['matches']),
-                            fg=GOLDD, bg=PANEL, font=(DISPLAY, 9, 'bold'))
+                            fg=GOLDD, bg=BG, font=(DISPLAY, 9, 'bold'))
             lead.pack(side='left')
-            when = tk.Label(line1, text='', fg=MUT, bg=PANEL, font=F_SMALL)
+            when = tk.Label(line1, text='', fg=MUT, bg=BG, font=F_SMALL)
             when.pack(side='left', padx=(8, 0))
             for w in (box, line1, ic, bar, lead, when): bind_all(w)
             # and what to do about it: a stock answer to the way they usually open
             ans = opening_answer(pr['opening'])
             if ans:
-                line2 = tk.Frame(box, bg=PANEL); line2.pack(fill='x', anchor='w', pady=(2, 0))
-                # a small gold reply arrow: what to do back
-                sh = tk.Canvas(line2, width=16, height=14, bg=PANEL, highlightthickness=0)
-                sh.create_line(4, 1, 4, 9, 14, 9, fill=GOLDC, width=2, arrow='last', arrowshape=(5, 6, 3),
-                               capstyle='round', joinstyle='round')
-                sh.pack(side='left', padx=(0, 5), anchor='n', pady=(1, 0))
-                al = tk.Label(line2, text=ans, fg='#e6d9b0', bg=PANEL, font=F_SMALL, anchor='w', justify='left',
+                line2 = tk.Frame(box, bg=BG); line2.pack(fill='x', anchor='w', pady=(2, 0))
+                sh = tk.Canvas(line2, width=13, height=13, bg=BG, highlightthickness=0)
+                draw_icon(sh, 'shield', 13, GOLDC); sh.pack(side='left', padx=(0, 5), anchor='n')
+                al = tk.Label(line2, text=ans, fg=TXT, bg=BG, font=F_SMALL, anchor='w', justify='left',
                               wraplength=340)
                 al.pack(side='left', fill='x')
                 for w in (line2, sh, al): bind_all(w)
@@ -11448,91 +8659,79 @@ def main():
             tick_()
             box.grid()
 
-        # one opponent: shown in full. Two or more: each starts as just its line, to save room;
-        # click a player's line (or the arrow) to open or close them
-        folded = len(opps) > 1
+        folded = bool(load_settings().get('opp_folded', False))    # how you left it last time
         opp_area.columnconfigure(0, weight=1)                      # the rating stays hard right, folded or not
         for i, p in enumerate(opps):
             name, text = civ_text(p['civ'], strings, icons)
             tone = name_colour(p.get('colour'), RED)        # the colour the game writes their name in
             solid = player_colour(p.get('colour'))[0] or tone   # and the one it paints them in
             nm = {'shown': p['name'] if len(p['name']) <= 20 else p['name'][:19] + '\u2026'}
-            row = tk.Frame(opp_area, bg=PANEL)
+            row = tk.Frame(opp_area, bg=BG)
             row.grid(row=i + 1, column=0, sticky='we', pady=(3 if i else 0, 0))
             row.columnconfigure(0, weight=1)
 
             # The player's line: who they are, their civ, what they open with, and their ladder
             # rating. 1v1 is the number that matters, so it is the big one; the team rating sits
             # beside it, quieter. Click the line and everything under it folds away.
-            top = tk.Frame(row, bg=PANEL); top.grid(row=0, column=0, sticky='we')
+            top = tk.Frame(row, bg=BG); top.grid(row=0, column=0, sticky='we')
             top.columnconfigure(4, weight=1)
-            dot = tk.Canvas(top, width=11, height=11, bg=PANEL, highlightthickness=0, cursor='hand2')
+            dot = tk.Canvas(top, width=11, height=11, bg=BG, highlightthickness=0, cursor='hand2')
             dot.create_oval(1, 1, 10, 10, fill=solid, outline=RIM)
-            # (no coloured dot: the name is already in their colour) a small arrow: open or closed
-            chev = tk.Label(top, text='\u25b8' if folded else '\u25be', fg=MUT, bg=PANEL, font=F_SMALL,
-                            cursor='hand2', padx=0, width=2, anchor='w')
-            chev.grid(row=0, column=0, sticky='w')
-            who = tk.Label(top, text='', fg=tone, bg=PANEL, font=F_HEAD, anchor='w', cursor='hand2')
+            dot.grid(row=0, column=0, padx=(0, 7))
+            who = tk.Label(top, text='', fg=tone, bg=BG, font=F_HEAD, anchor='w', cursor='hand2')
             who.grid(row=0, column=1, sticky='w')
-            # the civ's name opens the notes on that civ, with a small arrow to say it does
-            civf = tk.Frame(top, bg=PANEL, cursor='hand2')
-            civf.grid(row=0, column=2, sticky='w', padx=(8, 0), pady=(2, 0))
-            civl = tk.Label(civf, text=name.upper(), fg=TXT, bg=PANEL, font=(DISPLAY, 9, 'bold'),
+            civl = tk.Label(top, text=name.upper(), fg=TXT, bg=BG, font=(DISPLAY, 9, 'bold'),
                             anchor='w', cursor='hand2')
-            civl.pack(side='left')
-            u3 = tk.Label(civf, text='\u25be', fg=MUT, bg=PANEL, font=F_SMALL, cursor='hand2', padx=3)
-            u3.pack(side='left')
-            opn = tk.Frame(top, bg=PANEL)
+            civl.grid(row=0, column=2, sticky='w', padx=(8, 0), pady=(2, 0))
+            opn = tk.Frame(top, bg=BG)
             opn.grid(row=0, column=3, sticky='w', padx=(8, 0))
-            elo1 = tk.Label(top, text='', fg=GOLDD, bg=PANEL, font=(DISPLAY, 11, 'bold'), anchor='e')
+            elo1 = tk.Label(top, text='', fg=GOLDD, bg=BG, font=(DISPLAY, 11, 'bold'), anchor='e')
             elo1.grid(row=0, column=5, sticky='e')
-            elo2 = tk.Label(top, text='', fg=MUT, bg=PANEL, font=F_TINY, anchor='e')
+            elo2 = tk.Label(top, text='', fg=MUT, bg=BG, font=F_TINY, anchor='e')
             elo2.grid(row=0, column=6, sticky='e', padx=(6, 0))
 
             # Under it: what beats their unique unit, and behind that line the notes on the civ.
-            more = tk.Frame(row, bg=PANEL)
+            more = tk.Frame(row, bg=BG)
             more.grid(row=1, column=0, sticky='we', padx=(18, 0))
-            beat = tk.Frame(more, bg=PANEL)
+            beat = tk.Frame(more, bg=BG)
             beat.grid(row=0, column=0, sticky='w', pady=(2, 0))
             # The scouting report: their usual opening as a bar of how often, and when they
             # usually reach Feudal and Castle, counting down against your own game clock.
-            intel = tk.Frame(more, bg=PANEL)
+            intel = tk.Frame(more, bg=BG)
             intel.grid(row=1, column=0, sticky='w', pady=(3, 0)); intel.grid_remove()
-            det = tk.Label(more, text=text, fg='#cfc8b6', bg=PANEL, font=F_SMALL, anchor='w',
+            det = tk.Label(more, text=text, fg='#cfc8b6', bg=BG, font=F_SMALL, anchor='w',
                            justify='left', wraplength=380)
             det.grid(row=2, column=0, sticky='w', pady=(2, 0)); det.grid_remove()
             if folded: more.grid_remove()
 
             def mark(parent, kind, col):
-                c = tk.Canvas(parent, width=14, height=14, bg=PANEL, highlightthickness=0)
+                c = tk.Canvas(parent, width=14, height=14, bg=BG, highlightthickness=0)
                 draw_icon(c, kind, 14, col); c.pack(side='left', padx=(0, 6))
                 bind_all(c); return c
 
             uu, beats = uu_counter(p['civ'], strings, icons)
-            try:                                   # their unique unit: a small drawn sword
-                from PIL import ImageTk
-                if 'uu_img' not in st: st['uu_img'] = ImageTk.PhotoImage(draw_step_icon('sword', 16, PANEL))
-                c_ = tk.Label(beat, image=st['uu_img'], bg=PANEL, bd=0); c_.pack(side='left', padx=(0, 6))
-                bind_all(c_)
-            except Exception:
-                mark(beat, 'swords', BRONZE)
-            u1 = tk.Label(beat, text=uu or 'Civ notes', fg='#e6d9b0', bg=PANEL, font=F_SMALL, cursor='hand2')
+            mark(beat, 'swords', BRONZE)
+            u1 = tk.Label(beat, text=uu or 'Civ notes', fg='#e6d9b0', bg=BG, font=F_SMALL, cursor='hand2')
             u1.pack(side='left')
             u2 = tk.Label(beat, text=('  \u2192 ' + beats) if beats else '',
-                          fg=GREEN if beats else FAINT, bg=PANEL, font=F_SMALL, cursor='hand2')
+                          fg=GREEN if beats else FAINT, bg=BG, font=F_SMALL, cursor='hand2')
             u2.pack(side='left')
+            u3 = tk.Label(beat, text='  more', fg=FAINT, bg=BG, font=F_TINY, cursor='hand2')   # there is more behind this line
+            u3.pack(side='left')
 
-            def name_now(h=who, box=more, nm=nm, ch=chev):
-                h.config(text=nm['shown'])
-                try: ch.config(text='\u25be' if box.winfo_manager() else '\u25b8')
-                except tk.TclError: pass
+            def name_now(h=who, box=more, nm=nm):
+                h.config(text=nm['shown'])                 # the fold shows for itself: no arrows needed
             def fold(box=more, show=name_now):
-                """A click on the player's line: everything under it folds away, or comes back."""
+                """A click on the player's line: everything under it folds away, or comes back.
+                It is remembered, so the next game starts the way you left this one."""
                 toggle(box); show()
-            def notes(dt=det, arrow=u3, box=more, show=name_now):
-                """A click on the civ's name (or the unique unit's line): the notes on the civ."""
-                if not box.winfo_manager(): box.grid(); show()  # folded away: open it to show them
-                toggle(dt); arrow.config(text='\u25b4' if dt.winfo_manager() else '\u25be')
+                try:
+                    c = load_settings(); c['opp_folded'] = not box.winfo_manager(); save_settings(c)
+                except Exception as e:
+                    log('could not remember the fold: %r' % (e,))
+            def notes(dt=det, arrow=u3):
+                """A click on the unique unit's line: the notes on the civ, and how this player opens."""
+                toggle(dt); arrow.config(text='  less' if dt.winfo_manager() else '  more')
             def fit(line=top, box=opn, nm=nm, show=name_now):
                 """Keep the player's line inside the panel. The second opening goes first, then
                 the end of a long name."""
@@ -11545,11 +8744,9 @@ def main():
                     else: break
             name_now()
             hover(who, tone, lighten(tone, 0.35))
-            for w in (top, dot, chev, who, opn): st['actions'][w] = fold
-            hover(chev, MUT, GOLDD)
-            for w in [beat] + beat.winfo_children() + [civf, civl, u3]: st['actions'][w] = notes
-            hover(civl, TXT, GOLDD); hover(u3, MUT, GOLDD)
-            for w in (row, top, dot, chev, who, civf, civl, opn, more, beat, det, u1, u2, u3): bind_all(w)
+            for w in (top, dot, who, civl, opn): st['actions'][w] = fold
+            for w in [beat] + beat.winfo_children(): st['actions'][w] = notes
+            for w in (row, top, dot, who, civl, opn, more, beat, det, u1, u2, u3): bind_all(w)
 
             # the civ's usual openings until their own games have been read
             def chips(box, tops, lead_colour, click, after):
@@ -11557,15 +8754,15 @@ def main():
                 for n_, (lab, cnt) in enumerate(tops):
                     lead = n_ == 0
                     # quiet tags: a dark plate, the usual one lit in their colour, no heavy boxes
-                    c = tk.Frame(box, bg=INK, cursor='hand2')
+                    c = tk.Frame(box, bg=PANEL, cursor='hand2')
                     bar_ = tk.Frame(c, bg=lead_colour if lead else EDGE, width=2)
                     bar_.pack(side='left', fill='y')
-                    t = tk.Label(c, text=lab.upper(), fg=GOLDD if lead else MUT, bg=INK,
+                    t = tk.Label(c, text=lab.upper(), fg=GOLDD if lead else MUT, bg=PANEL,
                                  font=(F_SMALL[0], F_SMALL[1], 'bold'), padx=6, pady=1)
                     t.pack(side='left')
                     bits = [t, bar_]
                     if cnt:
-                        x = tk.Label(c, text='\u00d7%d' % cnt, fg=FAINT, bg=INK, font=F_TINY, pady=1)
+                        x = tk.Label(c, text='\u00d7%d' % cnt, fg=FAINT, bg=PANEL, font=F_TINY, pady=1)
                         x.pack(side='left', padx=(0, 6)); bits.append(x)
                     c.pack(side='left', padx=(0, 4))
                     for w in [c] + bits:
@@ -11574,13 +8771,11 @@ def main():
 
             def note(box, txt, click, after, col=FAINT):
                 for w in box.winfo_children(): w.destroy()
-                lb = tk.Label(box, text=txt, fg=col, bg=PANEL, font=F_SMALL, anchor='w')
+                lb = tk.Label(box, text=txt, fg=col, bg=BG, font=F_SMALL, anchor='w')
                 lb.pack(side='left'); st['actions'][lb] = click; bind_all(lb)
                 box.grid(); after()
 
             typical = [(x, 0) for x in civ_typical(name)]
-            try: st['ai_ctx']['opps'][i]['open'] = [(x, 0, True) for x, _ in typical]   # civ's usual, until their own games are read
-            except Exception: pass
             if typical: chips(opn, typical, RIM, fold, fit)
             else: note(opn, 'no openings on file', fold, fit)
 
@@ -11603,18 +8798,13 @@ def main():
                            chips_=chips, note_=note, report_=lambda pr, col, f=intel: scouting_report(f, pr, col)):
                     def post(fn):
                         for _ in range(40):
-                            try: root.after(0, calm(fn)); return
+                            try: root.after(0, fn); return
                             except RuntimeError: time.sleep(0.25)   # the window is still starting up
                     try:
                         post(lambda: note_(box, 'reading their games\u2026', fold_, fit_))
                         rows = opponent_openings(pp['profile'], 'TG' if team_game else '1v1',
                                                  5 if team_game else OPEN_GAMES)
                         tops = top_openings(rows)
-                        try:
-                            for o_ in st['ai_ctx']['opps']:
-                                if o_['name'] == pp['name'] and tops:
-                                    o_['open'] = [(lab, cnt, False) for lab, cnt in tops]; o_['games'] = len(rows)
-                        except Exception: pass
                         detail = '\n'.join(openings_lines(rows, pp['civ'], strings))
                         pred = intel_predict(rows, pp['civ'])
                         def done():
@@ -11631,117 +8821,6 @@ def main():
                     except Exception as e:
                         log('openings lookup failed: %r' % (e,))
                 if pp_ok(p, i): threading.Thread(target=habits, daemon=True).start()
-        ai_box = tk.Frame(opp_area, bg=PANEL)
-        ai_box.grid(row=len(opps) + 1, column=0, sticky='we', pady=(7, 0))
-        ai_draw(ai_box)
-    show_opponents = calm(show_opponents, True)
-
-    def ai_prompt():
-        """What's sent when you hit AI advice: the game time, the map, your civ, their civ, and (as
-        background) how they usually open. Kept short: only what changes the advice."""
-        c_ = st.get('ai_ctx') or {}
-        mp_ = c_.get('map') if c_.get('map') and c_.get('map') != HEAD_NAME else None
-        try:
-            secs_ = tcw.game_minutes(time.time()) * 60 if (tcw.active and st.get('last')) else None
-        except Exception:
-            secs_ = None
-        opps_ = c_.get('opps', [])
-        lines = ['Game time: %s.' % (mmss(secs_) if secs_ is not None and 20 <= secs_ < 4 * 3600 else '0:00 (just starting)'),
-                 'Map: %s.' % (mp_ or 'unknown'),
-                 'My civ: %s.' % (c_.get('me') or 'unknown'),
-                 'Opponent civ%s: %s.' % ('s' if len(opps_) > 1 else '', ', '.join(o_['civ'] for o_ in opps_) or 'unknown')]
-        if c_.get('team'): lines.append('Team game.')
-        early = secs_ is None or secs_ < 12 * 60               # their opening only matters near the start
-        for o_ in opps_ if early else []:
-            op_ = o_.get('open') or []
-            if op_ and not op_[0][2]:                        # from their own recent games
-                who_ = 'The opponent' if len(opps_) == 1 else 'The %s opponent' % o_['civ']
-                lines.append('%s typically opens: %s.' % (who_, ', '.join(
-                    '%s (%d of %d games)' % (lab, cnt, o_.get('games') or cnt) if cnt else lab for lab, cnt, _ in op_[:2])))
-        lines.append('What should I do from here?')
-        return '\n'.join(lines)
-
-    def ai_draw(box):
-        """The AI coach line under the opponents: locked until there's a Claude key in Settings, then a
-        button for a short counter plan. The plan can be hidden and shown again; it's asked once a game."""
-        try:
-            if not box.winfo_exists(): return
-        except Exception: return
-        for w in box.winfo_children(): w.destroy()
-        cfg_ = load_settings_cached()
-        a_ = st.get('ai') or {}
-        st['ai_box'] = box
-        def hush(w, fn=None):
-            bind_all(w)
-            if fn: st['actions'][w] = fn
-        def redraw(): calm(lambda: ai_draw(box))()
-        unlocked = bool((cfg_.get('ai_key') or '').strip() or cfg_.get('ai_server'))
-        line = tk.Frame(box, bg=PANEL); line.pack(fill='x'); hush(line)
-        if not unlocked:
-            def locked_click():
-                log('ai: no Claude key saved yet, opening Settings'); open_settings()
-            pl = tk.Canvas(line, width=12, height=13, bg=PANEL, highlightthickness=0)
-            pl.create_arc(3, 1, 9, 9, start=0, extent=180, style='arc', outline=FAINT, width=2)
-            pl.create_rectangle(2, 6, 10, 12, fill=FAINT, outline='')
-            pl.pack(side='left', padx=(2, 6)); hush(pl, locked_click)
-            t_ = tk.Label(line, text='AI counter plan', fg=MUT, bg=PANEL, font=(F_SMALL[0], F_SMALL[1], 'bold'), cursor='hand2')
-            t_.pack(side='left'); hush(t_, locked_click)
-            t2 = tk.Label(line, text='  \u00b7  unlock with your Claude key in Settings', fg=FAINT, bg=PANEL, font=F_SMALL, cursor='hand2')
-            t2.pack(side='left'); hush(t2, locked_click); hush(line, locked_click)
-            return
-        def speak(txt):
-            """Read the advice out, and keep the button showing Stop until it's finished."""
-            ADVICE_VOICE.say(txt); a_['speaking'] = True
-            def watch():
-                if not ADVICE_VOICE.busy():
-                    a_['speaking'] = False
-                    b_ = st.get('ai_box')
-                    if b_ is not None: calm(lambda: ai_draw(b_))()
-                    return
-                root.after(400, watch)
-            root.after(600, watch)
-        def ask(fresh=False):
-            if a_.get('busy'): return
-            if a_.get('speaking'):                                   # the Stop button
-                ADVICE_VOICE.stop(); a_['speaking'] = False; log('ai: stopped reading'); redraw(); return
-            a_['busy'] = True; a_.pop('err', None); redraw()
-            prompt = ai_prompt(); cfg2 = load_settings()
-            log('ai: asking: %s' % prompt.replace('\n', ' | '))
-            def work():
-                ok, txt = ai_ask(prompt, cfg2)
-                def done():
-                    a_['busy'] = False
-                    cur_ = st.get('ai') or {}
-                    for d_ in {id(a_): a_, id(cur_): cur_}.values():   # the answer lands even if the list was redrawn
-                        d_['busy'] = False
-                        if ok: d_['text'] = txt
-                        else: d_['err'] = txt
-                    if ok: speak(txt)
-                    b_ = st.get('ai_box')
-                    if b_ is not None: calm(lambda: ai_draw(b_))()
-                try: root.after(0, done)
-                except Exception: pass
-            threading.Thread(target=work, daemon=True).start()
-        speaking = bool(a_.get('speaking')) and ADVICE_VOICE.busy()
-        if a_.get('speaking') and not speaking: a_['speaking'] = False
-        lbl = 'Thinking\u2026' if a_.get('busy') else 'Stop' if speaking else 'AI advice'   # every press: a new call
-        tone_ = REDC if speaking else GOLDD
-        chip = tk.Frame(line, bg=INK, cursor='hand2'); chip.pack(side='left'); hush(chip, ask)
-        bar_ = tk.Frame(chip, bg=tone_, width=2); bar_.pack(side='left', fill='y'); hush(bar_, ask)
-        if speaking:                                                  # a small square: stop
-            ic_ = tk.Canvas(chip, width=16, height=14, bg=INK, highlightthickness=0)
-            ic_.create_rectangle(5, 3, 13, 11, fill=REDC, outline='')
-        else:                                                         # a small speaker
-            ic_ = tk.Canvas(chip, width=18, height=14, bg=INK, highlightthickness=0)
-            ic_.create_polygon(4, 5, 7, 5, 11, 2, 11, 12, 7, 9, 4, 9, fill=GOLDC, outline='')
-            ic_.create_arc(9, 3, 16, 11, start=-50, extent=100, style='arc', outline=GOLDC, width=1.5)
-        ic_.pack(side='left', padx=(3, 1)); hush(ic_, ask)
-        cl = tk.Label(chip, text=lbl.upper(), fg=tone_, bg=INK, font=(F_SMALL[0], F_SMALL[1], 'bold'), pady=1, padx=2, cursor='hand2')
-        cl.pack(side='left', padx=(0, 6)); hush(cl, ask)
-        hover(cl, tone_, REDC if speaking else GOLDC)
-        if a_.get('err') and not a_.get('busy'):
-            e_ = tk.Label(box, text=a_['err'], fg=REDC, bg=PANEL, font=F_SMALL, anchor='w', justify='left', wraplength=400)
-            e_.pack(fill='x', pady=(3, 0)); hush(e_)
 
     def pp_ok(p, i):
         return bool(p.get('profile')) and i < 4 and load_settings().get('opp_openings', True)
@@ -11755,83 +8834,11 @@ def main():
         elif st['herd'] and watcher.status == 'unavailable': txt += '\n(herd tracking unavailable)'
         if body.cget('text') != txt: body.config(text=txt)
 
-    def wake_check():
-        """A second start asked us to show ourselves: back on screen, on top, solid."""
-        try:
-            if not os.path.exists(WAKE_FILE): return
-            os.remove(WAKE_FILE)
-        except Exception:
-            return
-        try:
-            log('opened again: showing the overlay (was %s, %s, seen %s, alpha %s)' % (
-                root.geometry(), root.state(), root.winfo_viewable(), root.attributes('-alpha')))
-            x_, y_ = root.winfo_x(), root.winfo_y()
-            if not (-60 <= x_ <= root.winfo_screenwidth() - 80 and -20 <= y_ <= root.winfo_screenheight() - 40):
-                root.geometry('+20+120')
-            root.deiconify()
-            root.attributes('-alpha', 0.97); st['alpha'] = 0.97
-            root.attributes('-topmost', False); root.attributes('-topmost', True); root.lift()
-            hold_now()
-        except Exception as e:
-            log('showing the overlay: %r' % (e,))
-
-    APM_DROP, APM_FLOOR = 0.6, 15        # a nudge when the last minute is under 60% of your usual (and that's 15+)
-    def apm_tick():
-        """Live APM: read on through the recording every couple of seconds (off the main thread), show
-        it in the header, and a small nudge on the badge if it drops well below your usual pace."""
-        now = time.time()
-        if now - st.get('apm_t', 0) < 2: return
-        st['apm_t'] = now
-        on = bool(load_settings_cached().get('apm_live')) and st.get('last') and tcw.active and st.get('me_num')
-        if not on:
-            if apm_chip.winfo_manager(): apm_chip.grid_remove()
-            st['apm_obj'] = None; return
-        o = st.get('apm_obj')
-        if o is None or o.path != st['last']:
-            o = st['apm_obj'] = LiveApm(st['last'], st['me_num'])
-            st['apm_low'] = False; st['apm_said'] = 0
-        if st.get('apm_busy'): return
-        st['apm_busy'] = True
-        def work():
-            try: o.poll()
-            except Exception as e:
-                if not st.get('apm_err'): st['apm_err'] = 1; log('live apm: %r' % (e,))
-            finally: st['apm_busy'] = False
-            def show():
-                if st.get('apm_obj') is not o: return
-                cur, usual = o.apm(1.0), o.apm(5.0)
-                low = False
-                if cur is None:
-                    apm_num.config(text='APM \u2026', fg=MUT)
-                else:
-                    # dropped well under your usual pace: the red arrow comes on, and stays until
-                    # you're back near your usual (so it doesn't flicker on the line)
-                    was = bool(st.get('apm_low'))
-                    low = usual is not None and usual >= APM_FLOOR and (
-                        cur < usual * APM_DROP or (was and cur < usual * 0.8))
-                    if low and not was: log('live apm: down to %d (usual %d)' % (cur, usual))
-                    st['apm_low'] = low
-                    apm_num.config(text='APM %d' % round(cur * REAL_APM), fg=GREEN if (usual and cur >= usual) else TXT)
-                if low and not apm_arr.winfo_manager(): apm_arr.pack(side='left', padx=(0, 6))
-                elif not low and apm_arr.winfo_manager(): apm_arr.pack_forget()
-                if not apm_chip.winfo_manager(): calm(apm_chip.grid)()
-            try: root.after(0, show)
-            except Exception: pass
-        threading.Thread(target=work, daemon=True).start()
-
     def fast():
-        try:
-            wake_check()
-            refresh(); hover_fade(); foot_fit()
-            try: apm_tick()
-            except Exception as e:
-                if not st.get('apm_err2'): st['apm_err2'] = 1; log('live apm tick: %r' % (e,))
-            try: feudal_reminder(); castle_reminder()
-            except Exception as e: log('reminder: %r' % (e,))
-        except Exception as e:
-            if not st.get('fast_err'): st['fast_err'] = 1; log('fast tick: %r' % (e,))
-        finally:
-            root.after(500, fast)
+        refresh(); hover_fade(); foot_fit()
+        try: feudal_reminder(); castle_reminder()
+        except Exception as e: log('reminder: %r' % (e,))
+        root.after(500, fast)
 
     def tick():
         try:
@@ -11845,7 +8852,6 @@ def main():
                 if st['last'] is not None:
                     st['was'] = st['last']                 # a pause can look like the end: remember which game it was
                     st['last'] = None; st['first'] = None; st['herd'] = None; watcher.active = False
-                    bo['voice_at'] = None                  # nothing more to say until the next game starts
                     tcw.active = False
                     scout.active = False; scout.stop_game(); score_off()
                     title.config(text=HEAD_NAME); idle_size(True)
@@ -11853,26 +8859,17 @@ def main():
                     rec_line.config(text=''); rec_line.grid_remove(); show_footer(True)
                     stats_btn.grid()
                     show_opponents([])
-                    try: an_finish()
-                    except Exception as e_: log('post game: %r' % (e_,))
             elif f != st['last']:
                 try: lob = read_lobby(f)
                 except Exception as e_: lob = None; log('could not read the recording: %r' % (e_,))
-                fails_ = st.setdefault('read_fail', {})
-                if not lob and fails_.get(f, 0) < 6:
-                    # often just too early (the file is still empty): try again next tick
-                    fails_[f] = fails_.get(f, 0) + 1
-                    root.after(POLL_MS, tick); return
                 st['last'] = f
                 log('game seen: %s, %s' % (os.path.basename(f), ('%d players' % len(lob['players'])) if lob else 'settings unreadable'))
                 if lob:
                     name, desc, herd = map_text(maps, strings, lob['selected'], lob['resolved'], lob.get('size'), len(lob['players']))
                     if f == st.get('was'):                 # the same game carrying on (unpaused, or called over too soon)
                         log('back in the same game: counts kept')
-                        if not bo['voice_at']: bo['voice_at'] = time.time()
                     else:
                         watcher.reset(); st['extra'] = 0; st['castle_note'] = False; st['feudal_note'] = False
-                        if st.get('rolled'): toggle_roll()          # a new game: open up again
                         bo_game_start(f)
                     game_started(f)
                     st['first'], st['herd'] = desc, herd
@@ -11888,30 +8885,8 @@ def main():
                     except OSError: began = None
                     tcw.reset(civ_name(mine_p['civ'], strings) if mine_p else None, began)
                     tc['snooze'] = False; tcw.active = mine_p is not None   # not while watching someone else
-                    if an:                                        # for the post game notes: who is who
-                        an['rec'] = f
-                        an['me_num'] = mine_p.get('number') if mine_p else None
-                        an['opps'] = [(pp['name'], pp.get('number')) for pp in lob['players'] if pp is not mine_p and
-                                      (not mine_p or mine_p.get('team', 0) <= 1 or pp.get('team') != mine_p.get('team'))]
-                        an['mates'] = [(pp['name'], pp.get('number')) for pp in lob['players'] if mine_p and pp is not mine_p
-                                       and mine_p.get('team', 0) > 1 and pp.get('team') == mine_p.get('team')]
-                    st['watch_t'] = time.time()
                     if mine_p is None: log('you are not in the player list (profile %s), so the in-game alerts stay off' % me)
                     start_scout(lob['players'], mine_p, strings, same_game=(f == st.get('was')), recording=f)
-                    st['my_colour'] = mine_p.get('colour') if mine_p is not None else None
-                    st['me_num'] = mine_p.get('number') if mine_p is not None else None
-                    st['apm_obj'] = None                          # a fresh count for this game
-                    st['circle'] = None                           # where the map script puts each start
-                    st['n_players'] = len(lob['players'])
-                    st['ally_colours'] = [pp.get('colour') for pp in lob['players'] if mine_p is not None and pp is not mine_p
-                                          and mine_p.get('team', 0) > 1 and pp.get('team') == mine_p.get('team')]
-                    try:
-                        if lob['selected'] == lob['resolved'] and maps.get(lob['resolved']):   # never for a hidden map
-                            st['circle'] = circle_facts(INST[0], maps[lob['resolved']].get('script_filename'),
-                                                        lob.get('size'), len(lob['players']))
-                    except Exception as e:
-                        log('tc ring: could not read the map script: %r' % (e,))
-                    orbit_off()                                   # the ring comes back on its own once your start is found
                     scorew.reset(([mine_p['name']] + list(mine)) if mine_p else [],
                                  [p['name'] for p in lob['players'] if p is not mine_p], len(lob['players']),
                                  [p['name'] for p in lob['players'] if mine_p and p is not mine_p
@@ -11926,26 +8901,11 @@ def main():
     bo['name'] = load_settings().get('build_order') or None
     bo['hidden'] = bool(load_settings().get('build_order_hidden'))
     bo['voice'] = bool(load_settings().get('build_voice')); bo_voice_draw()
-
+    cfg_m = load_settings()
+    if not cfg_m.get('map_tips_on'):          # once: the loading panels now lead with map tips, so switch them on
+        cfg_m['map_tips_on'] = True; cfg_m['loading_panels'] = True; save_settings(cfg_m)
     bo_draw()                                     # after foot_fit exists, so the card can resize
 
-    def first_show():
-        try:
-            root.update_idletasks(); hold_now(); repaint()
-            overlay_fade(0.0, 260)
-        except Exception:
-            try: root.attributes('-alpha', 0.97)
-            except tk.TclError: pass
-    root.after(120, first_show)                   # once the first layout has settled
-    def never_hidden():
-        # belt and braces: whatever happens, the overlay can't be left see-through
-        try:
-            if not st.get('fading') and float(root.attributes('-alpha')) < 0.5:
-                log('overlay was see-through with no fade running: shown')
-                root.attributes('-alpha', 0.97); st['alpha'] = 0.97
-        except Exception: pass
-        root.after(2000, never_hidden)
-    root.after(2500, never_hidden)
     tick(); fast(); root.mainloop()
 
 if __name__ == '__main__':
