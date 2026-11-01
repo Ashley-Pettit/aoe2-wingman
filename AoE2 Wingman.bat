@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v202'
+VERSION = 'v203'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -7582,10 +7582,7 @@ def main():
             sp_.append(('Your TC never sat idle. Lovely.', GREEN))
         if an['house_n']:
             sp_.append(('House warning: %d time%s.' % (an['house_n'], '' if an['house_n'] == 1 else 's'), TXT))
-        ms_ = [m for m in (10, 15, 20) if m in an['pops']]
-        if ms_:
-            sp_.append(('Pop %s at %s min.' % (' / '.join(str(an['pops'][m]) for m in ms_),
-                                                ' / '.join(str(m) for m in ms_)), TXT))
+
         if steps_:
             if bo.get('done'): sp_.append(('Build order followed to the end.', TXT))
             else: sp_.append(('Build order: step %d of %d.' % (min(bo['i'] + 1, len(steps_)), len(steps_)), TXT))
@@ -7644,12 +7641,6 @@ def main():
                                              sorted(t + 150 for t, b_ in builds if b_ in (109, 621)))
             return min(3 + made, most)
         def tcs_by(p_, sec): return 1 + sum(1 for t, b in p_.get('builds', []) if b in (109, 621) and t <= sec)
-        _vb = vils_by
-        def vils_by(p_, sec):
-            v_ = _vb(p_, sec)
-            # your own pop was read off the screen as you played: villagers can't be more than that
-            seen = (live.get('pops') or {}).get(sec // 60) if p_ is me_ else None
-            return min(v_, seen) if seen else v_
         def perfect_by(p_, sec):
             """A first TC that never stops: one villager every 25 seconds from the start, less the time
             it spends on Loom, Feudal and the like (the ones this player actually researched)."""
@@ -7687,23 +7678,21 @@ def main():
                                dict(gap=mmss(gap), who=short(best_nm), at=mmss(best_t))))
                 break
         # villagers: the economy everything else comes from
-        # Villagers: only your own, from your pop as Wingman read it off the screen during the game.
-        # The recording can't count villagers reliably (auto-queue, cancels, being housed), so it
-        # isn't used for anyone's villager numbers. By 10 minutes the most one TC makes is 27,
-        # less Loom (one villager's time) and Feudal (about five) if you did them before 10.
+        # The pop read off the screen wasn't reliable, so no villager line. Instead: how long you took
+        # from reaching Feudal to clicking Castle, against them (straight from the recording).
         vil_issue = False
         nomad = any(b_ in (109, 621) and t < 120 for t, b_ in me_.get('builds', []))   # no TC to start with
-        pop10 = (live.get('pops') or {}).get(10)
-        if pop10 and not nomad and not (me_.get('resign') and me_['resign'] < 600):
-            best_ = perfect_by(me_, 600)
-            short_by = (best_ + 1) - pop10                 # + your scout, who counts in the pop
-            if short_by >= 3:
-                vil_issue = True
-                held_ = [nm for k, nm in ((22, 'Loom'), (101, 'Feudal'), (213, 'Wheelbarrow'), (8, 'Town Watch'))
-                         if me_.get('techs', {}).get(k) is not None and me_['techs'][k] < 600]
-                txt = ('Pop %d at 10 min. A TC that never stopped gets you %d villagers by then%s, plus your scout.' % (
-                    pop10, best_, (' after your %s' % ' and '.join(held_)) if held_ else ''))
-                issues.append((short_by * 25, 'vils', txt, dict(n=short_by, m=10)))
+        def f2c(p_):
+            f_, c_ = p_.get('feudal'), p_.get('castle')
+            return (c_ - (f_ + 130)) if f_ and c_ else None
+        mine_g = f2c(me_)
+        theirs_g = [(f2c(p_), nm) for nm, p_ in them if f2c(p_) is not None and f2c(p_) >= 60]
+        if mine_g is not None and theirs_g and not any(k_ == 'castle' for _w, k_, _t, _f in issues):
+            best_g, who_g = min(theirs_g)
+            if mine_g - best_g >= 90:
+                issues.append(((mine_g - best_g) / 2.0, 'f2c',
+                               'Feudal to Castle click: you %s, %s %s.' % (mmss(mine_g), short(who_g), mmss(best_g)),
+                               dict(gap=mmss(mine_g - best_g), who=short(who_g), mine=mmss(mine_g), theirs=mmss(best_g))))
         # eco upgrades: late or missing ones
         late = []
         for tid, nm in ECO_TECHS:
@@ -7753,6 +7742,8 @@ def main():
         'castle': ["Click Castle Age sooner. {who} went up {gap} before you, at {at}.",
                    "Aim to start Castle Age within 10 minutes of reaching Feudal. You were {gap} behind {who}.",
                    "Plan your Castle click from Feudal: keep the food coming and go up around {at}, like {who}."],
+        'f2c': ["Spend less time in Feudal before clicking Castle: {mine} for you, {theirs} for {who}.",
+                "Get your two Feudal buildings up sooner so Castle comes {gap} earlier, like {who}."],
         'castle_never': ["Get to Castle Age next game: {who} was there from {at}.",
                          "Plan your Castle click: {who} went up at {at} and you never did."],
         'feudal_never': ["Get to Feudal Age next game: {who} clicked it at {at}."],
@@ -7847,7 +7838,7 @@ def main():
             l_.pack(side='left', fill='x', anchor='w'); hush(l_)
         for t_, _c in tips:
             box = tk.Frame(card_an, bg=INK, highlightthickness=1, highlightbackground=EDGE)
-            box.pack(fill='x', pady=(7, 0)); hush(box)
+            box.pack(fill='x', pady=(8, 2)); hush(box)
             tg = tk.Label(box, text='NEXT GAME', fg=INK, bg=GOLDD, font=(F_TINY[0], F_TINY[1], 'bold'), padx=5, pady=1)
             tg.pack(side='left', anchor='n', padx=(6, 8), pady=6); hush(tg)
             l_ = tk.Label(box, text=t_, fg=GOLDC, bg=INK, font=F_SMALL, anchor='w', justify='left',
@@ -7992,8 +7983,9 @@ def main():
     rec_line.grid(row=4, column=0, columnspan=4, sticky='w', pady=(3, 0)); rec_line.grid_remove()
 
     # the card that goes up once the service confirms how the last game went
-    card = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=6)
-    card.grid(row=4, column=0, columnspan=4, sticky='we', pady=(8, 0)); card.grid_remove()
+    card = tk.Frame(frame, bg=PANEL, highlightthickness=1, highlightbackground=EDGE, padx=9, pady=8)
+    # room under it too, so its bottom edge never runs into the panel's corner trim
+    card.grid(row=4, column=0, columnspan=4, sticky='we', pady=(8, 8)); card.grid_remove()
     card.columnconfigure(1, weight=1)
     card_word = tk.Label(card, text='', fg=GREEN, bg=PANEL, font=(DISPLAY, 11, 'bold'), anchor='w')
     card_word.grid(row=0, column=0, sticky='w')
