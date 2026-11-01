@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v200'
+VERSION = 'v201'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -794,9 +794,10 @@ _AI = {}
 AI_SYSTEM = ("You coach an Age of Empires II: Definitive Edition player during a live game. Think it through, then "
              "tell them what to do from this point in the game: what to make and research next, what this "
              "opponent's civ is likely to do at this stage and later, and how to beat it. "
-             "Your answer is read out loud while they play, so give only the advice itself: 3 to 5 short spoken "
-             "sentences, about 80 words. No greeting, no restating the question, no filler, no lists, no symbols, "
-             "no abbreviations (say men at arms, not MAA). Australian English.")
+             "Your answer is read out loud while they play, so give only instructions: 3 to 5 short spoken "
+             "commands, each starting with what to do (Build, Make, Research, Scout, Wall...), about 70 words. "
+             "No chatter: no greeting, no praise, no explanations, no restating the question, no lists, no "
+             "symbols, no abbreviations (say men at arms, not MAA). Australian English.")
 
 def _ai_req(url, key, body=None, timeout=30):
     import urllib.request
