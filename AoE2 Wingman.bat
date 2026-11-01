@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v201'
+VERSION = 'v202'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -791,9 +791,11 @@ class LiveApm(object):
 AI_API = 'https://api.anthropic.com/v1'
 AI_FALLBACK_MODEL = 'claude-haiku-4-5'
 _AI = {}
-AI_SYSTEM = ("You coach an Age of Empires II: Definitive Edition player during a live game. Think it through, then "
-             "tell them what to do from this point in the game: what to make and research next, what this "
-             "opponent's civ is likely to do at this stage and later, and how to beat it. "
+AI_SYSTEM = ("You coach a high-level Age of Empires II: Definitive Edition player during a live ranked game. They "
+             "know the basics, build orders and hotkeys, so skip anything obvious (keep making villagers, build "
+             "houses) and give pro-level calls. Think it through, then tell them what to do from this point in the "
+             "game: exact unit compositions and counts, key upgrade and timing windows, this civ matchup's power "
+             "spikes and weaknesses, and what the opponent is likely to do next. "
              "Your answer is read out loud while they play, so give only instructions: 3 to 5 short spoken "
              "commands, each starting with what to do (Build, Make, Research, Scout, Wall...), about 70 words. "
              "No chatter: no greeting, no praise, no explanations, no restating the question, no lists, no "
@@ -11710,8 +11712,6 @@ def main():
             if a_.get('busy'): return
             if a_.get('speaking'):                                   # the Stop button
                 ADVICE_VOICE.stop(); a_['speaking'] = False; log('ai: stopped reading'); redraw(); return
-            if a_.get('text') and not fresh:                         # heard it before: hear it again
-                speak(a_['text']); redraw(); return
             a_['busy'] = True; a_.pop('err', None); redraw()
             prompt = ai_prompt(); cfg2 = load_settings()
             log('ai: asking: %s' % prompt.replace('\n', ' | '))
@@ -11732,8 +11732,7 @@ def main():
             threading.Thread(target=work, daemon=True).start()
         speaking = bool(a_.get('speaking')) and ADVICE_VOICE.busy()
         if a_.get('speaking') and not speaking: a_['speaking'] = False
-        lbl = ('Thinking\u2026' if a_.get('busy') else 'Stop' if speaking
-               else 'Hear the AI advice again' if a_.get('text') else 'AI advice')
+        lbl = 'Thinking\u2026' if a_.get('busy') else 'Stop' if speaking else 'AI advice'   # every press: a new call
         tone_ = REDC if speaking else GOLDD
         chip = tk.Frame(line, bg=INK, cursor='hand2'); chip.pack(side='left'); hush(chip, ask)
         bar_ = tk.Frame(chip, bg=tone_, width=2); bar_.pack(side='left', fill='y'); hush(bar_, ask)
@@ -11748,9 +11747,6 @@ def main():
         cl = tk.Label(chip, text=lbl.upper(), fg=tone_, bg=INK, font=(F_SMALL[0], F_SMALL[1], 'bold'), pady=1, padx=2, cursor='hand2')
         cl.pack(side='left', padx=(0, 6)); hush(cl, ask)
         hover(cl, tone_, REDC if speaking else GOLDC)
-        if a_.get('text') and not a_.get('busy') and not speaking:   # a fresh one, for where the game is now
-            nw = tk.Label(line, text='new advice', fg=MUT, bg=PANEL, font=F_TINY, cursor='hand2', padx=8)
-            nw.pack(side='left'); hush(nw, lambda: ask(fresh=True)); hover(nw, MUT, GOLDD)
         if a_.get('err') and not a_.get('busy'):
             e_ = tk.Label(box, text=a_['err'], fg=REDC, bg=PANEL, font=F_SMALL, anchor='w', justify='left', wraplength=400)
             e_.pack(fill='x', pady=(3, 0)); hush(e_)
