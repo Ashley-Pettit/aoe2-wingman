@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v199'
+VERSION = 'v200'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -11656,10 +11656,12 @@ def main():
                  'My civ: %s.' % (c_.get('me') or 'unknown'),
                  'Opponent civ%s: %s.' % ('s' if len(opps_) > 1 else '', ', '.join(o_['civ'] for o_ in opps_) or 'unknown')]
         if c_.get('team'): lines.append('Team game.')
-        for o_ in opps_:
+        early = secs_ is None or secs_ < 12 * 60               # their opening only matters near the start
+        for o_ in opps_ if early else []:
             op_ = o_.get('open') or []
             if op_ and not op_[0][2]:                        # from their own recent games
-                lines.append('%s usually opens: %s.' % (o_['civ'], ', '.join(
+                who_ = 'The opponent' if len(opps_) == 1 else 'The %s opponent' % o_['civ']
+                lines.append('%s typically opens: %s.' % (who_, ', '.join(
                     '%s (%d of %d games)' % (lab, cnt, o_.get('games') or cnt) if cnt else lab for lab, cnt, _ in op_[:2])))
         lines.append('What should I do from here?')
         return '\n'.join(lines)
