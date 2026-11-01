@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v196'
+VERSION = 'v197'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -832,16 +832,16 @@ def ai_ask(prompt, cfg):
             return bool(got.get('text')), got.get('text') or got.get('error') or 'No answer came back.'
         key = (cfg.get('ai_key') or '').strip()
         if not key: return False, 'Add your Claude key in Settings first.'
-        think_off = True
+        room = 6000
         for attempt in range(4):
             model = ai_model(key)
-            body = {'model': model, 'max_tokens': 1200, 'system': AI_SYSTEM,
+            # Claude thinks before it answers (that's left on: the plan is better for it), and the
+            # thinking counts towards the allowance. So the allowance is big enough for both;
+            # you only pay for what's actually used.
+            body = {'model': model, 'max_tokens': room, 'system': AI_SYSTEM,
                     'messages': [{'role': 'user', 'content': prompt}]}
-            # Newer models can think before they answer, and that thinking used up the whole
-            # allowance last time, leaving no answer. A short counter plan doesn't need it.
-            if think_off: body['thinking'] = {'type': 'disabled'}
             try:
-                got = _ai_req(AI_API + '/messages', key, body)
+                got = _ai_req(AI_API + '/messages', key, body, timeout=90)
                 kinds = [b.get('type') for b in got.get('content', [])]
                 txt = ''.join(b.get('text', '') for b in got.get('content', []) if b.get('type') == 'text').strip()
                 if got.get('stop_reason') == 'max_tokens' and '\n' in txt:
@@ -849,16 +849,14 @@ def ai_ask(prompt, cfg):
                 log('ai: answered by %s (%s in, %s out, %s, %s): %s' % (
                     model, got.get('usage', {}).get('input_tokens'), got.get('usage', {}).get('output_tokens'),
                     got.get('stop_reason'), '/'.join(k or '?' for k in kinds), txt.replace('\n', ' | ')[:400]))
-                if not txt and attempt < 3 and not think_off:
-                    think_off = True; continue
+                if not txt and got.get('stop_reason') == 'max_tokens' and attempt < 2:
+                    room *= 2; continue                             # it ran out mid-thought: more room
                 return bool(txt), txt or 'No answer came back. Try again.'
             except urllib.error.HTTPError as e:
                 detail = ''
                 try: detail = e.read().decode('utf-8', 'ignore')[:300]
                 except Exception: pass
                 log('ai: error %d: %s' % (e.code, detail))
-                if e.code == 400 and 'thinking' in detail.lower() and think_off:
-                    think_off = False; continue                     # this model doesn't take that setting
                 if e.code == 404 and model != AI_FALLBACK_MODEL:
                     _AI['model'] = AI_FALLBACK_MODEL; continue
                 if e.code in (401, 403): return False, "That Claude key didn't work. Check it in Settings."
