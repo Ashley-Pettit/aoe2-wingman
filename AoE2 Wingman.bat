@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v197'
+VERSION = 'v198'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -791,10 +791,12 @@ class LiveApm(object):
 AI_API = 'https://api.anthropic.com/v1'
 AI_FALLBACK_MODEL = 'claude-haiku-4-5'
 _AI = {}
-AI_SYSTEM = ("You coach Age of Empires II: Definitive Edition players. Reply with a short counter plan for the "
-             "game that is about to start: at most 4 short bullet points, each starting with '- ', under 80 words "
-             "in total. Be specific: units, buildings, timings, what to scout for. Australian English, no em "
-             "dashes, no intro and no sign-off.")
+AI_SYSTEM = ("You coach Age of Empires II: Definitive Edition players. Think it through, then give a counter plan "
+             "for this game from the moment given. It will be read out loud to the player while they play, so: "
+             "4 or 5 short spoken sentences, about 90 words in total, plain sentences with no bullet points, no "
+             "headings, no symbols and no abbreviations (say men at arms, not MAA; fast castle, not FC). Be "
+             "specific: what to build, which units counter theirs, timings to hit, what to scout for. Australian "
+             "English, no intro and no sign-off.")
 
 def _ai_req(url, key, body=None, timeout=30):
     import urllib.request
@@ -832,14 +834,16 @@ def ai_ask(prompt, cfg):
             return bool(got.get('text')), got.get('text') or got.get('error') or 'No answer came back.'
         key = (cfg.get('ai_key') or '').strip()
         if not key: return False, 'Add your Claude key in Settings first.'
-        room = 6000
-        for attempt in range(4):
+        room = 8000
+        # Claude thinks it through before answering, every time: a set budget for the thinking, then
+        # the answer on top (you only pay for what's used). If a model wants it asked another way,
+        # 'adaptive' is tried, then its own default.
+        thinking = [{'type': 'enabled', 'budget_tokens': 4000}, {'type': 'adaptive'}, None]
+        for attempt in range(6):
             model = ai_model(key)
-            # Claude thinks before it answers (that's left on: the plan is better for it), and the
-            # thinking counts towards the allowance. So the allowance is big enough for both;
-            # you only pay for what's actually used.
             body = {'model': model, 'max_tokens': room, 'system': AI_SYSTEM,
                     'messages': [{'role': 'user', 'content': prompt}]}
+            if thinking and thinking[0]: body['thinking'] = thinking[0]
             try:
                 got = _ai_req(AI_API + '/messages', key, body, timeout=90)
                 kinds = [b.get('type') for b in got.get('content', [])]
@@ -849,7 +853,7 @@ def ai_ask(prompt, cfg):
                 log('ai: answered by %s (%s in, %s out, %s, %s): %s' % (
                     model, got.get('usage', {}).get('input_tokens'), got.get('usage', {}).get('output_tokens'),
                     got.get('stop_reason'), '/'.join(k or '?' for k in kinds), txt.replace('\n', ' | ')[:400]))
-                if not txt and got.get('stop_reason') == 'max_tokens' and attempt < 2:
+                if not txt and got.get('stop_reason') == 'max_tokens' and room < 32000:
                     room *= 2; continue                             # it ran out mid-thought: more room
                 return bool(txt), txt or 'No answer came back. Try again.'
             except urllib.error.HTTPError as e:
@@ -857,6 +861,8 @@ def ai_ask(prompt, cfg):
                 try: detail = e.read().decode('utf-8', 'ignore')[:300]
                 except Exception: pass
                 log('ai: error %d: %s' % (e.code, detail))
+                if e.code == 400 and 'think' in detail.lower() and len(thinking) > 1:
+                    thinking.pop(0); continue                       # asked for thinking the wrong way for this model
                 if e.code == 404 and model != AI_FALLBACK_MODEL:
                     _AI['model'] = AI_FALLBACK_MODEL; continue
                 if e.code in (401, 403): return False, "That Claude key didn't work. Check it in Settings."
@@ -886,6 +892,38 @@ def spoken_step(text):
     t = re.sub(r'\b([Ll])ure(s|d)?\b', lambda m: ('Loor' if m.group(1) == 'L' else 'loor') + (m.group(2) or ''), t)   # said the way players say it
     t = re.sub(r'\s*\(', ', ', t).replace(')', '')
     return t.strip()
+
+class AdviceVoice(object):
+    """The AI coach, read out loud in Wingman's voice (the build order voice: Windows' natural voices
+    first). Its own speaker, separate from the build order one, so it can be stopped mid-sentence."""
+    def __init__(self):
+        self.p = None
+    def busy(self):
+        return self.p is not None and self.p.poll() is None
+    def say(self, text):
+        import subprocess, base64
+        self.stop()
+        ps = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'WindowsPowerShell',
+                          'v1.0', 'powershell.exe')
+        if not os.path.exists(ps): ps = 'powershell'
+        env = clean_env(); env['WINGMAN_VOICE'] = str(load_settings().get('voice_name') or '')
+        self.p = subprocess.Popen([ps, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                                   '-EncodedCommand', base64.b64encode(VOICE_PS.encode('utf-16-le')).decode('ascii')],
+                                  stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  creationflags=0x08000000, env=env)
+        # a sentence a line, so a stop lands between sentences at worst
+        parts = [x.strip() for x in re.split(r'(?<=[.!?])\s+|\n+', text) if x.strip()]
+        try:
+            self.p.stdin.write(('\n'.join(parts) + '\n').encode('ascii', 'replace')); self.p.stdin.close()
+        except Exception as e:
+            log('ai voice: %r' % (e,))
+    def stop(self):
+        p_, self.p = self.p, None
+        if p_ is not None and p_.poll() is None:
+            try: p_.kill()
+            except Exception: pass
+
+ADVICE_VOICE = AdviceVoice()
 
 class Voice:
     """Reads lines out one after another, in order, never cutting one off. One quiet PowerShell for
@@ -11605,7 +11643,10 @@ def main():
 
     def ai_prompt():
         c_ = st.get('ai_ctx') or {}
-        lines = ["I'm playing %s%s." % (c_.get('me') or 'an unknown civ', (' on %s' % c_['map']) if c_.get('map') and c_['map'] != HEAD_NAME else '')]
+        mp_ = c_.get('map') if c_.get('map') and c_.get('map') != HEAD_NAME else None
+        lines = ['Map: %s.' % (mp_ or 'unknown'), 'My civ: %s.' % (c_.get('me') or 'unknown'),
+                 'Opponent civ%s: %s.' % ('s' if len(c_.get('opps', [])) > 1 else '',
+                                          ', '.join(o_['civ'] for o_ in c_.get('opps', [])) or 'unknown')]
         for o_ in c_.get('opps', []):
             op_ = o_.get('open') or []
             if op_ and not op_[0][2]:
@@ -11622,9 +11663,9 @@ def main():
         except Exception:
             secs_ = None
         if secs_ is not None and 20 <= secs_ < 4 * 3600:
-            lines.append('The game timer is at %s, so plan from here.' % mmss(secs_))
+            lines.insert(0, 'Game time: %s (plan from here).' % mmss(secs_))
         else:
-            lines.append('The game is just starting.')
+            lines.insert(0, 'Game time: 0:00, the game is just starting.')
         lines.append('How should I counter?')
         return '\n'.join(lines)
 
@@ -11656,11 +11697,24 @@ def main():
             t2 = tk.Label(line, text='  \u00b7  unlock with your Claude key in Settings', fg=FAINT, bg=PANEL, font=F_SMALL, cursor='hand2')
             t2.pack(side='left'); hush(t2, locked_click); hush(line, locked_click)
             return
-        def ask():
+        def speak(txt):
+            """Read the advice out, and keep the button showing Stop until it's finished."""
+            ADVICE_VOICE.say(txt); a_['speaking'] = True
+            def watch():
+                if not ADVICE_VOICE.busy():
+                    a_['speaking'] = False
+                    b_ = st.get('ai_box')
+                    if b_ is not None: calm(lambda: ai_draw(b_))()
+                    return
+                root.after(400, watch)
+            root.after(600, watch)
+        def ask(fresh=False):
             if a_.get('busy'): return
-            if a_.get('text'):
-                a_['shown'] = not a_['shown']; redraw(); return
-            a_['busy'] = True; a_['shown'] = True; redraw()
+            if a_.get('speaking'):                                   # the Stop button
+                ADVICE_VOICE.stop(); a_['speaking'] = False; log('ai: stopped reading'); redraw(); return
+            if a_.get('text') and not fresh:                         # heard it before: hear it again
+                speak(a_['text']); redraw(); return
+            a_['busy'] = True; a_.pop('err', None); redraw()
             prompt = ai_prompt(); cfg2 = load_settings()
             log('ai: asking: %s' % prompt.replace('\n', ' | '))
             def work():
@@ -11669,47 +11723,39 @@ def main():
                     a_['busy'] = False
                     cur_ = st.get('ai') or {}
                     for d_ in {id(a_): a_, id(cur_): cur_}.values():   # the answer lands even if the list was redrawn
-                        if d_ is not a_ and d_.get('text'): continue
-                        d_['busy'] = False; d_['shown'] = True
+                        d_['busy'] = False
                         if ok: d_['text'] = txt
                         else: d_['err'] = txt
+                    if ok: speak(txt)
                     b_ = st.get('ai_box')
                     if b_ is not None: calm(lambda: ai_draw(b_))()
                 try: root.after(0, done)
                 except Exception: pass
             threading.Thread(target=work, daemon=True).start()
-        def hide():
-            a_['shown'] = False; a_.pop('err', None); redraw()
-        lbl = ('Thinking\u2026' if a_.get('busy') else 'Hide the AI plan' if (a_.get('text') and a_.get('shown'))
-               else 'Show the AI plan' if a_.get('text') else 'Ask AI: how do I counter?')
+        speaking = bool(a_.get('speaking')) and ADVICE_VOICE.busy()
+        if a_.get('speaking') and not speaking: a_['speaking'] = False
+        lbl = ('Thinking\u2026' if a_.get('busy') else 'Stop' if speaking
+               else 'Hear the AI advice again' if a_.get('text') else 'AI advice')
+        tone_ = REDC if speaking else GOLDD
         chip = tk.Frame(line, bg=INK, cursor='hand2'); chip.pack(side='left'); hush(chip, ask)
-        bar_ = tk.Frame(chip, bg=GOLDD, width=2); bar_.pack(side='left', fill='y'); hush(bar_, ask)
-        sp = tk.Label(chip, text='\u2726', fg=GOLDC, bg=INK, font=F_SMALL, padx=4); sp.pack(side='left'); hush(sp, ask)
-        cl = tk.Label(chip, text=lbl.upper(), fg=GOLDD, bg=INK, font=(F_SMALL[0], F_SMALL[1], 'bold'), pady=1, padx=2, cursor='hand2')
+        bar_ = tk.Frame(chip, bg=tone_, width=2); bar_.pack(side='left', fill='y'); hush(bar_, ask)
+        if speaking:                                                  # a small square: stop
+            ic_ = tk.Canvas(chip, width=16, height=14, bg=INK, highlightthickness=0)
+            ic_.create_rectangle(5, 3, 13, 11, fill=REDC, outline='')
+        else:                                                         # a small speaker
+            ic_ = tk.Canvas(chip, width=18, height=14, bg=INK, highlightthickness=0)
+            ic_.create_polygon(4, 5, 7, 5, 11, 2, 11, 12, 7, 9, 4, 9, fill=GOLDC, outline='')
+            ic_.create_arc(9, 3, 16, 11, start=-50, extent=100, style='arc', outline=GOLDC, width=1.5)
+        ic_.pack(side='left', padx=(3, 1)); hush(ic_, ask)
+        cl = tk.Label(chip, text=lbl.upper(), fg=tone_, bg=INK, font=(F_SMALL[0], F_SMALL[1], 'bold'), pady=1, padx=2, cursor='hand2')
         cl.pack(side='left', padx=(0, 6)); hush(cl, ask)
-        hover(cl, GOLDD, GOLDC)
+        hover(cl, tone_, REDC if speaking else GOLDC)
+        if a_.get('text') and not a_.get('busy') and not speaking:   # a fresh one, for where the game is now
+            nw = tk.Label(line, text='new advice', fg=MUT, bg=PANEL, font=F_TINY, cursor='hand2', padx=8)
+            nw.pack(side='left'); hush(nw, lambda: ask(fresh=True)); hover(nw, MUT, GOLDD)
         if a_.get('err') and not a_.get('busy'):
             e_ = tk.Label(box, text=a_['err'], fg=REDC, bg=PANEL, font=F_SMALL, anchor='w', justify='left', wraplength=400)
-            e_.pack(fill='x', pady=(3, 0)); hush(e_, hide)
-            a_.pop('err', None)
-        if a_.get('text') and a_.get('shown'):
-            pan = tk.Frame(box, bg=INK, highlightthickness=1, highlightbackground=EDGE)
-            pan.pack(fill='x', pady=(5, 0)); hush(pan, hide)
-            hd = tk.Frame(pan, bg=INK); hd.pack(fill='x', padx=8, pady=(5, 0)); hush(hd, hide)
-            tg = tk.Label(hd, text='AI COACH', fg=BRONZE, bg=INK, font=(F_TINY[0], F_TINY[1], 'bold')); tg.pack(side='left'); hush(tg, hide)
-            x_ = tk.Label(hd, text='hide  \u2715', fg=MUT, bg=INK, font=F_TINY, cursor='hand2'); x_.pack(side='right'); hush(x_, hide)
-            hover(x_, MUT, GOLDD)
-            for ln in [l.strip() for l in a_['text'].splitlines() if l.strip().strip('#*-_ ')][:6]:
-                r_ = tk.Frame(pan, bg=INK); r_.pack(fill='x', padx=8); hush(r_, hide)
-                ln = ln.lstrip('#').strip()
-                bullet = ln[:2] in ('- ', '* ', '\u2022 ') or bool(re.match(r'\d+[.)] ', ln))
-                if bullet: ln = re.sub(r'^(?:[-*\u2022]|\d+[.)])\s+', '', ln)
-                d_ = tk.Label(r_, text='\u2022' if bullet else '', fg=GOLDD, bg=INK, font=F_SMALL)
-                d_.pack(side='left', anchor='n', padx=(0, 5)); hush(d_, hide)
-                l_ = tk.Label(r_, text=ln.replace('**', ''), fg='#e6d9b0', bg=INK, font=F_SMALL, anchor='w', justify='left',
-                              wraplength=PANEL_W - 70)
-                l_.pack(side='left', fill='x'); hush(l_, hide)
-            tk.Frame(pan, bg=INK, height=5).pack(fill='x')
+            e_.pack(fill='x', pady=(3, 0)); hush(e_)
 
     def pp_ok(p, i):
         return bool(p.get('profile')) and i < 4 and load_settings().get('opp_openings', True)
