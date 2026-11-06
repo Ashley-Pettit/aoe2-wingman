@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v205'
+VERSION = 'v206'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -1366,7 +1366,7 @@ class _Eval:
         self.depth -= 1
         self.cur = prev_file
 
-RING_OUT_TILES = 3     # the TC ring sits this far beyond where their TC would be, so it warns you first
+RING_IN_TILES = 3      # the TC ring sits this far inside where their TC would be, so it warns you first
 
 def circle_facts(inst, script, size, players):
     """How far from the middle the map script puts each player: (low %, high %, spread %) from its
@@ -8748,10 +8748,10 @@ def main():
                     k = min(max(k, k_own - reach_), k_own + reach_)
                     why_ = 'the map puts starts %g-%g%% out, you were %.2f' % (
                         (circ_[0] + circ_[1]) / 2.0 - circ_[2], (circ_[0] + circ_[1]) / 2.0 + circ_[2], k_own)
-                # a touch further out, so you cross the ring just before their TC rather than after it
+                # a touch further in, so heading out from the middle you cross the ring just before their TC
                 tiles_ = st.get('map_tiles') or 120
-                k += RING_OUT_TILES / (tiles_ * (2 ** 0.5) / 2.0)          # centre to corner is half the diagonal
-                why_ += ', then %d tiles out for warning' % RING_OUT_TILES
+                k -= RING_IN_TILES / (tiles_ * (2 ** 0.5) / 2.0)           # centre to corner is half the diagonal
+                why_ += ', then %d tiles in for warning' % RING_IN_TILES
                 try:                                             # a picture of what it saw, to check it by
                     from PIL import Image, ImageDraw
                     im_ = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1].astype(np.uint8)))
