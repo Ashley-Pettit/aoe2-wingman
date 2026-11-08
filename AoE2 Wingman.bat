@@ -11,7 +11,7 @@
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
 import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
 
-VERSION = 'v206'
+VERSION = 'v207'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -644,6 +644,7 @@ while ($true) {
 # The recording only holds orders (move, build, queue...). Real APM also counts every select click,
 # control group press and camera hop: about 120 real for every 46 orders, so the numbers shown are scaled up.
 REAL_APM = 120 / 46.0
+TOWERS = {79, 234, 235, 236}      # watch tower, guard tower, keep, bombard tower
 MIL_BUILDINGS = {12, 87, 101, 49, 82, 104, 20, 132, 498, 86, 85, 1251}    # barracks, range, stable, workshop, castle, monastery...
 UNIT_NAMES = {1132: 'Battle Elephants', 74: 'Militia', 75: 'Men-at-Arms', 77: 'Long Swords', 93: 'Spearmen', 358: 'Pikemen', 4: 'Archers',
               24: 'Crossbows', 7: 'Skirmishers', 6: 'Skirmishers', 39: 'Cav Archers', 5: 'Hand Cannons', 448: 'Scouts',
@@ -729,6 +730,8 @@ class LiveApm(object):
         self.pos = None; self.t = 0
         self.mine = collections.deque()          # game time (ms) of each of your commands
         self.n = 0
+        self.builds = []                         # (game ms, building type) for each building you place
+        self.techs = {}                          # tech id -> game ms you first clicked it
     def _start(self, fh):
         d = fh.read(1 << 20)
         hl = struct.unpack_from('<I', d, 0)[0]
@@ -758,6 +761,10 @@ class LiveApm(object):
                         pid, ln = struct.unpack_from('<bh', ab, 0)
                         if len(ab) == ln + 3 and pid == self.me:
                             self.mine.append(self.t); self.n += 1
+                            if aid == 101 and len(ab) >= 11:          # research
+                                self.techs.setdefault(struct.unpack_from('<Ihh', ab, 3)[2], self.t)
+                            elif aid == 102 and len(ab) >= 17:        # place a building
+                                self.builds.append((self.t, struct.unpack_from('<h', ab, 15)[0]))
                 elif op == 2:
                     if j + 8 > n: break
                     inc, marker = struct.unpack_from('<II', d, j)
@@ -789,7 +796,7 @@ class LiveApm(object):
         return sum(1 for x in self.mine if x >= self.t - span) / float(minutes)
 
 AI_API = 'https://api.anthropic.com/v1'
-AI_FALLBACK_MODEL = 'claude-haiku-4-5'
+AI_FALLBACK_MODEL = 'claude-sonnet-4-5'
 _AI = {}
 AI_SYSTEM = ("You coach a high-level Age of Empires II: Definitive Edition player during a live ranked game. They "
              "know the basics, build orders and hotkeys, so skip anything obvious (keep making villagers, build "
@@ -848,12 +855,12 @@ def _ai_req(url, key, body=None, timeout=30):
     return json.loads(urllib.request.urlopen(req, timeout=timeout).read().decode('utf-8'))
 
 def ai_model(key):
-    """The newest Haiku this key can use, asked of the API once a session (names move on)."""
+    """The newest Sonnet this key can use, asked of the API once a session (names move on)."""
     if _AI.get('model'): return _AI['model']
     m = None
     try:
         got = _ai_req(AI_API + '/models?limit=100', key, timeout=15)
-        hs = [d for d in got.get('data', []) if 'haiku' in d.get('id', '')]
+        hs = [d for d in got.get('data', []) if 'sonnet' in d.get('id', '')]
         hs.sort(key=lambda d: d.get('created_at', ''), reverse=True)
         if hs: m = hs[0]['id']
     except Exception as e:
@@ -862,7 +869,7 @@ def ai_model(key):
     return _AI['model']
 
 def ai_ask(prompt, cfg):
-    """One short answer from Claude Haiku. (ok, text). For now on the player's own key; later a
+    """One short answer from Claude Sonnet. (ok, text). For now on the player's own key; later a
     Wingman server that holds the key behind a paid licence (cfg 'ai_server'), same prompt either way."""
     import urllib.error
     try:
@@ -1682,6 +1689,7 @@ def house_room(mins, cap, cfg=None):
     if cap == 20:
         room = min(room, c.get('house_cap20', HOUSE_CAP20))
     return room
+CASTLE_REQ_BUILDINGS = {87, 101, 103, 84}   # archery range, stable, blacksmith, market: 2 needed for Castle Age
 CASTLE_NOTE_MIN = 13                      # Castle reminder: not before this game minute...
 CASTLE_NOTE_FOOD = 500                    # ...and once your food reaches this (what Castle Age costs)
 CASTLE_NOTE_LATE = 17                     # if the food can't be read, fall back to this minute
@@ -2068,7 +2076,8 @@ class TCWatcher(threading.Thread):
 
     def read_food(self, read, grab, x, y, w, s):
         """Your food, off the resource bar (wood, food, gold, stone, then the pop counter). The four
-        amounts are the big numbers on that bar, left to right; the small worker counts are not."""
+        amounts are the white numbers on that bar, left to right. The worker counts beside each icon are
+        yellow (the villager total cyan) and can be just as tall, so they're told apart by colour."""
         px, cy = x + w / 2.0, y + 81 * s
         k = 3 if s < 0.7 else 2
         band = (int(px - (SPAN + 80) * s), int(cy - 34 * s), int((SPAN + 60) * s), int(68 * s), k)
@@ -2078,10 +2087,17 @@ class TCWatcher(threading.Thread):
         for _, ws in got:
             for t, wx, wy, ww, wh in ws:
                 t = t.replace('O', '0').replace('o', '0').replace(',', '')
-                if re.fullmatch(r'\d{1,6}', t): nums.append((wx, wh, int(t)))
-        tall = max([h for _, h, _ in nums] or [0])
-        big = sorted((x_, v) for x_, h, v in nums if h >= 0.7 * tall)
-        if len(big) >= 4: return big[1][1]
+                if re.fullmatch(r'\d{1,6}', t): nums.append((wx, wy, ww, wh, int(t)))
+        import numpy as np
+        buf_, gw_, gh_ = shot
+        px_ = np.frombuffer(buf_, dtype=np.uint8).reshape(gh_, gw_, 4)[:, :, :3].astype(np.int16)
+        def white(wx, wy, ww, wh):
+            wx, wy, ww, wh = int(wx), int(wy), int(ww + 0.5), int(wh + 0.5)
+            a_ = px_[max(0, wy):wy + wh, max(0, wx):wx + ww]
+            lit = a_.max(axis=2) > 160
+            return lit.sum() >= 5 and ((a_.min(axis=2) > 140) & lit).sum() >= 0.6 * lit.sum()
+        big = sorted((x_, v) for x_, wy_, ww_, h, v in nums if white(x_, wy_, ww_, h))
+        if len(big) == 4: return big[1][1]
         self.food_miss = getattr(self, 'food_miss', 0) + 1
         if self.food_miss == 5: self.debug_band('food', shot, [t for t, _ in got])
         return None
@@ -7746,17 +7762,24 @@ def main():
             issues.append((60 * len(late), 'eco', 'Eco upgrades: ' + ', '.join(bits) + '.',
                            dict(up=late[0][0], at=mmss(late[0][2]), who=short(late[0][3]))))
         # army: first units made, against the first ones they made
-        mine_m = me_.get('mil') or []
-        firsts = [(p_['mil'][0][0], nm, p_['mil'][0][1]) for nm, p_ in them if p_.get('mil')]
+        # (a tower counts as army: placing one is the same call as making the first units)
+        def first_army(p_):
+            got_ = [(p_['mil'][0][0], p_['mil'][0][1])] if p_.get('mil') else []
+            got_ += [(t_, 'tower') for t_, b_ in p_.get('builds', []) if b_ in TOWERS][:1]
+            return min(got_, key=lambda x: x[0]) if got_ else None
+        firsts = [fa_ + (nm,) for nm, p_ in them for fa_ in [first_army(p_)] if fa_]
+        firsts = [(t_, nm, u_) for t_, u_, nm in firsts]
         if firsts:
-            t0, nm0, u0 = min(firsts)
-            mine_t = mine_m[0][0] if mine_m else None
+            t0, nm0, u0 = min(firsts, key=lambda x: x[0])
+            mine_fa = first_army(me_)
+            mine_t = mine_fa[0] if mine_fa else None
             # (nothing on record isn't proof of no army: units can come off auto-queue, so only when you did make some)
             if mine_t is not None and mine_t - t0 >= 120:
                 txt = 'First army: you %s, %s %s%s.' % (mmss(mine_t), short(nm0), mmss(t0),
-                                                        (' (%s)' % UNIT_NAMES[u0]) if u0 in UNIT_NAMES else '')
+                                                        (' (%s)' % UNIT_NAMES[u0]) if u0 in UNIT_NAMES else
+                                                        ' (a tower)' if u0 == 'tower' else '')
                 issues.append(((mine_t - t0) / 2.0, 'army', txt,
-                               dict(who=short(nm0), at=mmss(t0), unit=UNIT_NAMES.get(u0, 'units'))))
+                               dict(who=short(nm0), at=mmss(t0), unit='towers' if u0 == 'tower' else UNIT_NAMES.get(u0, 'units'))))
         # more Town Centres than you
         if them and not nomad:
             mine_tc = tcs_by(me_, 1500)
@@ -7877,13 +7900,16 @@ def main():
                           wraplength=PANEL_W - 50)
             l_.pack(side='left', fill='x', anchor='w'); hush(l_)
         for t_, _c in tips:
+            # a heading like YOUR GAME, then the tip in a quiet box with a gold edge down the left
+            # (no gold chip: it looked like a button you could press)
+            hd = tk.Label(card_an, text='NEXT GAME', fg=BRONZE, bg=PANEL, font=(F_TINY[0], F_TINY[1], 'bold'), anchor='w')
+            hd.pack(fill='x', pady=(8, 1)); hush(hd)
             box = tk.Frame(card_an, bg=INK, highlightthickness=1, highlightbackground=EDGE)
-            box.pack(fill='x', pady=(8, 2)); hush(box)
-            tg = tk.Label(box, text='NEXT GAME', fg=INK, bg=GOLDD, font=(F_TINY[0], F_TINY[1], 'bold'), padx=5, pady=1)
-            tg.pack(side='left', anchor='n', padx=(6, 8), pady=6); hush(tg)
-            l_ = tk.Label(box, text=t_, fg=GOLDC, bg=INK, font=F_SMALL, anchor='w', justify='left',
-                          wraplength=PANEL_W - 130)
-            l_.pack(side='left', fill='x', anchor='w', pady=5, padx=(0, 6)); hush(l_)
+            box.pack(fill='x', pady=(0, 2)); hush(box)
+            bar = tk.Frame(box, bg=GOLDC, width=3); bar.pack(side='left', fill='y'); hush(bar)
+            l_ = tk.Label(box, text=t_, fg=GOLDD, bg=INK, font=F_SMALL, anchor='w', justify='left',
+                          wraplength=PANEL_W - 60)
+            l_.pack(side='left', fill='x', expand=True, anchor='w', pady=6, padx=(8, 8)); hush(l_)
 
     def an_finish():
         """The game is over: put the notes on the card, at the menu."""
@@ -8339,12 +8365,31 @@ def main():
         # No food reading to go on: 17 minutes, but only with an economy that could be clicking up.
         # (Without the game clock the minutes are a guess that counts pauses, so the pop decides.)
         if food is None and (mins < CASTLE_NOTE_LATE or pop is None or pop < 22): return
+        o_ = st.get('apm_obj')
+        g_ms = getattr(o_, 't', 0) if o_ is not None and o_.path == st.get('last') else 0
+        clicked = (o_.techs if g_ms else {})
+        feudal_up = tcw.age == 2 or (101 in clicked and g_ms >= clicked[101] + 130000)
+        if not feudal_up and tcw.age < 3: return                 # not in Feudal yet: ask again later
         st['castle_note'] = True
-        if tcw.age >= 3 or not want['castle']: return
+        if tcw.age >= 3 or 102 in clicked or not want['castle']: return
+        done_ = [b_ for _t, b_ in (o_.builds if g_ms else []) if b_ in CASTLE_REQ_BUILDINGS]
+        if len(done_) >= 2:
+            log('castle reminder skipped: %d Feudal buildings placed already' % len(done_)); return
         if st.get('ended') and st.get('ended') == st.get('last'): return     # that game has finished
         log('castle reminder shown (food %s, %.1f min)' % (food, mins))
         tc_note(('%d FOOD' % food_at if food is not None else '%d MIN' % CASTLE_NOTE_LATE)
                 + '  \u00b7  2 BUILDINGS FOR CASTLE AGE?')
+
+    def double_bit_reminder():
+        """15 minutes in (game time, off the recording) and no Double-Bit Axe clicked yet: one nudge."""
+        if st.get('last') is None or st.get('dba_note') or not tcw.active: return
+        o_ = st.get('apm_obj')
+        if o_ is None or o_.path != st.get('last') or o_.t < 15 * 60000: return
+        st['dba_note'] = True
+        if 202 in o_.techs: return
+        if st.get('ended') and st.get('ended') == st.get('last'): return
+        log('double-bit axe reminder shown (%.1f min)' % (o_.t / 60000.0))
+        tc_note('15 MIN  \u00b7  NO DOUBLE-BIT AXE YET', seconds=10)
 
     def feudal_reminder():
         """When your population reaches 18 (or the number set in Settings) and you are still in
@@ -11702,10 +11747,14 @@ def main():
         early = secs_ is None or secs_ < 12 * 60               # their opening only matters near the start
         for o_ in opps_ if early else []:
             op_ = o_.get('open') or []
-            if op_ and not op_[0][2]:                        # from their own recent games
-                who_ = 'The opponent' if len(opps_) == 1 else 'The %s opponent' % o_['civ']
+            if not op_: continue
+            who_ = 'The opponent' if len(opps_) == 1 else 'The %s opponent' % o_['civ']
+            if not op_[0][2]:                                # from their own recent games
                 lines.append('%s typically opens: %s.' % (who_, ', '.join(
                     '%s (%d of %d games)' % (lab, cnt, o_.get('games') or cnt) if cnt else lab for lab, cnt, _ in op_[:2])))
+            else:                                            # none of their games found: what the civ usually does
+                lines.append('%s typically opens: %s (usual for %s; none of their own games found).' % (
+                    who_, ', '.join(lab for lab, _c, _d in op_[:2]), o_['civ']))
         lines.append('What should I do from here?')
         return '\n'.join(lines)
 
@@ -11830,9 +11879,12 @@ def main():
         now = time.time()
         if now - st.get('apm_t', 0) < 2: return
         st['apm_t'] = now
-        on = bool(load_settings_cached().get('apm_live')) and st.get('last') and tcw.active and st.get('me_num')
-        if not on:
-            if apm_chip.winfo_manager(): apm_chip.grid_remove()
+        # your own commands are read on through the recording every game (the Castle Age and
+        # Double-Bit Axe nudges use them); the APM itself only shows when it's switched on
+        in_game = st.get('last') and tcw.active and st.get('me_num')
+        on = bool(load_settings_cached().get('apm_live')) and in_game
+        if not on and apm_chip.winfo_manager(): apm_chip.grid_remove()
+        if not in_game:
             st['apm_obj'] = None; return
         o = st.get('apm_obj')
         if o is None or o.path != st['last']:
@@ -11847,6 +11899,7 @@ def main():
             finally: st['apm_busy'] = False
             def show():
                 if st.get('apm_obj') is not o: return
+                if not load_settings_cached().get('apm_live'): return
                 cur, usual = o.apm(1.0), o.apm(5.0)
                 low = False
                 if cur is None:
@@ -11874,7 +11927,7 @@ def main():
             try: apm_tick()
             except Exception as e:
                 if not st.get('apm_err2'): st['apm_err2'] = 1; log('live apm tick: %r' % (e,))
-            try: feudal_reminder(); castle_reminder()
+            try: feudal_reminder(); castle_reminder(); double_bit_reminder()
             except Exception as e: log('reminder: %r' % (e,))
         except Exception as e:
             if not st.get('fast_err'): st['fast_err'] = 1; log('fast tick: %r' % (e,))
@@ -11919,7 +11972,7 @@ def main():
                         log('back in the same game: counts kept')
                         if not bo['voice_at']: bo['voice_at'] = time.time()
                     else:
-                        watcher.reset(); st['extra'] = 0; st['castle_note'] = False; st['feudal_note'] = False
+                        watcher.reset(); st['extra'] = 0; st['castle_note'] = False; st['feudal_note'] = False; st['dba_note'] = False
                         if st.get('rolled'): toggle_roll()          # a new game: open up again
                         bo_game_start(f)
                     game_started(f)
