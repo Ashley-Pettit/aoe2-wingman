@@ -7,11 +7,12 @@
 # (the same text you see top left) and counts them. Nothing else on screen is used.
 # Ranked party invite: clicks Multiplayer > Ranked > Invite To Party and invites the friends on your list.
 # If you save a Discord webhook in settings it also posts a heads-up to your channel (stored in %APPDATA%\AoE2MapOverlay).
-# Score check: reads the score list in the corner of your screen and flags when your side is well behind.
+# Score check: reads the score list in the corner of your screen, gives a rough win chance from it,
+# and flags when your side is well behind.
 # Opponent openings: looks up your opponent's recent public games and reads how they opened in each.
-import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil
+import os, sys, re, json, glob, time, zlib, struct, collections, threading, difflib, tempfile, io, shutil, math
 
-VERSION = 'v208'
+VERSION = 'v209'
 FROZEN = bool(getattr(sys, 'frozen', False))   # the Wingman.exe build: everything bundled, no pip, no .bat
 
 def clean_env():
@@ -2342,6 +2343,22 @@ def minimap_rect(cw, ch):
 CONCEDE_BEHIND = 0.30        # flag once your side's total is more than this far behind theirs
 CONCEDE_HOLD_S = 20          # ...and has stayed there this long, so one bad reading never sets it off
 CONCEDE_FROM_MIN = 5         # not in the opening minutes, when scores are tiny and swing on one upgrade
+# Win chance: a rough read of the same two numbers, nothing more. The bigger your side's share of
+# the score, the better your chances, and a gap counts for more the longer the game has run (early
+# on one upgrade swings it). Which way the gap moved over the last two minutes nudges it too. It is
+# kept between 3% and 97%: score is not the whole story (a castle drop, a lost army about to land).
+WIN_FROM_MIN = 3             # before this the scores are too small to mean much
+WIN_TREND_S = 120            # how far back to look for which way the game is going
+
+def win_chance(mine, theirs, minutes, trend=0.0):
+    """Your side's rough chance to win (0 to 1) from the score, or None when it can't be told.
+    trend is how much your share of the score moved per minute lately (log of the ratio)."""
+    if not mine or not theirs or mine <= 0 or theirs <= 0: return None
+    gap = math.log(mine / float(theirs))
+    k = 3.0 + 4.0 * min(1.0, max(0.0, minutes) / 25.0)        # 3 at the start, 7 from 25 minutes
+    x = k * gap + 2.0 * max(-0.15, min(0.15, trend))
+    return min(0.97, max(0.03, 1.0 / (1.0 + math.exp(-x))))
+
 # zeros often read as the letter o, sometimes after a gap: '1000/1 ooo'
 SCORE_PAIR = re.compile(r'([\dOo]{2,6})\s*/\s*([\dOo]{1,6}(?:\s[Oo]{1,4})?)(?![\dOo])')
 
@@ -2414,7 +2431,7 @@ class ScoreWatcher(threading.Thread):
     """Reads the score list every few seconds while you play and keeps track of how far behind you are."""
     def __init__(self, notify, minutes):
         super().__init__(daemon=True)
-        self.notify = notify                  # notify(mine, theirs, behind, flag); notify(None, ...) clears it
+        self.notify = notify                  # notify(mine, theirs, behind, flag, chance, trend); notify(None, ...) clears it
         self.minutes = minutes                # how far into the game we are
         self.active, self.enabled = False, True
         self.pause_fn = lambda: False
@@ -2426,6 +2443,7 @@ class ScoreWatcher(threading.Thread):
             self.mine, self.others, self.players = list(mine), list(others), players
             self.allies = list(allies)
             self.since, self.n, self.clear, self.flag, self.miss = None, 0, 0, False, 0
+            self.gaps, self.chance, self.trend = collections.deque(), None, 0.0
 
     def step(self, mine, theirs, now):
         behind = (1.0 - mine / float(theirs)) if theirs else 0.0
@@ -2440,7 +2458,21 @@ class ScoreWatcher(threading.Thread):
             if not self.flag or self.clear >= 3:              # three readings back in it before the flag comes down
                 if self.flag: log('score: %d against %d, flag cleared' % (mine, theirs))
                 self.since, self.n, self.flag = None, 0, False
+        self.estimate(mine, theirs, now)
         return behind
+
+    def estimate(self, mine, theirs, now):
+        """Win chance from this reading, smoothed so one odd reading doesn't make it jump."""
+        mins = self.minutes()
+        if mins < WIN_FROM_MIN or mine <= 0 or theirs <= 0:
+            self.chance, self.trend = None, 0.0; return
+        gap = math.log(mine / float(theirs))
+        self.gaps.append((now, gap))
+        while self.gaps and now - self.gaps[0][0] > WIN_TREND_S: self.gaps.popleft()
+        t0, g0 = self.gaps[0]
+        self.trend = (gap - g0) / ((now - t0) / 60.0) if now - t0 >= 30 else 0.0
+        p = win_chance(mine, theirs, mins, self.trend)
+        self.chance = p if self.chance is None else self.chance + 0.35 * (p - self.chance)
 
     def run(self):
         try:
@@ -2476,8 +2508,8 @@ class ScoreWatcher(threading.Thread):
                         continue
                     self.miss = 0
                     behind = self.step(got[0], got[1], time.time())
-                    flag = self.flag
-                self.notify(got[0], got[1], behind, flag)
+                    flag, chance, trend = self.flag, self.chance, self.trend
+                self.notify(got[0], got[1], behind, flag, chance, trend)
             except Exception as e:
                 log('score check: %r' % (e,)); time.sleep(2)
 
@@ -8500,23 +8532,38 @@ def main():
         if ' found' not in rec_line.cget('text') or st.get('rolled'): return
         rec_line.grid(row=4, column=0, columnspan=4, sticky='w', pady=(3, 0))   # its own line, under the build order
 
-    def score_notify(mine_, theirs, behind, flag):
+    score_show = {'concede': True, 'chance': True}
+    def score_prefs():
+        """Which of the two the score check is for. It only reads the screen if one of them is on."""
+        c = load_settings()
+        score_show['concede'] = c.get('concede_flag', True)
+        score_show['chance'] = c.get('win_chance', True)
+        return score_show['concede'] or score_show['chance']
+
+    def score_notify(mine_, theirs, behind, flag, chance=None, trend=0.0):
         def go():
             if mine_ is None or st.get('last') is None:
                 score_line.config(text=''); score_line.grid_remove(); place_found(); return
             pct = int(round(abs(behind) * 100))
             nums = '{:,} v {:,}'.format(mine_, theirs)          # short, so the bar stays on one line
-            if flag:
-                score_line.config(text=' CONCEDE AVAILABLE  \u00b7  %d%% behind  \u00b7  %s ' % (pct, nums),
+            odds = int(round(chance * 100)) if chance is not None and score_show['chance'] else None
+            arrow = ' \u25b2' if trend > 0.01 else ' \u25bc' if trend < -0.01 else ''
+            if flag and score_show['concede']:
+                mid = ('%d%% to win' % odds) if odds is not None else ('%d%% behind' % pct)
+                score_line.config(text=' CONCEDE AVAILABLE  \u00b7  %s  \u00b7  %s ' % (mid, nums),
                                   fg='white', bg='#b3261e', font=(DISPLAY, 9, 'bold'))
-            else:                                     # only the concede flag earns a line; the plain score is not shown
+            elif odds is not None:                    # a quiet line: your rough chance, and the score it comes from
+                tone = GREEN if odds >= 60 else REDC if odds < 40 else GOLDC
+                score_line.config(text=' WIN CHANCE  %d%%%s  \u00b7  %s ' % (odds, arrow, nums),
+                                  fg=tone, bg=PANEL, font=(DISPLAY, 9, 'bold'))
+            else:
                 score_line.config(text=''); score_line.grid_remove(); place_found(); return
             if not st.get('rolled'): score_line.grid()
             place_found()
         try: root.after(0, go)
         except Exception: pass
     scorew = ScoreWatcher(score_notify, lambda: tcw.game_minutes(time.time()))
-    scorew.enabled = load_settings().get('concede_flag', True)
+    scorew.enabled = score_prefs()
     scorew.start()
 
     def score_off():
@@ -10412,6 +10459,11 @@ def main():
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
                        font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
 
+        wc_on = tk.BooleanVar(value=cfg.get('win_chance', True))
+        Check(outer, text='Show my rough win chance, from the score', variable=wc_on, fg=TXT, bg=INK,
+                       selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
+                       font=F_SMALL, anchor='w', highlightthickness=0).pack(fill='x')
+
         oo_on = tk.BooleanVar(value=cfg.get('opp_openings', True))
         Check(outer, text='Show how opponents usually open', variable=oo_on, fg=TXT, bg=INK,
                        selectcolor=PANEL, activebackground=INK, activeforeground=GOLDD,
@@ -10698,7 +10750,8 @@ def main():
                     'channel': ch.get().strip().lstrip('#'), 'webhook': wh.get().strip(), 'ai_key': ai_e.get().strip(),
                     'tc_alert': bool(tc_on.get()), 'scout_callout': bool(sc_on.get()), 'tc_orbit': bool(orb_on.get()), 'apm_live': bool(apm_on.get()),
                     'scout_ping': bool(sp_on.get()),
-                    'concede_flag': bool(cf_on.get()), 'opp_openings': bool(oo_on.get()),
+                    'concede_flag': bool(cf_on.get()), 'win_chance': bool(wc_on.get()),
+                    'opp_openings': bool(oo_on.get()),
                     'focus_game': bool(fg_on.get()), 'castle_note': bool(cn_on.get()),
                     'feudal_note': bool(fn_on.get()), 'companion_results': bool(cr_on.get()),
                     'castle_food': int(typed_number(cm_e.get(), cfg.get('castle_food', CASTLE_NOTE_FOOD), 100, 5000)),
@@ -10725,7 +10778,7 @@ def main():
                 if k_ not in first_ or first_[k_] != v_ or k_ not in merged: merged[k_] = v_
             save_settings(merged)
             tc_settings(); tc_draw()
-            scorew.enabled = merged.get('concede_flag', True)
+            scorew.enabled = score_prefs()
             _SETC['t'] = 0                                   # the AI coach picks up a new key straight away
             if merged.get('ai_key') != first_.get('ai_key'):
                 log('ai: key %s' % ('saved (ends ...%s)' % merged['ai_key'][-4:] if merged.get('ai_key') else 'removed'))
